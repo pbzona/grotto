@@ -4,7 +4,7 @@ import { World, N, snap, House, Volume, newVolume, uid, FLOOR_H, MAX_LEVEL, Pain
 import { MeshBuilder } from "./mesh";
 import { buildHouse, houseLayout, makeHouse, nodeWall, sideLine, HouseBuild, Bay } from "./houses";
 import { defaultDeckY, landingRadius, WALK_W } from "./walks";
-import { buildOneProp, buildBoat, PROP_INFO } from "./props";
+import { buildOneProp, buildBoat, PROP_INFO, boatFreeboard } from "./props";
 import { U } from "./materials";
 
 export type ToolId = "select" | "house" | "walk" | "terrain" | "paint" | "prop" | "erase";
@@ -941,7 +941,7 @@ export class Tools {
       if (PROP_INFO[this.propType].water) {
         const b = buildBoat(p, this.app.d.mats.ghost);
         const g = b.mesh.geometry;
-        const m = new THREE.Matrix4().makeRotationY(-p.rot).setPosition(p.x, WATER_Y + 0.02, p.z);
+        const m = new THREE.Matrix4().makeRotationY(-p.rot).setPosition(p.x, WATER_Y + boatFreeboard(p.type), p.z);
         g.applyMatrix4(m);
         return setG(g, w.height(p.x, p.z) > WATER_Y - 0.25);
       }

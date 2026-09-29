@@ -327,6 +327,8 @@ function lighthouse(mb: MeshBuilder, L: Light[]) {
 
 // ---------- boats: separate bobbing meshes ----------
 export interface Boat { mesh: THREE.Mesh; phase: number; x: number; z: number; rot: number; big: boolean }
+/** Hulls are built with the gunwale at y≈0 and the keel below; lift them so about half the hull rides above the water. */
+export const boatFreeboard = (type: string) => type === "sloop" ? 0.32 : 0.17;
 export function buildBoat(p: Prop, mat: THREE.Material): Boat {
   const mb = new MeshBuilder();
   mb.setOwner(`p:${p.id}`);
@@ -367,7 +369,7 @@ export function buildBoat(p: Prop, mat: THREE.Material): Boat {
 }
 export function updateBoat(b: Boat, t: number) {
   const s = b.big ? 0.6 : 1;
-  b.mesh.position.set(b.x, WATER_Y + 0.02 + Math.sin(t * 1.3 + b.phase) * 0.035 * s, b.z);
+  b.mesh.position.set(b.x, WATER_Y + (b.big ? boatFreeboard("sloop") : boatFreeboard("rowboat")) + Math.sin(t * 1.3 + b.phase) * 0.035 * s, b.z);
   b.mesh.rotation.set(Math.sin(t * 0.9 + b.phase) * 0.02 * s, -b.rot + Math.sin(t * 0.3 + b.phase) * 0.03, Math.sin(t * 1.1 + b.phase * 1.7) * 0.05 * s);
 }
 
