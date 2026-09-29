@@ -892,6 +892,91 @@ export class Tools {
     }
     return { node: this.app.addNode(x, z, Math.max(y, Math.max(w.height(x, z), WATER_Y) + 0.2), this.walkPad ? 1.2 : 0), created: true };
   }
+  /** Tightest angle a new walkway may leave a junction at; sharper ones get a bend so the path stays walkable. */
+  static MIN_JOIN = Math.PI / 4;
+  /** The existing walkway at n closest in angle to direction (dx,dz): that angle, its heading, and which side the new one is on. */
+  private tightest(n: WalkNode, dx: number, dz: number, skip?: WalkNode) {
+    const a = Math.atan2(dz, dx);
+    let angle = Math.PI, base = 0, sgn = 1;
+    for (const e of this.world.edgesOf(n.id)) {
+      const o = this.world.nodes.get(e.a === n.id ? e.b : e.a); if (!o || o === skip) continue;
+      const b = Math.atan2(o.z - n.z, o.x - n.x);
+      let d = a - b; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
+      if (Math.abs(d) < angle) { angle = Math.abs(d); base = b; sgn = d >= 0 ? 1 : -1; }
+    }
+    return { angle, base, sgn };
+  }
+  /** Join two posts; if the stretch would leave either end too sharply against an existing walkway, add a bend post. */
+  joinWalk(a: WalkNode, b: WalkNode) {
+    const style = this.walkStyle, width = style === "rope" ? 0.9 : WALK_W;
+    const bendAt = (j: WalkNode, far: WalkNode): WalkNode | null => {
+      const t = this.tightest(j, far.x - j.x, far.z - j.z, far);
+      if (t.angle >= Tools.MIN_JOIN || !this.world.edgesOf(j.id).length) return null;
+      const L = Math.hypot(far.x - j.x, far.z - j.z);
+      // the heading closest to where we're going that stays clear of every walkway already here
+      const want = Math.atan2(far.z - j.z, far.x - j.x);
+      const dirs = this.world.edgesOf(j.id).map(e => this.world.nodes.get(e.a === j.id ? e.b : e.a)).filter((o): o is WalkNode => !!o && o !== far).map(o => Math.atan2(o.z - j.z, o.x - j.x));
+      const gap = (x: number, y: number) => { let d = Math.abs(x - y) % (2 * Math.PI); return d > Math.PI ? 2 * Math.PI - d : d; };
+      let out = NaN, dev = Infinity;
+      for (let k = 0; k < 72; k++) {
+        const cand = want + ((k % 2 ? 1 : -1) * Math.ceil(k / 2) * Math.PI) / 36;
+        if (dirs.every(dd => gap(cand, dd) >= Tools.MIN_JOIN + 0.05) && gap(cand, want) < dev) { dev = gap(cand, want); out = cand; }
+      }
+      if (!isFinite(out)) return null; // a crowded junction: nowhere walkable to turn
+      void t;
+      const d = Math.min(Math.max(1.8, L * 0.35), L * 0.6);
+      const x = j.x + Math.cos(out) * d, z = j.z + Math.sin(out) * d;
+      if (x < 0.3 || z < 0.3 || x > N - 0.3 || z > N - 0.3) return null;
+      const yF = j.y + (far.y - j.y) * 0.25;
+      return this.app.addNode(Math.round(x * 4) / 4, Math.round(z * 4) / 4, Math.max(yF, Math.max(this.world.height(x, z), WATER_Y) + 0.2));
+    };
+    // a crowded junction with no walkable way out: branch off the side of the nearest walkway instead
+    const offSide = (j: WalkNode, far: WalkNode): WalkNode => {
+      const t = this.tightest(j, far.x - j.x, far.z - j.z, far);
+      if (t.angle >= Tools.MIN_JOIN) return j;
+      let best: WalkEdge | null = null, bo: WalkNode | null = null, bd = Infinity;
+      for (const e of this.world.edgesOf(j.id)) {
+        const o = this.world.nodes.get(e.a === j.id ? e.b : e.a); if (!o || o === far) continue;
+        const d = Math.abs(Math.atan2(Math.sin(Math.atan2(o.z - j.z, o.x - j.x) - Math.atan2(far.z - j.z, far.x - j.x)), Math.cos(Math.atan2(o.z - j.z, o.x - j.x) - Math.atan2(far.z - j.z, far.x - j.x))));
+        if (d < bd) { bd = d; best = e; bo = o; }
+      }
+      if (!best || !bo) return j;
+      const L = Math.hypot(bo.x - j.x, bo.z - j.z);
+      if (L < 2.4) return j;
+      const tt = Math.min(1.9, L * 0.45) / L;
+      const m = this.app.addNode(j.x + (bo.x - j.x) * tt, j.z + (bo.z - j.z) * tt, j.y + (bo.y - j.y) * tt);
+      this.world.edges.delete(best.id);
+      this.app.addEdge(j, m, best.style, best.width); this.app.addEdge(m, bo, best.style, best.width);
+      return m;
+    };
+    const crowded = (j: WalkNode, far: WalkNode) => this.world.edgesOf(j.id).length >= 3 && this.tightest(j, far.x - j.x, far.z - j.z, far).angle < Tools.MIN_JOIN;
+    if (crowded(a, b)) a = offSide(a, b);
+    if (crowded(b, a)) b = offSide(b, a);
+    const ma = bendAt(a, b);
+    const mb = bendAt(b, ma ?? a);
+    const chain = [a, ma, mb, b].filter(Boolean) as WalkNode[];
+    for (let i = 0; i < chain.length - 1; i++) this.addFollowing(chain[i], chain[i + 1], style, width, 0);
+    if (ma || mb) this.toast("Added a bend so the walkway meets at a walkable angle");
+  }
+  /** Add a stretch; if the ground rises through its deck line, put a post on the high point so it rides over instead of through. */
+  private addFollowing(a: WalkNode, b: WalkNode, style: WalkEdge["style"], width: number, depth: number) {
+    const L = Math.hypot(b.x - a.x, b.z - a.z);
+    if (style !== "rope" && depth < 4 && L > 1.2) {
+      let worst = 0, wt = 0;
+      for (let t = 0.1; t < 0.95; t += 0.05) {
+        const x = a.x + (b.x - a.x) * t, z = a.z + (b.z - a.z) * t, y = a.y + (b.y - a.y) * t;
+        const over = this.world.height(x, z) + 0.15 - y;
+        if (over > worst) { worst = over; wt = t; }
+      }
+      if (worst > 0.05) {
+        const x = a.x + (b.x - a.x) * wt, z = a.z + (b.z - a.z) * wt;
+        const m = this.app.addNode(Math.round(x * 4) / 4, Math.round(z * 4) / 4, Math.round((this.world.height(x, z) + 0.2) * 20) / 20);
+        this.addFollowing(a, m, style, width, depth + 1); this.addFollowing(m, b, style, width, depth + 1);
+        return;
+      }
+    }
+    this.app.addEdge(a, b, style, width);
+  }
   private walkTo(p: THREE.Vector3) {
     if (!this.chain) return;
     this.app.begin();
@@ -900,7 +985,7 @@ export class Tools {
     if (r.node === this.chain) { if (r.created) this.world.nodes.delete(r.node.id); this.app.cancel(); return; }
     if (Math.hypot(r.node.x - this.chain.x, r.node.z - this.chain.z) > 14) { if (r.created) this.world.nodes.delete(r.node.id); this.app.cancel(); this.toast("That's a long way — add a post in between"); return; }
     const dup = this.world.edgesOf(this.chain.id).some(e => e.a === r.node.id || e.b === r.node.id);
-    if (!dup) this.app.addEdge(this.chain, r.node, this.walkStyle, this.walkStyle === "rope" ? 0.9 : WALK_W);
+    if (!dup) this.joinWalk(this.chain, r.node);
     this.chain = r.node; this.chainTemp = null;
     this.walkLift = 0;
     this.app.changed({ structures: true });

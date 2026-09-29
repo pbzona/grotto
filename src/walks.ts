@@ -20,10 +20,27 @@ export const isStairs = (a: WalkNode, b: WalkNode) => Math.abs(b.y - a.y) / Math
 export interface WalkBuild { lights: Light[]; foam: { x: number; z: number; r: number }[] }
 
 const OCT = Math.cos(Math.PI / 8);
+/** Smallest angle (radians) between the walkways meeting at a post; π when fewer than two meet. */
+export function junctionAngle(world: World, n: WalkNode) {
+  const dirs: number[] = [];
+  for (const e of world.edgesOf(n.id)) { const o = world.nodes.get(e.a === n.id ? e.b : e.a); if (o) dirs.push(Math.atan2(o.z - n.z, o.x - n.x)); }
+  let m = Math.PI;
+  for (let i = 0; i < dirs.length; i++) for (let j = i + 1; j < dirs.length; j++) { let d = Math.abs(dirs[i] - dirs[j]) % (2 * Math.PI); if (d > Math.PI) d = 2 * Math.PI - d; m = Math.min(m, d); }
+  return m;
+}
+/** How far walkways stop short of a junction so their decks don't overlap: grows as the angle between them closes. */
+export function junctionTrim(world: World, n: WalkNode) {
+  const es = world.edgesOf(n.id);
+  const hw = es.reduce((m, e) => Math.max(m, e.width), 0.6) / 2;
+  if (es.length < 2) return 0;
+  const th = Math.max(0.2, junctionAngle(world, n));
+  return Math.min(1.9, Math.max(hw * 0.55, hw / Math.tan(th / 2) + 0.12));
+}
 export function landingRadius(world: World, n: WalkNode) {
   const es = world.edgesOf(n.id);
   const w = es.reduce((m, e) => Math.max(m, e.width), 0.6);
-  return n.pad > 0 ? n.pad : (w / 2) * 1.14 / OCT;
+  if (n.pad > 0) return n.pad;
+  return Math.max((w / 2) * 1.14 / OCT, junctionTrim(world, n) + 0.12);
 }
 
 export function buildWalks(world: World, mb: MeshBuilder, out: WalkBuild) {
@@ -42,7 +59,7 @@ export function buildWalks(world: World, mb: MeshBuilder, out: WalkBuild) {
 function trimFor(world: World, n: WalkNode, w: number) {
   const deg = world.edgesOf(n.id).length;
   if (n.pad > 0) return n.pad * 0.92;
-  if (deg >= 2) return (w / 2) * 0.55;
+  if (deg >= 2) return Math.max((w / 2) * 0.55, junctionTrim(world, n));
   return 0;
 }
 
@@ -200,10 +217,12 @@ function nodeMesh(world: World, mb: MeshBuilder, n: WalkNode, out: WalkBuild) {
     mb.cyl(n.x, n.z, n.y - 0.06, n.y, R, R, 8, true, ang + Math.PI / 8);
     mb.paint(hexRGB("#6b4a33"), M.plank);
     mb.cyl(n.x, n.z, n.y - 0.2, n.y - 0.06, R * 0.92, R * 0.92, 8, false, ang + Math.PI / 8);
-    for (let k = 0; k < 4; k++) {
-      const a = ang + Math.PI / 4 + k * Math.PI / 2;
+    const np = R > 1.1 ? 8 : 4;
+    for (let k = 0; k < np; k++) {
+      const a = ang + Math.PI / np + k * 2 * Math.PI / np;
       post(world, mb, n.x + Math.cos(a) * R * 0.8, n.z + Math.sin(a) * R * 0.8, n.y - 0.06, out);
     }
+    if (R > 1.1) post(world, mb, n.x, n.z, n.y - 0.06, out, 0.09);
     return;
   }
   if (deg === 1) {
