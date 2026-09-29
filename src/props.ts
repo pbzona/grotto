@@ -1,0 +1,404 @@
+import * as THREE from "three/webgpu";
+import { World, Prop, WATER_Y, N } from "./world";
+import { MeshBuilder, V3, M, hexRGB, rng, hsh, add, scl, lerp3, norm, sub } from "./mesh";
+import type { Light, Anchor } from "./houses";
+import { landingRadius, isStairs, lanternPost } from "./walks";
+
+/** Where a prop stands: the ground, or the deck of a walkway it sits on. */
+export function surfaceAt(world: World, x: number, z: number) {
+  let y = world.height(Math.min(N, Math.max(0, x)), Math.min(N, Math.max(0, z)));
+  for (const n of world.nodes.values()) if (Math.hypot(n.x - x, n.z - z) < landingRadius(world, n) * 0.9 && n.y > y) y = n.y;
+  for (const e of world.edges.values()) {
+    const a = world.nodes.get(e.a), b = world.nodes.get(e.b);
+    if (!a || !b || e.style === "rope" || isStairs(a, b)) continue;
+    const dx = b.x - a.x, dz = b.z - a.z, L2 = dx * dx + dz * dz;
+    if (L2 < 1e-4) continue;
+    const t = ((x - a.x) * dx + (z - a.z) * dz) / L2;
+    if (t < 0 || t > 1) continue;
+    const d = Math.abs((x - a.x) * dz - (z - a.z) * dx) / Math.sqrt(L2);
+    if (d < e.width / 2) { const dy = a.y + (b.y - a.y) * t; if (dy > y) y = dy; }
+  }
+  return y;
+}
+
+export interface PropBuild { lights: Light[]; foam: { x: number; z: number; r: number }[] }
+
+export const PROP_INFO: Record<string, { label: string; water?: boolean; big?: boolean; r: number }> = {
+  palm: { label: "Palm", r: 0.5 }, bougainvillea: { label: "Bougainvillea", r: 0.6 }, scrub: { label: "Scrub", r: 0.45 },
+  rock: { label: "Rock", r: 0.5 }, barrels: { label: "Barrels", r: 0.45 }, crates: { label: "Crates", r: 0.5 },
+  lantern: { label: "Lantern", r: 0.3 }, nets: { label: "Drying nets", r: 0.9 }, laundry: { label: "Laundry", r: 0.9 },
+  crane: { label: "Crane", r: 0.8 },
+  rowboat: { label: "Rowboat", water: true, r: 1.0 }, sloop: { label: "Sloop", water: true, r: 1.9 },
+  hull: { label: "Hull tavern", big: true, r: 4.2 }, grotto: { label: "Sea grotto", big: true, r: 3.4 }, lighthouse: { label: "Lighthouse", big: true, r: 1.4 },
+};
+
+/** Static props merge into one mesh; boats are separate so they can bob. */
+export function buildProps(world: World, mb: MeshBuilder, out: PropBuild) {
+  for (const p of world.props.values()) {
+    if (PROP_INFO[p.type]?.water) continue;
+    buildOneProp(world, mb, p, out);
+  }
+}
+export function buildOneProp(world: World, mb: MeshBuilder, p: Prop, out: PropBuild) {
+  {
+    mb.setOwner(`p:${p.id}`);
+    const y = p.type === "grotto" ? WATER_Y : surfaceAt(world, p.x, p.z);
+    const c = Math.cos(p.rot), s = Math.sin(p.rot), sc = p.scale ?? 1;
+    // build in local space (x right, z forward), rotate + translate
+    mb.xf = (q: V3) => [p.x + (q[0] * c - q[2] * s) * sc, y + q[1] * sc, p.z + (q[0] * s + q[2] * c) * sc];
+    const L: Light[] = [];
+    propMesh(mb, p, L, out, y);
+    for (const l of L) { const w = mb.xf([l.x, l.y, l.z]); out.lights.push({ ...l, x: w[0], y: w[1], z: w[2] }); }
+    mb.xf = null;
+  }
+}
+
+function propMesh(mb: MeshBuilder, p: Prop, L: Light[], out: PropBuild, y: number) {
+  const r = rng(p.seed);
+  switch (p.type) {
+    case "palm": palm(mb, r); break;
+    case "bougainvillea": {
+      for (let i = 0; i < 4; i++) { mb.paint(hexRGB(i % 2 ? "#6c8743" : "#5d7a3c"), M.leaf); mb.blob([(r() - 0.5) * 0.6, 0.25 + r() * 0.35, (r() - 0.5) * 0.6], [0.35, 0.3, 0.35], r() * 99, 1); }
+      for (let i = 0; i < 9; i++) { mb.paint(hexRGB(["#c9577a", "#d36f8f", "#b84a6a", "#e08aa0"][i % 4]), M.leaf); mb.blob([(r() - 0.5) * 0.9, 0.3 + r() * 0.55, (r() - 0.5) * 0.9], [0.16, 0.13, 0.16], r() * 99, 0); }
+      break;
+    }
+    case "scrub": for (let i = 0; i < 3; i++) { mb.paint(hexRGB(["#7b8a4c", "#8e9656", "#6d7d45"][i]), M.leaf); mb.blob([(r() - 0.5) * 0.5, 0.15 + r() * 0.1, (r() - 0.5) * 0.5], [0.25, 0.2, 0.25], r() * 99, 0); } break;
+    case "rock": mb.paint(hexRGB("#d9a36c"), M.rock); mb.blob([0, 0.15, 0], [0.5, 0.35, 0.42], r() * 99, 1); mb.blob([0.35, 0.05, 0.25], [0.25, 0.18, 0.22], r() * 99, 0); break;
+    case "barrels": for (let i = 0; i < 3; i++) { const a = i * 2.1 + r(); barrel(mb, Math.cos(a) * 0.24, Math.sin(a) * 0.24, 0, r); } if (r() < 0.5) barrel(mb, 0, 0, 0.5, r); break;
+    case "crates": {
+      const cols = ["#9a7650", "#b08a5e", "#8a6a48"];
+      mb.paint(hexRGB(cols[0]), M.plank); mb.box([-0.3, 0, -0.3], [0.2, 0.5, 0.2]);
+      mb.paint(hexRGB(cols[1]), M.plank); mb.box([0.22, 0, -0.2], [0.6, 0.38, 0.18]);
+      mb.paint(hexRGB(cols[2]), M.plank); mb.box([-0.22, 0.5, -0.24], [0.12, 0.84, 0.1]);
+      mb.paint(hexRGB("#c9b48a"), M.cloth); mb.box([0.24, 0.38, -0.18], [0.58, 0.44, 0.16]);
+      break;
+    }
+    case "lantern": lanternPost(mb, 0, 0, 0, { lights: L }); break;
+    case "nets": {
+      mb.paint(hexRGB("#6b4a33"), M.plank);
+      for (const x of [-0.85, 0.85]) mb.cyl(x, 0, 0, 1.3, 0.05, 0.045, 6);
+      mb.beam([-0.9, 1.25, 0], [0.9, 1.25, 0], [0, 0, 1], 0.035, 0.035);
+      for (let k = 0; k < 2; k++) {
+        const zz = k ? 0.06 : -0.06;
+        const pts: V3[] = [];
+        for (let i = 0; i <= 8; i++) { const t = i / 8; pts.push([-0.85 + 1.7 * t, 1.2 - 0.25 - Math.sin(Math.PI * t) * 0.25 - k * 0.1, zz]); }
+        mb.paint(hexRGB(k ? "#5f6e57" : "#7a6a4e"), M.cloth);
+        for (let i = 0; i < 8; i++) mb.quad([[pts[i][0], 1.22, zz], [pts[i + 1][0], 1.22, zz], pts[i + 1], pts[i]], [0, 0, k ? 1 : -1]);
+        for (let i = 0; i < 8; i++) mb.quad([[pts[i][0], 1.22, zz], [pts[i + 1][0], 1.22, zz], pts[i + 1], pts[i]], [0, 0, k ? -1 : 1]);
+      }
+      for (let i = 0; i < 4; i++) { mb.paint(hexRGB(i % 2 ? "#e08a4a" : "#efe4cc"), M.plain); mb.blob([-0.6 + i * 0.4, 0.78 - Math.sin(Math.PI * (i + 1) / 5) * 0.2, 0.1], [0.07, 0.07, 0.07], i, 0); }
+      break;
+    }
+    case "laundry": {
+      mb.paint(hexRGB("#6b4a33"), M.plank);
+      for (const x of [-0.9, 0.9]) mb.cyl(x, 0, 0, 1.5, 0.04, 0.035, 6);
+      const rope: V3[] = []; for (let i = 0; i <= 10; i++) { const t = i / 10; rope.push([-0.9 + 1.8 * t, 1.42 - Math.sin(Math.PI * t) * 0.12, 0]); }
+      mb.paint(hexRGB("#d8c8a8"), M.cloth); mb.tube(rope, 0.012, 4);
+      const cloth = ["#e9dcbc", "#3f8783", "#c96b43", "#dca34e", "#9fb3c8", "#f1ead8"];
+      for (let i = 0; i < 5; i++) {
+        const t = 0.12 + i * 0.19, x = -0.9 + 1.8 * t, yy = 1.42 - Math.sin(Math.PI * t) * 0.12;
+        const w = 0.14 + r() * 0.06, hh = 0.25 + r() * 0.2;
+        mb.paint(hexRGB(cloth[Math.floor(r() * cloth.length)]), M.cloth);
+        mb.quad([[x - w, yy, 0], [x + w, yy, 0], [x + w, yy - hh, 0.02], [x - w, yy - hh, 0.02]], [0, 0, 1]);
+        mb.quad([[x - w, yy, 0], [x + w, yy, 0], [x + w, yy - hh, 0.02], [x - w, yy - hh, 0.02]], [0, 0, -1]);
+      }
+      break;
+    }
+    case "crane": {
+      mb.paint(hexRGB("#6b4a33"), M.plank);
+      mb.cyl(0, 0, -0.1, 2.6, 0.1, 0.09, 8);
+      mb.beam([0, 2.4, 0], [1.9, 2.5, 0], [0, 0, 1], 0.06, 0.07);
+      mb.beam([0, 1.6, 0], [1.2, 2.45, 0], [0, 0, 1], 0.04, 0.04);
+      mb.paint(hexRGB("#3b332c"), M.metal); mb.cyl(1.82, 0, 2.3, 2.45, 0.08, 0.08, 8);
+      mb.paint(hexRGB("#b89a70"), M.cloth); mb.beam([1.82, 2.3, 0], [1.82, 1.1, 0], [0, 0, 1], 0.012, 0.012);
+      mb.paint(hexRGB("#6f6048"), M.cloth); mb.blob([1.82, 0.85, 0], [0.32, 0.3, 0.3], 7, 1);
+      mb.paint(hexRGB("#9a7650"), M.plank); mb.box([1.62, 0.62, -0.18], [2.0, 0.95, 0.16]);
+      break;
+    }
+    case "hull": hullTavern(mb, r, L, y); break;
+    case "grotto": grotto(mb, r, L); break;
+    case "lighthouse": lighthouse(mb, L); break;
+  }
+  void out;
+}
+
+function barrel(mb: MeshBuilder, x: number, z: number, y0: number, r: () => number) {
+  mb.paint(hexRGB(r() < 0.5 ? "#8a5f3c" : "#9c6e45"), M.plank);
+  mb.cyl(x, z, y0, y0 + 0.24, 0.17, 0.2, 9, false); mb.cyl(x, z, y0 + 0.24, y0 + 0.48, 0.2, 0.17, 9, true);
+  mb.paint(hexRGB("#3b332c"), M.metal);
+  for (const hy of [0.07, 0.41]) mb.cyl(x, z, y0 + hy, y0 + hy + 0.03, 0.185 + (hy < 0.2 ? 0 : 0), 0.19, 9, false);
+}
+
+function palm(mb: MeshBuilder, r: () => number) {
+  const h = 2.4 + r() * 1.2, lean = 0.4 + r() * 0.5, dir = r() * Math.PI * 2;
+  const pts: V3[] = [];
+  for (let i = 0; i <= 10; i++) { const t = i / 10; const off = lean * t * t; pts.push([Math.cos(dir) * off, t * h, Math.sin(dir) * off]); }
+  for (let i = 0; i < 10; i++) { mb.paint(hexRGB(i % 2 ? "#8b7358" : "#7a6450"), M.plank); mb.tube([pts[i], pts[i + 1]], (t: number) => 0.13 - (i + t) * 0.006, 7); }
+  const top = pts[10];
+  mb.paint(hexRGB("#5c4a38"), M.plain); mb.blob(top, [0.16, 0.14, 0.16], 3, 0);
+  const nf = 8 + Math.floor(r() * 3);
+  for (let f = 0; f < nf; f++) {
+    const a = (f / nf) * Math.PI * 2 + r() * 0.3, len = 1.3 + r() * 0.5, lift = 0.25 + r() * 0.3;
+    const dx = Math.cos(a), dz = Math.sin(a);
+    const spine: V3[] = [];
+    for (let i = 0; i <= 6; i++) { const t = i / 6; spine.push(add(top, [dx * len * t, lift * t - 1.1 * t * t * t * len * 0.6, dz * len * t])); }
+    const side: V3 = [-dz, 0, dx];
+    mb.paint(hexRGB(f % 2 ? "#6f8a45" : "#809a4c"), M.leaf);
+    for (let i = 0; i < 6; i++) {
+      const w0 = Math.sin(Math.PI * (i / 6 * 0.9 + 0.05)) * 0.32, w1 = Math.sin(Math.PI * ((i + 1) / 6 * 0.9 + 0.05)) * 0.32;
+      const a0 = spine[i], a1 = spine[i + 1];
+      for (const sgn of [-1, 1]) {
+        const q: V3[] = [a0, a1, add(add(a1, scl(side, sgn * w1)), [0, -0.1, 0]), add(add(a0, scl(side, sgn * w0)), [0, -0.1, 0])];
+        mb.quad(q, [0, 1, 0]); mb.quad(q, [0, -1, 0]);
+      }
+    }
+  }
+  mb.paint(hexRGB("#6b5a3a"), M.plain);
+  for (let i = 0; i < 3; i++) mb.blob(add(top, [(r() - 0.5) * 0.2, -0.15, (r() - 0.5) * 0.2]), [0.08, 0.08, 0.08], i, 0);
+}
+
+/** Lofted hull: shared by boats and the beached tavern. Returns nothing; draws outer + inner shell + gunwale. */
+export function hull(mb: MeshBuilder, len: number, wid: number, dep: number, paint: V3, inner: V3, stripe?: V3) {
+  const NL = 12, NA = 7;
+  const ring = (i: number): V3[] => {
+    const t = i / NL * 2 - 1; // -1 stern .. 1 bow
+    const hwid = wid / 2 * Math.pow(Math.max(0, 1 - (t > 0 ? t * t : t * t * 0.55)), 0.55);
+    const d = dep * (1 - 0.25 * t * t);
+    const sheer = 0.12 * t * t * dep / 0.35;
+    const pts: V3[] = [];
+    for (let k = 0; k <= NA; k++) {
+      const th = (k / NA) * Math.PI;
+      pts.push([Math.cos(th) * hwid, -Math.sin(th) * d + sheer, t * len / 2]);
+    }
+    return pts;
+  };
+  const rings = Array.from({ length: NL + 1 }, (_, i) => ring(i));
+  for (let i = 0; i < NL; i++) for (let k = 0; k < NA; k++) {
+    const a = rings[i][k], b = rings[i][k + 1], c = rings[i + 1][k + 1], d = rings[i + 1][k];
+    const mid = lerp3(lerp3(a, b, 0.5), lerp3(c, d, 0.5), 0.5);
+    const out: V3 = [mid[0], mid[1] + dep * 0.6, 0];
+    const top = k === 0 || k === NA - 1;
+    mb.paint(stripe && top ? stripe : paint, M.plank);
+    mb.quad([a, b, c, d], out, [[a[2], a[1] * 1.0 + k * 0.2], [b[2], b[1] + (k + 1) * 0.2], [c[2], c[1] + (k + 1) * 0.2], [d[2], d[1] + k * 0.2]]);
+    mb.paint(inner, M.plank);
+    mb.quad([a, b, c, d], scl(out, -1));
+  }
+  // transom at the stern
+  mb.paint(paint, M.plank);
+  const st = rings[0];
+  for (let k = 0; k < NA; k++) mb.tri([[0, st[0][1], st[0][2]], st[k], st[k + 1]], [0, 0, -1]);
+  mb.paint(hexRGB("#6b4a33"), M.plank);
+  for (const side of [0, NA]) mb.tube(rings.map(rr => [rr[side][0], rr[side][1] + 0.02, rr[side][2]] as V3), 0.035, 4);
+}
+
+function hullTavern(mb: MeshBuilder, r: () => number, L: Light[], y: number) {
+  // the old hull lies canted on the sand; a plank house is built into her deck
+  const len = 8, wid = 3.2, dep = 1.7;
+  const tilt = 0.14;
+  const prev = mb.xf!;
+  const ct = Math.cos(tilt), st = Math.sin(tilt);
+  mb.xf = (q: V3) => prev([q[0] * ct - (q[1]) * st, q[0] * st + q[1] * ct + dep * 0.55, q[2]]);
+  hull(mb, len, wid, dep, hexRGB("#3f5f63"), hexRGB("#6b4a33"), hexRGB("#b85a3a"));
+  // deck
+  mb.paint(hexRGB("#9c7b58"), M.plank);
+  mb.box([-wid * 0.46, 0.05, -len * 0.42], [wid * 0.46, 0.13, len * 0.38]);
+  // cabin with a patched gable roof
+  const cw = 1.2, cl = 2.6, ch = 1.25;
+  mb.paint(hexRGB("#c06c47"), M.plank); mb.box([-cw, 0.13, -cl], [cw, 0.13 + ch, cl], "-y");
+  const ry = 0.13 + ch;
+  mb.paint(hexRGB("#8f6f55"), M.tile);
+  for (const sgn of [-1, 1]) {
+    mb.quad([[sgn * (cw + 0.3), ry - 0.1, -cl - 0.3], [sgn * (cw + 0.3), ry - 0.1, cl + 0.3], [0, ry + 0.9, cl + 0.3], [0, ry + 0.9, -cl - 0.3]], [sgn, 1, 0]);
+    mb.quad([[sgn * (cw + 0.3), ry - 0.16, -cl - 0.3], [sgn * (cw + 0.3), ry - 0.16, cl + 0.3], [0, ry + 0.84, cl + 0.3], [0, ry + 0.84, -cl - 0.3]], [0, -1, 0]);
+  }
+  mb.paint(hexRGB("#b85a3a"), M.tile); mb.box([cw * 0.1, ry + 0.35, -0.6], [cw * 0.8, ry + 0.45, 0.5]);
+  mb.paint(hexRGB("#c06c47"), M.plank);
+  for (const zz of [-cl, cl]) mb.tri([[-cw, ry, zz], [cw, ry, zz], [0, ry + 0.85, zz]], [0, 0, zz]);
+  // windows along the hull and cabin
+  for (let i = 0; i < 4; i++) {
+    const z = -2.6 + i * 1.6;
+    mb.paint([0.2, 0.3, 0.33], M.glass); mb.box([-wid * 0.5 - 0.02, -0.55, z - 0.2], [-wid * 0.5 + 0.2, -0.2, z + 0.2]);
+    L.push({ x: -wid * 0.5 - 0.4, y: -0.4, z, r: 1.8, i: 0.35 });
+  }
+  for (let i = 0; i < 3; i++) { const z = -1.8 + i * 1.8; mb.paint([0.2, 0.3, 0.33], M.glass); mb.box([-cw - 0.03, 0.55, z - 0.25], [-cw + 0.02, 1.0, z + 0.25]); mb.box([cw - 0.02, 0.55, z - 0.25], [cw + 0.03, 1.0, z + 0.25]); }
+  // door + gangplank on the low side
+  mb.paint(hexRGB("#3f8783"), M.plank); mb.box([-cw - 0.04, 0.13, 1.6], [-cw + 0.01, 1.05, 2.2]);
+  // stubby mast with a pennant and a string of lanterns
+  mb.paint(hexRGB("#6b4a33"), M.plank); mb.cyl(0.6, len * 0.3, 0.13, 3.4, 0.1, 0.08, 7);
+  mb.paint(hexRGB("#e9dcbc"), M.cloth);
+  mb.tri([[0.6, 3.35, len * 0.3], [0.6, 2.95, len * 0.3], [0.6, 3.15, len * 0.3 + 1.1]], [1, 0, 0]);
+  mb.tri([[0.6, 3.35, len * 0.3], [0.6, 2.95, len * 0.3], [0.6, 3.15, len * 0.3 + 1.1]], [-1, 0, 0]);
+  const tip: V3 = [0.6, 3.2, len * 0.3];
+  for (const end of [[-wid * 0.45, 0.4, len * 0.45], [-wid * 0.45, 0.4, -len * 0.1]] as V3[]) {
+    const pts: V3[] = [];
+    for (let i = 0; i <= 10; i++) { const t = i / 10; const q = lerp3(tip, end, t); pts.push([q[0], q[1] - Math.sin(Math.PI * t) * 0.4, q[2]]); }
+    mb.paint(hexRGB("#3b332c"), M.cloth); mb.tube(pts, 0.01, 3);
+    for (let i = 2; i < 10; i += 2) { mb.paint(hexRGB(i % 4 ? "#ffcf80" : "#ff9f6a"), M.lamp); mb.blob(add(pts[i], [0, -0.07, 0]), [0.05, 0.07, 0.05], i, 0); L.push({ x: pts[i][0], y: pts[i][1], z: pts[i][2], r: 1.6, i: 0.3 }); }
+  }
+  mb.xf = prev;
+  // steps up to the door
+  mb.paint(hexRGB("#9c7b58"), M.plank);
+  for (let i = 0; i < 4; i++) mb.box([-wid * 0.55 - 0.9 + i * 0.22, 0, 1.55], [-wid * 0.55 - 0.68 + i * 0.22, 0.12 + i * 0.25, 2.25]);
+  // sign
+  mb.paint(hexRGB("#6b4a33"), M.plank); mb.cyl(-wid * 0.55 - 1.4, 3.1, 0, 1.6, 0.04, 0.04, 6);
+  mb.paint(hexRGB("#e6a676"), M.plank); mb.box([-wid * 0.55 - 1.45, 1.1, 2.7], [-wid * 0.55 - 1.37, 1.5, 3.5]);
+  L.push({ x: -wid * 0.55 - 0.8, y: 1, z: 1.9, r: 3, i: 0.9 });
+  void r; void y;
+}
+
+function grotto(mb: MeshBuilder, r: () => number, L: Light[]) {
+  // a vaulted sea cave in honey sandstone, opening toward +z, with a hidden dock inside
+  const R = 2.7, D = 4.6, T = 1.1;
+  const NU = 22, NV = 10;
+  const noise = (a: number, b: number, c: number) => (hsh(a * 12.9 + b * 78.2 + c * 3.7) - 0.5);
+  const shell = (rad: number, u: number, v: number): V3 => {
+    const th = Math.PI * u; // 0..PI across the arch
+    const depth = -D * v;
+    const bulge = 1 + 0.12 * Math.sin(v * Math.PI) + noise(Math.round(u * NU), Math.round(v * NV), rad) * 0.14;
+    const rr = rad * bulge * (1 - 0.35 * v * v);
+    return [Math.cos(th) * rr * 1.1, Math.sin(th) * rr * 0.95 - 0.8, depth];
+  };
+  mb.paint(hexRGB("#dba46b"), M.rock);
+  for (let i = 0; i < NU; i++) for (let j = 0; j < NV; j++) {
+    const u0 = i / NU, u1 = (i + 1) / NU, v0 = j / NV, v1 = (j + 1) / NV;
+    const inn = [shell(R, u0, v0), shell(R, u1, v0), shell(R, u1, v1), shell(R, u0, v1)];
+    const outr = [shell(R + T, u0, v0), shell(R + T, u1, v0), shell(R + T, u1, v1), shell(R + T, u0, v1)];
+    const cI = lerp3(inn[0], inn[2], 0.5), cO = lerp3(outr[0], outr[2], 0.5);
+    mb.quad(inn, [-cI[0], -cI[1] - 0.8, 0]);
+    mb.quad(outr, [cO[0], cO[1] + 0.8, 0]);
+  }
+  // the arch face (lip) and the back wall
+  for (let i = 0; i < NU; i++) {
+    const a = shell(R, i / NU, 0), b = shell(R, (i + 1) / NU, 0), c = shell(R + T, (i + 1) / NU, 0), d = shell(R + T, i / NU, 0);
+    mb.quad([a, b, c, d], [0, 0, 1]);
+    const e = shell(R, i / NU, 1), f = shell(R, (i + 1) / NU, 1);
+    mb.tri([[0, -0.8, -D * 0.95], e, f], [0, 0, 1]);
+    const g = shell(R + T, i / NU, 1), hh = shell(R + T, (i + 1) / NU, 1);
+    mb.quad([e, f, hh, g], [0, 0, -1]);
+  }
+  // rubble at the feet of the arch
+  for (let i = 0; i < 6; i++) { const sg = i % 2 ? 1 : -1; mb.blob([sg * (R + 0.3 + r() * 0.8), -0.6, -r() * D * 0.8 + 0.3], [0.6, 0.5, 0.6], r() * 99, 1); }
+  // the hidden dock along one side, with crates and lanterns
+  const dy = 0.95 - 0.2; // DECK_Y relative to water level, prop y ~ seabed so we lift below
+  void dy;
+  mb.paint(hexRGB("#9c7b58"), M.plank);
+  const deckY = 0.75;
+  for (let k = 0; k < 18; k++) { const z = 0.4 - k * 0.24; mb.box([-R * 0.95, deckY - 0.06, z - 0.1], [-R * 0.25, deckY, z + 0.1]); }
+  mb.paint(hexRGB("#4c3b2e"), M.plank);
+  for (let k = 0; k < 4; k++) for (const x of [-R * 0.9, -R * 0.3]) mb.cyl(x, 0.3 - k * 1.3, -1.5, deckY - 0.05, 0.07, 0.07, 6);
+  mb.paint(hexRGB("#9a7650"), M.plank); mb.box([-R * 0.9, deckY, -3.4], [-R * 0.5, deckY + 0.45, -3.0]); mb.box([-R * 0.85, deckY + 0.45, -3.35], [-R * 0.55, deckY + 0.75, -3.05]);
+  barrel(mb, -R * 0.4, -2.6, deckY, r); barrel(mb, -R * 0.6, -2.2, deckY, r);
+  mb.paint(hexRGB("#c9b48a"), M.cloth); mb.box([-R * 0.92, deckY, -1.9], [-R * 0.55, deckY + 0.35, -1.3]);
+  for (const z of [-0.6, -2.4]) {
+    mb.paint(hexRGB("#3b332c"), M.metal); mb.beam([-R * 1.0, 2.0, z], [-R * 0.7, 2.0, z], [0, 0, 1], 0.02, 0.02);
+    mb.paint(hexRGB("#ffd08a"), M.lamp); mb.box([-R * 0.75, 1.62, z - 0.07], [-R * 0.63, 1.85, z + 0.07]);
+    L.push({ x: -R * 0.7, y: 1.7, z, r: 3.4, i: 1.0 });
+  }
+  // stair cut into the rock at the back
+  mb.paint(hexRGB("#c99561"), M.rock);
+  for (let k = 0; k < 7; k++) mb.box([-R * 0.25 + k * 0.25, deckY + k * 0.25 - 0.25, -D * 0.78], [-R * 0.25 + k * 0.25 + 0.3, deckY + k * 0.25, -D * 0.78 + 0.8]);
+}
+
+function lighthouse(mb: MeshBuilder, L: Light[]) {
+  const h = 6.2;
+  const bands = 5;
+  for (let i = 0; i < bands; i++) {
+    const y0 = (i / bands) * h, y1 = ((i + 1) / bands) * h;
+    const r0 = 0.95 - 0.3 * (i / bands), r1 = 0.95 - 0.3 * ((i + 1) / bands);
+    mb.paint(hexRGB(i % 2 ? "#c0643f" : "#f1ead8"), M.plaster);
+    mb.cyl(0, 0, y0, y1, r0, r1, 14, false);
+  }
+  mb.paint(hexRGB("#b9a78b"), M.stone); mb.cyl(0, 0, -0.4, 0.5, 1.15, 1.1, 14);
+  mb.paint(hexRGB("#3b332c"), M.metal); mb.cyl(0, 0, h, h + 0.12, 0.95, 0.95, 14);
+  for (let k = 0; k < 14; k++) { const a = k / 14 * Math.PI * 2; mb.cyl(Math.cos(a) * 0.9, Math.sin(a) * 0.9, h + 0.12, h + 0.55, 0.02, 0.02, 4, false); }
+  mb.paint(hexRGB("#fff0c8"), M.lamp); mb.cyl(0, 0, h + 0.12, h + 1.0, 0.45, 0.45, 10);
+  mb.paint(hexRGB("#3b332c"), M.metal); mb.cyl(0, 0, h + 1.0, h + 1.1, 0.6, 0.6, 12);
+  mb.paint(hexRGB("#c0643f"), M.tile); mb.cyl(0, 0, h + 1.1, h + 1.7, 0.6, 0.05, 12);
+  mb.paint([0.2, 0.3, 0.33], M.glass);
+  for (let i = 1; i < 4; i++) { const a = i * 2.1; const y = i * 1.4; mb.box([Math.cos(a) * 0.82 - 0.1, y, Math.sin(a) * 0.82 - 0.1], [Math.cos(a) * 0.82 + 0.1, y + 0.4, Math.sin(a) * 0.82 + 0.1]); }
+  L.push({ x: 0, y: h + 0.5, z: 0, r: 5.5, i: 1.2 });
+}
+
+// ---------- boats: separate bobbing meshes ----------
+export interface Boat { mesh: THREE.Mesh; phase: number; x: number; z: number; rot: number; big: boolean }
+export function buildBoat(p: Prop, mat: THREE.Material): Boat {
+  const mb = new MeshBuilder();
+  mb.setOwner(`p:${p.id}`);
+  const r = rng(p.seed);
+  const cols = ["#3f8783", "#c0643f", "#e9dcbc", "#2e6a6c", "#d9a84e", "#86b3a4"];
+  const paint = hexRGB(cols[Math.floor(r() * cols.length)]);
+  const big = p.type === "sloop";
+  if (!big) {
+    hull(mb, 1.9, 0.78, 0.3, paint, hexRGB("#8a6a48"), hexRGB("#efe4cc"));
+    mb.paint(hexRGB("#9c7b58"), M.plank);
+    for (const z of [-0.45, 0.1, 0.5]) mb.box([-0.32, -0.08, z - 0.08], [0.32, -0.03, z + 0.08]);
+    mb.paint(hexRGB("#b08a5e"), M.plank);
+    for (const s of [-1, 1]) mb.beam([s * 0.3, 0.02, 0.05], [s * 0.75, -0.25, -0.75], [0, 1, 0], 0.025, 0.012);
+  } else {
+    hull(mb, 3.8, 1.35, 0.6, paint, hexRGB("#8a6a48"), hexRGB("#efe4cc"));
+    mb.paint(hexRGB("#9c7b58"), M.plank); mb.box([-0.55, -0.05, -1.4], [0.55, 0.02, 1.2]);
+    mb.paint(hexRGB("#6b4a33"), M.plank); mb.cyl(0, 0.35, 0, 4.1, 0.06, 0.045, 7);
+    mb.beam([0, 0.7, 0.35], [0, 0.72, -1.7], [1, 0, 0], 0.035, 0.035);
+    mb.paint(hexRGB("#ece0c4"), M.cloth);
+    const sail: V3[] = [[0, 4.0, 0.33], [0, 0.78, 0.33], [0.05, 0.78, -1.65]];
+    for (let i = 0; i < 6; i++) {
+      const t0 = i / 6, t1 = (i + 1) / 6;
+      const a = lerp3(sail[0], sail[1], t0), b = lerp3(sail[0], sail[1], t1), c = lerp3(sail[0], sail[2], t1), d = lerp3(sail[0], sail[2], t0);
+      const bel = (t: number): V3 => [0.18 * Math.sin(Math.PI * t) * t, 0, 0];
+      const q: V3[] = [a, b, add(c, bel(t1)), add(d, bel(t0))];
+      mb.quad(q, [1, 0, 0]); mb.quad(q, [-1, 0, 0]);
+    }
+    mb.paint(hexRGB("#e0d2b2"), M.cloth);
+    const jib: V3[] = [[0, 3.8, 0.38], [0, 0.4, 1.85], [0.02, 0.6, 0.45]];
+    mb.tri(jib, [1, 0, 0]); mb.tri(jib, [-1, 0, 0]);
+    mb.paint(hexRGB("#c96b43"), M.cloth);
+    mb.tri([[0, 4.1, 0.35], [0, 3.92, 0.35], [0.02, 4.0, -0.35]], [1, 0, 0]); mb.tri([[0, 4.1, 0.35], [0, 3.92, 0.35], [0.02, 4.0, -0.35]], [-1, 0, 0]);
+  }
+  const mesh = new THREE.Mesh(mb.toGeometry(), mat);
+  mesh.castShadow = true; mesh.receiveShadow = true;
+  mesh.userData.owners = mb.owners; mesh.userData.triOwner = mb.triOwner;
+  return { mesh, phase: r() * 10, x: p.x, z: p.z, rot: p.rot, big };
+}
+export function updateBoat(b: Boat, t: number) {
+  const s = b.big ? 0.6 : 1;
+  b.mesh.position.set(b.x, WATER_Y + 0.02 + Math.sin(t * 1.3 + b.phase) * 0.035 * s, b.z);
+  b.mesh.rotation.set(Math.sin(t * 0.9 + b.phase) * 0.02 * s, -b.rot + Math.sin(t * 0.3 + b.phase) * 0.03, Math.sin(t * 1.1 + b.phase * 1.7) * 0.05 * s);
+}
+
+// ---------- strings of lanterns between neighbouring houses ----------
+export function stringLights(anchors: Anchor[], mb: MeshBuilder, out: { lights: Light[] }) {
+  const used = new Map<string, number>();
+  const pairs: [Anchor, Anchor, number][] = [];
+  for (let i = 0; i < anchors.length; i++) for (let j = i + 1; j < anchors.length; j++) {
+    const a = anchors[i], b = anchors[j];
+    if (a.house === b.house) continue;
+    const d = Math.hypot(a.x - b.x, a.z - b.z);
+    if (d < 2.2 || d > 6.5 || Math.abs(a.y - b.y) > 1.6) continue;
+    pairs.push([a, b, d]);
+  }
+  pairs.sort((p, q) => p[2] - q[2]);
+  const done = new Set<string>();
+  mb.setOwner("strings");
+  for (const [a, b] of pairs) {
+    const key = [a.house, b.house].sort().join("|");
+    if (done.has(key) || (used.get(a.house) ?? 0) >= 2 || (used.get(b.house) ?? 0) >= 2) continue;
+    done.add(key); used.set(a.house, (used.get(a.house) ?? 0) + 1); used.set(b.house, (used.get(b.house) ?? 0) + 1);
+    const A: V3 = [a.x, a.y, a.z], B: V3 = [b.x, b.y, b.z];
+    const L = Math.hypot(a.x - b.x, a.z - b.z);
+    const sag = 0.25 + L * 0.06;
+    const pts: V3[] = [];
+    const n = 14;
+    for (let i = 0; i <= n; i++) { const t = i / n; const p = lerp3(A, B, t); pts.push([p[0], p[1] - Math.sin(Math.PI * t) * sag, p[2]]); }
+    mb.paint(hexRGB("#3b332c"), M.cloth); mb.tube(pts, 0.008, 3);
+    const k = Math.max(3, Math.floor(L / 0.55));
+    for (let i = 1; i < k; i++) {
+      const t = i / k;
+      const p = lerp3(A, B, t); p[1] -= Math.sin(Math.PI * t) * sag + 0.06;
+      mb.paint(hexRGB(["#ffcf80", "#ffb070", "#ffe0a0", "#ff9f6a"][i % 4]), M.lamp);
+      mb.blob(p, [0.045, 0.06, 0.045], i, 0);
+    }
+    const mid = lerp3(A, B, 0.5); mid[1] -= sag;
+    out.lights.push({ x: mid[0], y: mid[1], z: mid[2], r: L * 0.55, i: 0.35 });
+  }
+  void norm; void sub;
+}
