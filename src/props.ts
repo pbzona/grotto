@@ -211,6 +211,8 @@ export function hull(mb: MeshBuilder, len: number, wid: number, dep: number, pai
   mb.paint(paint, M.plank);
   const st = rings[0];
   for (let k = 0; k < NA; k++) mb.tri([[0, st[0][1], st[0][2]], st[k], st[k + 1]], [0, 0, -1]);
+  mb.paint(inner, M.plank); // the transom seen from inside the boat
+  for (let k = 0; k < NA; k++) mb.tri([[0, st[0][1], st[0][2] + 0.02], [st[k][0], st[k][1], st[k][2] + 0.02], [st[k + 1][0], st[k + 1][1], st[k + 1][2] + 0.02]], [0, 0, 1]);
   mb.paint(hexRGB("#6b4a33"), M.plank);
   for (const side of [0, NA]) mb.tube(rings.map(rr => [rr[side][0], rr[side][1] + 0.02, rr[side][2]] as V3), 0.035, 4);
 }
@@ -277,7 +279,7 @@ export function buildBoat(p: Prop, mat: THREE.Material): Boat {
   mesh.userData.owners = mb.owners; mesh.userData.triOwner = mb.triOwner;
   // keep the sea out of the hull: a depth-only lid a little above the waterline
   const fb = boatFreeboard(p.type);
-  mesh.add(big ? hullMask(3.8, 1.35, 0.6, -fb + 0.07) : hullMask(1.9, 0.78, 0.3, -fb + 0.06));
+  mesh.add(big ? hullMask(3.8, 1.35, 0.6, -fb + 0.13) : hullMask(1.9, 0.78, 0.3, -fb + 0.1));
   return { mesh, phase: r() * 10, x: p.x, z: p.z, rot: p.rot, big };
 }
 export function updateBoat(b: Boat, t: number) {

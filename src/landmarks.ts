@@ -52,10 +52,10 @@ function siteScore(w: World, p: Prop): { s: number; why?: string } {
     const { R, D } = grottoDims(p);
     // the mouth must open onto water and the vault must run back into a cliff
     let wet = 0, n = 0, back = 0, nb = 0, minBack = Infinity;
-    for (let lx = -R; lx <= R + 1e-6; lx += R / 2) for (let lz = 1; lz <= 3.2; lz += 1.1) { n++; if (G(lx, lz) < WATER_Y - 0.35) wet++; }
+    for (let lx = -R - 1; lx <= R + 1 + 1e-6; lx += (R + 1) / 3) for (let lz = 1; lz <= 5.6; lz += 0.9) { n++; if (G(lx, lz) < WATER_Y - 0.3) wet++; }
     for (let lx = -R; lx <= R + 1e-6; lx += R / 2) for (let lz = -1.4; lz >= -D; lz -= 1.1) { const g = G(lx, lz); nb++; back += Math.min(g, WATER_Y + 5); minBack = Math.min(minBack, g); }
     back /= nb;
-    if (wet / n < 0.6) return { s: -Infinity, why: "The mouth needs open water in front" };
+    if (wet / n < 0.85) return { s: -Infinity, why: "Needs open water in front of the mouth" };
     if (minBack < WATER_Y + 0.9 || back < WATER_Y + 2) return { s: -Infinity, why: "Needs a cliff to cut into" };
     return { s: back * 0.6 + (wet / n) * 3 };
   }
@@ -115,8 +115,8 @@ export function grottoCells(p: Prop): { i: number; j: number; cap: number; under
     if (i < 0 || j < 0 || i >= N || j >= N) continue;
     const dx = i + 0.5 - p.x, dz = j + 0.5 - p.z;
     const lx = dx * c + dz * s, lz = -dx * s + dz * c, ax = Math.abs(lx);
-    if (lz > 2.4 || lz < -D - 0.6) continue;
-    if (ax < R * 1.2 + Math.max(0, lz) * 0.4) out.push({ i, j, cap: 3, under: lz < -0.3 });
+    if (lz > 5 || lz < -D - 0.6) continue;
+    if (ax < R * 1.2 + Math.min(Math.max(0, lz), 2.5) * 0.4) out.push({ i, j, cap: 3, under: lz < -0.3 });
     else if (ax < R + T + 0.9 && lz > -0.9 && lz < 0.7) out.push({ i, j, cap: lip, under: false });
   }
   return out;
@@ -301,11 +301,18 @@ export function buildHullTavern(mb: MeshBuilder, w: World, p: Prop, L: Light[]) 
     mb.paint([0.2, 0.3, 0.33], M.glass); mb.box([-wid * 0.5 - 0.02, -0.55, z - 0.18], [-wid * 0.5 + 0.2, -0.22, z + 0.18]);
     Lp([-wid * 0.5 - 0.4, -0.4, z], 1.8, 0.3);
   }
-  // cabin
+  // cabin: built level (only the hull follows the ground), anchored where the deck meets the cabin's middle
   const cw = wid * 0.37;
   const [cz0, cz1, ch] = cabin === "stern" ? [-len * 0.42, -len * 0.04, 1.8] : cabin === "tall" ? [-len * 0.28, len * 0.22, 2.35] : [-len * 0.32, len * 0.3, 1.25];
   const base = 0.13, ry = base + ch, czm = (cz0 + cz1) / 2;
-  mb.paint(wallC, r() < 0.5 ? M.plank : M.plaster); mb.box([-cw, base, cz0], [cw, ry, cz1], "-y");
+  let deckTop = -Infinity;
+  for (const [x, z] of [[-cw, cz0], [cw, cz0], [cw, cz1], [-cw, cz1]]) deckTop = Math.max(deckTop, toWorld([x, base, z])[1]);
+  const lvlY = deckTop - base; // the cabin floor sits on the deck's highest corner, walls run down into the hull at the low side
+  const level = (q: V3): V3 => { const hx = q[0], hz = q[2]; const b = toWorld([0, 0, 0]); return [b[0] + hx * c - hz * s, lvlY + q[1], b[2] + hx * s + hz * c]; };
+  const Lv = (q: V3, rr: number, i: number) => { const t = level(q); L.push({ x: t[0], y: t[1], z: t[2], r: rr, i }); };
+  mb.xf = level;
+  mb.paint(wallC, r() < 0.5 ? M.plank : M.plaster); mb.box([-cw, base - 0.9, cz0], [cw, ry, cz1], "-y");
+  mb.paint(hexRGB("#9c7b58"), M.plank); mb.box([-cw - 0.25, base - 0.06, cz0 - 0.25], [cw + 0.25, base, cz1 + 0.25]); // a level floor apron round the cabin
   if (cabin === "tall") { mb.paint(hexRGB("#7a5438"), M.plank); mb.box([-cw - 0.05, base + 1.1, cz0 - 0.05], [cw + 0.05, base + 1.2, cz1 + 0.05]); }
   // windows on both sides, both storeys
   const rows = cabin === "tall" ? [0.45, 1.55] : [0.42];
@@ -315,7 +322,7 @@ export function buildHullTavern(mb: MeshBuilder, w: World, p: Prop, L: Light[]) 
     mb.box([-cw - 0.03, base + wy, z - 0.22], [-cw + 0.02, base + wy + 0.42, z + 0.22]); mb.box([cw - 0.02, base + wy, z - 0.22], [cw + 0.03, base + wy + 0.42, z + 0.22]);
     mb.paint(trimC, M.plank);
     mb.box([-cw - 0.06, base + wy - 0.05, z - 0.27], [-cw - 0.02, base + wy, z + 0.27]); mb.box([cw + 0.02, base + wy - 0.05, z - 0.27], [cw + 0.06, base + wy, z + 0.27]);
-    Lp([-cw - 0.3, base + wy + 0.2, z], 1.4, 0.22);
+    Lv([-cw - 0.3, base + wy + 0.2, z], 1.4, 0.22);
   }
   // roof
   const ov = 0.28;
@@ -352,14 +359,14 @@ export function buildHullTavern(mb: MeshBuilder, w: World, p: Prop, L: Light[]) 
       mb.quad([[-cw - 0.1, ry + 1.05, z0], [cw + 0.1, ry + 0.95, z0], [cw + 0.1, ry + 0.95, z1], [-cw - 0.1, ry + 1.05, z1]], [0, -1, 0]);
     }
     barrel(mb, cw * 0.3, (cz0 + cz1) / 2, ry + 0.1, r);
-    mb.paint(hexRGB("#ffcf80"), M.lamp); mb.box([-0.06, ry + 0.75, czm - 0.06], [0.06, ry + 0.92, czm + 0.06]); Lp([0, ry + 0.8, czm], 2.2, 0.5);
+    mb.paint(hexRGB("#ffcf80"), M.lamp); mb.box([-0.06, ry + 0.75, czm - 0.06], [0.06, ry + 0.92, czm + 0.06]); Lv([0, ry + 0.8, czm], 2.2, 0.5);
   }
   // door on the port side, at whichever deck end is free
   const dz = cabin === "stern" ? cz1 - 0.8 : czm + 0.3;
   mb.paint(trimC, M.plank); mb.box([-cw - 0.04, base, dz - 0.3], [-cw + 0.01, base + 0.95, dz + 0.3]);
   mb.paint(hexRGB("#2e2a26"), M.metal); mb.box([-cw - 0.12, base + 1.02, dz - 0.35], [-cw - 0.04, base + 1.05, dz - 0.25]);
   mb.paint(hexRGB("#ffd08a"), M.lamp); mb.box([-cw - 0.14, base + 0.86, dz - 0.36], [-cw - 0.04, base + 1.02, dz - 0.24]);
-  Lp([-cw - 0.4, base + 0.9, dz], 2.4, 0.7);
+  Lv([-cw - 0.4, base + 0.9, dz], 2.4, 0.7);
   // forward deck life for a stern cabin: barrel tables and a parasol
   if (cabin === "stern") {
     for (let k = 0; k < 2; k++) { const z = len * 0.08 + k * len * 0.14, x = (k ? 0.35 : -0.35); barrel(mb, x, z, base, r); }
@@ -383,15 +390,17 @@ export function buildHullTavern(mb: MeshBuilder, w: World, p: Prop, L: Light[]) 
   const strands: [V3, V3][] = [];
   if (tips.length === 2) strands.push([tips[0], tips[1]]);
   for (const t of tips) strands.push([t, [-wid * 0.45, 0.4, len * 0.45]], [t, [-wid * 0.45, 0.4, -len * 0.25]]);
-  for (const [a, b] of strands.slice(0, 3)) {
+  mb.xf = null;
+  for (const [k, [a, b]] of strands.slice(0, 3).entries()) {
+    const A = level(a), B = k === 0 && tips.length === 2 ? level(b) : toWorld(b);
     const pts: V3[] = [];
-    for (let i = 0; i <= 10; i++) { const t = i / 10; const q = lerp3(a, b, t); pts.push([q[0], q[1] - Math.sin(Math.PI * t) * 0.4, q[2]]); }
+    for (let i = 0; i <= 10; i++) { const t = i / 10; const q = lerp3(A, B, t); pts.push([q[0], q[1] - Math.sin(Math.PI * t) * 0.4, q[2]]); }
     mb.paint(hexRGB("#3b332c"), M.cloth); mb.tube(pts, 0.01, 3);
-    for (let i = 2; i < 10; i += 2) { mb.paint(hexRGB(i % 4 ? "#ffcf80" : "#ff9f6a"), M.lamp); mb.blob(add(pts[i], [0, -0.07, 0]), [0.05, 0.07, 0.05], i, 0); Lp(pts[i], 1.6, 0.28); }
+    for (let i = 2; i < 10; i += 2) { mb.paint(hexRGB(i % 4 ? "#ffcf80" : "#ff9f6a"), M.lamp); mb.blob(add(pts[i], [0, -0.07, 0]), [0.05, 0.07, 0.05], i, 0); L.push({ x: pts[i][0], y: pts[i][1], z: pts[i][2], r: 1.6, i: 0.28 }); }
   }
   // ---- things on the ground: yaw only, absolute heights ----
   mb.xf = flat;
-  const doorW = toWorld([-cw - 0.04, base, dz]);
+  const doorW = level([-cw - 0.04, base, dz]);
   const footLx = -wid * 0.5 - 1.2;
   const gFoot = G(footLx, dz);
   // steps (or a gangplank) from the ground to the door

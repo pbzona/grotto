@@ -88,6 +88,8 @@ export function landmarkSamples(p: Prop): [number, number][] {
   } else if (p.type === "grotto") {
     const { R, D, T } = grottoDims(p);
     for (let lx = -R - T; lx <= R + T + 1e-6; lx += 0.7) for (let lz = -D - 0.3; lz <= 0.8; lz += 0.7) add(lx, lz);
+    // open water kept clear in front of the mouth
+    for (let lx = -R - 0.6; lx <= R + 0.6 + 1e-6; lx += 0.7) for (let lz = 1.5; lz <= 5; lz += 0.7) add(lx, lz);
   } else if (p.type === "lighthouse") {
     add(0, 0); for (let k = 0; k < 10; k++) add(Math.cos(k * 0.628) * 1.15, Math.sin(k * 0.628) * 1.15);
   } else add(0, 0);

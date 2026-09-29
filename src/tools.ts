@@ -1151,7 +1151,7 @@ function landmarkOutline(p: Prop): [number, number][] {
     for (let k = 0; k < 32; k++) { const a = (k / 32) * Math.PI * 2; out.push(W(Math.cos(a) * wid * 0.55, Math.sin(a) * len * 0.52)); }
   } else if (p.type === "grotto") {
     const { R, D, T } = grottoDims(p);
-    for (const [lx, lz] of [[-R - T, 0.8], [R + T, 0.8], [R + T, -D], [-R - T, -D]]) out.push(W(lx, lz));
+    for (const [lx, lz] of [[-R - T, 0.8], [-R - 0.6, 0.8], [-R - 0.6, 5], [R + 0.6, 5], [R + 0.6, 0.8], [R + T, 0.8], [R + T, -D], [-R - T, -D]]) out.push(W(lx, lz));
   } else for (let k = 0; k < 24; k++) { const a = (k / 24) * Math.PI * 2; out.push(W(Math.cos(a) * 1.25, Math.sin(a) * 1.25)); }
   return out;
 }

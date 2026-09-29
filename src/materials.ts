@@ -167,7 +167,9 @@ export function createMaterials(tex: { paint: THREE.Texture; water: THREE.Textur
   })();
 
   // ---------------- buildings / props (one material, vertex colours + a pattern id) ----------------
-  const building = new THREE.MeshStandardNodeMaterial({ roughness: 0.85, metalness: 0 });
+  // double-sided: thin parametric parts (sails, awnings, hull shells, gable ends) must read from both sides
+  const building = new THREE.MeshStandardNodeMaterial({ roughness: 0.85, metalness: 0, side: THREE.DoubleSide });
+  building.shadowSide = THREE.FrontSide;
   const aCol = attribute("color", "vec3");
   const aMat = attribute("mat", "float");
   const aUv = attribute("uv", "vec2");
