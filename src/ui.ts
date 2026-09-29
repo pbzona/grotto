@@ -247,7 +247,7 @@ export class UI {
     switch (t.tool) {
       case "select": return t.sel ? "<b>Drag handles</b> to reshape · <b>Del</b> removes · <b>Esc</b> deselects" : "<b>Click</b> anything to edit it · <b>right-drag</b> to orbit · <b>?</b> for all controls";
       case "house": return "<b>Drag</b> out a footprint or <b>click</b> to drop a " + HOUSE_PRESETS[t.preset].label.toLowerCase() + " · <b>R</b> turns it";
-      case "walk": return t.chain ? `<b>Click</b> to add a post · next post ${t.walkLift >= 0 ? "+" : ""}${t.walkLift.toFixed(2)} (<b>[ ]</b>) · <b>double-click</b> or <b>Esc</b> to finish` : "<b>Click</b> to start a walkway — over water it becomes a dock on posts · end on a wall for a door";
+      case "walk": return t.chain ? `Posts <b>snap</b> to nearby walkways (double ring) · <b>Click</b> to add a post · next post ${t.walkLift >= 0 ? "+" : ""}${t.walkLift.toFixed(2)} (<b>[ ]</b>) · <b>double-click</b> or <b>Esc</b> to finish` : "<b>Click</b> to start a walkway — over water it becomes a dock on posts · end on a wall for a door";
       case "terrain": return `<b>Drag</b> to ${t.terrainOp} · brush ${t.brush.toFixed(1)} (<b>[ ]</b>)`;
       case "paint": return `<b>Drag</b> to paint ${t.paintType} · brush ${t.brush.toFixed(1)} (<b>[ ]</b>)`;
       case "prop": return `<b>Click</b> to place · <b>R</b> or Shift+scroll to turn`;

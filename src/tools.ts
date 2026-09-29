@@ -343,6 +343,7 @@ export class Tools {
     }
   }
   private chainTemp: WalkNode | null = null;
+  snapped = false;
   private housesChanged = false;
   private cancelDrag() { if (this.drag && (this.drag.t === "stroke")) { /* keep */ } this.drag = null; }
 
@@ -801,20 +802,40 @@ export class Tools {
 
   // ---------- walkways ----------
   /** Resolve a pointer point to a walkway node: reuse a node, split an edge, dock against a house wall, or make a new one. */
-  private walkPoint(p: THREE.Vector3, prev: WalkNode | null): { node: WalkNode; created: boolean } {
+  /** Magnetic snapping for walkways: an existing post nearby wins, then a point along an existing stretch. */
+  snapWalk(p: { x: number; z: number }, skip?: WalkNode | null):
+    | { kind: "node"; node: WalkNode; x: number; z: number; y: number }
+    | { kind: "edge"; edge: WalkEdge; a: WalkNode; b: WalkNode; t: number; x: number; z: number; y: number } | null {
     const w = this.world;
-    for (const n of w.nodes.values()) if (Math.hypot(n.x - p.x, n.z - p.z) < Math.max(0.6, landingRadius(w, n) * 0.8) && (w.edgesOf(n.id).length || n === this.chainTemp)) return { node: n, created: false };
-    // split an edge
+    let best: WalkNode | null = null, bd = Infinity;
+    for (const n of w.nodes.values()) {
+      if (n === skip || !(w.edgesOf(n.id).length || n === this.chainTemp)) continue;
+      const d = Math.hypot(n.x - p.x, n.z - p.z);
+      if (d < Math.max(1.25, landingRadius(w, n) + 0.5) && d < bd) { bd = d; best = n; }
+    }
+    if (best) return { kind: "node", node: best, x: best.x, z: best.z, y: best.y };
+    let be: { e: WalkEdge; a: WalkNode; b: WalkNode; t: number; d: number } | null = null;
     for (const e of w.edges.values()) {
       const a = w.nodes.get(e.a), b = w.nodes.get(e.b); if (!a || !b) continue;
+      if (skip && (a === skip || b === skip)) continue;
       const dx = b.x - a.x, dz = b.z - a.z, L2 = dx * dx + dz * dz; if (L2 < 1e-3) continue;
       const t = ((p.x - a.x) * dx + (p.z - a.z) * dz) / L2;
-      if (t < 0.12 || t > 0.88) continue;
+      if (t < 0.08 || t > 0.92) continue;
       const d = Math.abs((p.x - a.x) * dz - (p.z - a.z) * dx) / Math.sqrt(L2);
-      if (d > e.width / 2 + 0.15) continue;
-      const n = this.app.addNode(a.x + dx * t, a.z + dz * t, a.y + (b.y - a.y) * t);
-      w.edges.delete(e.id);
-      this.app.addEdge(a, n, e.style, e.width); this.app.addEdge(n, b, e.style, e.width);
+      if (d > e.width / 2 + 0.45 || (be && d >= be.d)) continue;
+      be = { e, a, b, t, d };
+    }
+    if (be) { const { a, b, t } = be; return { kind: "edge", edge: be.e, a, b, t, x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t, y: a.y + (b.y - a.y) * t }; }
+    return null;
+  }
+  private walkPoint(p: THREE.Vector3, prev: WalkNode | null): { node: WalkNode; created: boolean } {
+    const w = this.world;
+    const sn = this.snapWalk(p, prev);
+    if (sn?.kind === "node") return { node: sn.node, created: false };
+    if (sn?.kind === "edge") {
+      const n = this.app.addNode(sn.x, sn.z, sn.y);
+      w.edges.delete(sn.edge.id);
+      this.app.addEdge(sn.a, n, sn.edge.style, sn.edge.width); this.app.addEdge(n, sn.b, sn.edge.style, sn.edge.width);
       return { node: n, created: true };
     }
     // dock against a house wall, at the storey nearest the walkway's height
@@ -936,7 +957,7 @@ export class Tools {
   }
   updateGhost() {
     this.updateBrush();
-    type Foot = { circle: [number, number, number] } | { rect: [number, number, number, number]; y?: number };
+    type Foot = { circle: [number, number, number]; y?: number } | { rect: [number, number, number, number]; y?: number };
     const setG = (g: THREE.BufferGeometry | null, bad = false, foot?: Foot) => {
       // never hand these meshes an empty geometry: node materials would compile against missing attributes
       const prev = new Set([this.ghost, this.ghostBad, this.ghostX, this.ghostBadX, this.foot].map(m => m.geometry));
@@ -976,22 +997,32 @@ export class Tools {
     }
     if (this.tool === "walk" && this.hover) {
       const mb = new MeshBuilder();
-      const h = this.hover;
-      const y = (this.chain ? defaultDeckY(w, h.x, h.z) : defaultDeckY(w, h.x, h.z)) + this.walkLift;
+      const h0 = this.hover;
+      const sn = this.snapWalk(h0, this.chain);
+      const hx = sn ? sn.x : h0.x, hz = sn ? sn.z : h0.z;
+      const y = sn ? sn.y : defaultDeckY(w, hx, hz) + this.walkLift;
       mb.paint([1, 1, 1], 0);
-      mb.cyl(h.x, h.z, Math.max(w.height(h.x, h.z), WATER_Y) - 0.05, y + 0.05, 0.12, 0.12, 8);
-      mb.cyl(h.x, h.z, y, y + 0.08, 0.5, 0.5, 12);
+      mb.cyl(hx, hz, Math.max(w.height(hx, hz), WATER_Y) - 0.05, y + 0.05, 0.12, 0.12, 8);
+      mb.cyl(hx, hz, y, y + 0.08, 0.5, 0.5, 12);
       if (this.chain) {
         const a = this.chain;
-        const side: [number, number, number] = [-(h.z - a.z), 0, h.x - a.x];
-        if (Math.hypot(side[0], side[2]) > 0.05) mb.beam([a.x, a.y, a.z], [h.x, y, h.z], side, WALK_W / 2, 0.04);
+        const side: [number, number, number] = [-(hz - a.z), 0, hx - a.x];
+        if (Math.hypot(side[0], side[2]) > 0.05) mb.beam([a.x, a.y, a.z], [hx, y, hz], side, WALK_W / 2, 0.04);
       }
-      return setG(mb.toGeometry(), false, { circle: [h.x, h.z, 0.55] });
+      // a snapped target gets a bigger ring around the post (or join point) it will connect to
+      const r = sn?.kind === "node" ? landingRadius(w, sn.node) + 0.3 : sn ? 0.85 : 0.55;
+      if (sn) { // a second, raised ring so a snap reads at a glance
+        const ring: [number, number, number][] = [];
+        for (let i = 0; i <= 32; i++) { const a = i / 32 * Math.PI * 2; ring.push([hx + Math.cos(a) * (r + 0.16), y + 0.1, hz + Math.sin(a) * (r + 0.16)]); }
+        mb.tube(ring, 0.045, 4);
+      }
+      this.snapped = !!sn;
+      return setG(mb.toGeometry(), false, { circle: [hx, hz, r], y: y + 0.1 });
     }
     setG(null);
   }
   /** A footprint outline that follows the ground (or sits on the water). */
-  private footprint(f: { circle: [number, number, number] } | { rect: [number, number, number, number]; y?: number }) {
+  private footprint(f: { circle: [number, number, number]; y?: number } | { rect: [number, number, number, number]; y?: number }) {
     const w = this.world;
     const pts: [number, number][] = [];
     if ("circle" in f) {
@@ -1004,7 +1035,7 @@ export class Tools {
     }
     const mb = new MeshBuilder();
     mb.paint([1, 1, 1], 0);
-    const fixed = "rect" in f ? f.y : undefined;
+    const fixed = f.y;
     const y = (x: number, z: number) => fixed ?? Math.max(w.height(Math.min(N, Math.max(0, x)), Math.min(N, Math.max(0, z))), WATER_Y) + 0.06;
     mb.tube(pts.map(([x, z]) => [x, y(x, z), z] as [number, number, number]), 0.035, 4);
     return mb.toGeometry();

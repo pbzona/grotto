@@ -158,6 +158,29 @@ function palm(mb: MeshBuilder, r: () => number) {
 }
 
 /** Lofted hull: shared by boats and the beached tavern. Returns nothing; draws outer + inner shell + gunwale. */
+/** A depth-only lid across the hull at the waterline: drawn after the boat but before the water, it keeps the sea out of the hull. */
+const hullMaskMat = (() => { const m = new THREE.MeshBasicNodeMaterial(); m.colorWrite = false; return m; })();
+export function hullMask(len: number, wid: number, dep: number, y: number): THREE.Mesh {
+  const NL = 24, pts: [number, number][] = [];
+  for (let i = 0; i <= NL; i++) {
+    const t = i / NL * 2 - 1;
+    const hwid = wid / 2 * Math.pow(Math.max(0, 1 - (t > 0 ? t * t : t * t * 0.55)), 0.55);
+    const d = dep * (1 - 0.25 * t * t);
+    const sheer = 0.12 * t * t * dep / 0.35;
+    const sN = (sheer - y) / d;
+    pts.push([hwid * 0.97 * Math.sqrt(Math.max(0, 1 - sN * sN)), t * len / 2]);
+  }
+  const pos: number[] = [];
+  for (let i = 0; i < NL; i++) {
+    const [x0, z0] = pts[i], [x1, z1] = pts[i + 1];
+    pos.push(-x0, y, z0, x1, y, z1, x0, y, z0, -x0, y, z0, -x1, y, z1, x1, y, z1); // wound to face up
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  const m = new THREE.Mesh(g, hullMaskMat);
+  m.renderOrder = 1; m.castShadow = false; m.receiveShadow = false;
+  return m;
+}
 export function hull(mb: MeshBuilder, len: number, wid: number, dep: number, paint: V3, inner: V3, stripe?: V3) {
   const NL = 12, NA = 7;
   const ring = (i: number): V3[] => {
@@ -365,6 +388,9 @@ export function buildBoat(p: Prop, mat: THREE.Material): Boat {
   const mesh = new THREE.Mesh(mb.toGeometry(), mat);
   mesh.castShadow = true; mesh.receiveShadow = true;
   mesh.userData.owners = mb.owners; mesh.userData.triOwner = mb.triOwner;
+  // keep the sea out of the hull: a depth-only lid a little above the waterline
+  const fb = boatFreeboard(p.type);
+  mesh.add(big ? hullMask(3.8, 1.35, 0.6, -fb + 0.07) : hullMask(1.9, 0.78, 0.3, -fb + 0.06));
   return { mesh, phase: r() * 10, x: p.x, z: p.z, rot: p.rot, big };
 }
 export function updateBoat(b: Boat, t: number) {
