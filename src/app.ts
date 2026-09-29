@@ -1,11 +1,12 @@
 import * as THREE from "three/webgpu";
 import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { World, N, uid, newVolume, DECK_Y, Prop, PropType, WalkNode, WalkEdge, PAINT_CH, PaintType, carveCove } from "./world";
+import { World, N, uid, newVolume, DECK_Y, Prop, PropType, WalkNode, WalkEdge, PAINT_CH, PaintType, carveCove, isLandmark, landmarkSamples } from "./world";
 import { Terrain } from "./terrain";
 import type { Materials } from "./materials";
 import { LightMap } from "./lighting";
 import { MeshBuilder, Part, mergeParts } from "./mesh";
 import { buildHouse, makeHouse, HouseBuild, Light } from "./houses";
+import { grottoCells, fitLandmark } from "./landmarks";
 import { buildWalks, defaultDeckY, WALK_W } from "./walks";
 import { buildProps, buildBoat, updateBoat, Boat, stringLights, PROP_INFO, buildScatter } from "./props";
 
@@ -182,18 +183,19 @@ export class App {
     if (type === "grotto") this.carveGrotto(p);
     return p;
   }
-  /** A sea grotto cuts a flooded channel into whatever cliff it's set against, under its rock vault. */
+  /** A sea grotto cuts a flooded channel into the cliff it faces, under its rock vault; the original levels are kept so it can be undone. */
   carveGrotto(p: Prop) {
-    const w = this.world, c = Math.cos(p.rot), s = Math.sin(p.rot);
-    for (let j = Math.floor(p.z - 6); j <= Math.ceil(p.z + 6); j++) for (let i = Math.floor(p.x - 6); i <= Math.ceil(p.x + 6); i++) {
-      if (i < 0 || j < 0 || i >= N || j >= N) continue;
-      const dx = i + 0.5 - p.x, dz = j + 0.5 - p.z;
-      const lx = dx * c + dz * s, lz = -dx * s + dz * c; // world -> local
-      if (lz > 1.5 || lz < -5.2) continue;
-      const ax = Math.abs(lx);
-      if (ax < 2.3 && lz < 1.5) w.setLevel(i, j, Math.min(w.level(i, j), 3));        // flooded floor
-      else if (ax < 4.0 && lz < 0.5) w.setLevel(i, j, Math.min(w.level(i, j), 10));  // the vault's shoulders
-    }
+    const w = this.world;
+    this.uncarve(p);
+    const carved: [number, number, number][] = [];
+    for (const c of grottoCells(p)) { const l = w.level(c.i, c.j); if (l > c.cap) { carved.push([c.i, c.j, l]); w.setLevel(c.i, c.j, c.cap); } }
+    p.carved = carved;
+  }
+  /** Put back whatever a grotto cut away. */
+  uncarve(p: Prop) {
+    if (!p.carved) return;
+    for (const [i, j, l] of p.carved) this.world.setLevel(i, j, l);
+    p.carved = undefined;
   }
   paintDisc(type: PaintType | "erase", x: number, z: number, r: number, strength = 1) {
     const w = this.world;
@@ -259,9 +261,13 @@ export class App {
     // --- east: lookout tower on the headland ---
     H("h", 0.955, [newVolume(41, 36, 43, 38, 3, "hip")], 0).volumes[0].kind = "lookout";
     // --- props ---
-    this.addProp("hull", 31.2, 17.4, Math.PI / 2 + 0.12, 0.42);
-    this.addProp("grotto", 41.5, 41.2, Math.PI / 2, 0.3);
-    this.addProp("lighthouse", 2.8, 44.5, 0, 0.2);
+    // landmarks are sited by the same solver the tools use
+    for (const [type, x, z, seed, opts] of [["hull", 31.2, 17.4, 0.42, { cabin: "stern", annex: "deck", masts: 1 }], ["grotto", 41.5, 40.5, 0.3, { dock: "left" }], ["lighthouse", 2.8, 44.5, 0.2, {}]] as const) {
+      const f = fitLandmark(w, type, x, z, seed, { ...opts }, false);
+      const p = this.addProp(type, f.ok ? f.x : x, f.ok ? f.z : z, f.ok ? f.rot : 0, seed);
+      p.opts = { ...opts };
+      if (type === "grotto") this.carveGrotto(p);
+    }
     this.addProp("sloop", 21.6, 30.2, 0.1, 0.61);
     this.addProp("rowboat", 27.5, 30.9, Math.PI / 2 - 0.2, 0.17);
     this.addProp("rowboat", 18.3, 29.8, 0.4, 0.83);
@@ -283,6 +289,11 @@ export class App {
     for (let z = 23; z <= 34; z += 1) this.paintDisc("path", 10.7, z, 0.6);
     for (let z = 18; z <= 23; z += 1) this.paintDisc("path", 10 + (z - 18) * 0.15, z, 0.5);
     this.paintDisc("greenery", 5, 28.5, 1.8); this.paintDisc("greenery", 25, 10.5, 1.6); this.paintDisc("greenery", 31.5, 11, 1.2);
+    // nothing small may end up inside a landmark
+    for (const lm of [...w.props.values()].filter(p => isLandmark(p.type))) {
+      const pts = landmarkSamples(lm);
+      for (const o of [...w.props.values()]) if (!isLandmark(o.type) && pts.some(([x, z]) => Math.hypot(x - o.x, z - o.z) < 0.7)) w.props.delete(o.id);
+    }
     w.pruneNodes();
     w.version++;
   }

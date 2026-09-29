@@ -1,10 +1,11 @@
 import * as THREE from "three/webgpu";
 import type { App } from "./app";
-import { World, N, snap, House, Volume, newVolume, uid, FLOOR_H, MAX_LEVEL, PaintType, PropType, WalkNode, WalkEdge, RoofType, WATER_Y, DECK_Y } from "./world";
+import { World, N, snap, House, Volume, newVolume, uid, FLOOR_H, MAX_LEVEL, PaintType, PropType, WalkNode, WalkEdge, RoofType, WATER_Y, DECK_Y, Prop, isLandmark, hullDims, grottoDims, GROTTO_OPTS, propOpt } from "./world";
 import { MeshBuilder } from "./mesh";
 import { buildHouse, houseLayout, makeHouse, nodeWall, sideLine, HouseBuild, Bay } from "./houses";
 import { defaultDeckY, landingRadius, WALK_W } from "./walks";
 import { buildOneProp, buildBoat, PROP_INFO, boatFreeboard } from "./props";
+import { fitLandmark, Fit } from "./landmarks";
 import { U } from "./materials";
 
 export type ToolId = "select" | "house" | "walk" | "terrain" | "paint" | "prop" | "erase";
@@ -62,6 +63,19 @@ export class Tools {
   paintType: PaintType | "erase" = "path";
   propType: PropType = "palm";
   propRot = 0;
+  /** the seed the ghost shows, so what you see is what gets placed */
+  propSeed = Math.random();
+  /** hull tavern end-for-end; grotto dock side for the next placement */
+  landFlip = false;
+  ghostOpts: Prop["opts"] = {};
+  private fitCache: { key: string; fit: Fit } | null = null;
+  fitAt(type: PropType, x: number, z: number, selfId = "ghost", seed = this.propSeed, opts = this.ghostOpts, flip = this.landFlip): Fit {
+    const key = [type, Math.round(x * 4), Math.round(z * 4), selfId, seed, JSON.stringify(opts), flip, this.world.version].join("|");
+    if (this.fitCache?.key === key) return this.fitCache.fit;
+    const fit = fitLandmark(this.world, type, x, z, seed, opts, flip, selfId);
+    this.fitCache = { key, fit };
+    return fit;
+  }
   preset = "cottage";
   walkStyle: WalkEdge["style"] = "deck";
   walkPad = false;
@@ -285,7 +299,13 @@ export class Tools {
           n.x = Math.round(x * 4) / 4; n.z = Math.round(z * 4) / 4;
         } else {
           const p = this.world.props.get(d.id); if (!p) break;
-          p.x = Math.round(x * 10) / 10; p.z = Math.round(z * 10) / 10;
+          if (isLandmark(p.type)) {
+            if (p.carved) { this.app.uncarve(p); this.app.changed({ terrain: true }); }
+            const f = fitLandmark(this.world, p.type, x, z, p.seed, p.opts, false, p.id);
+            if (!f.ok) break;
+            p.x = f.x; p.z = f.z;
+            if (p.type !== "lighthouse") p.rot = f.rot + (p.type === "hull" && Math.cos(f.rot - p.rot) < 0 ? Math.PI : 0);
+          } else { p.x = Math.round(x * 10) / 10; p.z = Math.round(z * 10) / 10; }
         }
         d.changed = true; this.app.changed({ structures: true }); this.refreshHandles();
         break;
@@ -337,6 +357,7 @@ export class Tools {
         this.refreshHandles(); this.onChange?.();
         break;
       case "nodeY": case "nodeMove": case "propMove":
+        if (d.t === "propMove") { const pr = this.world.props.get(d.id); if (pr?.type === "grotto" && !pr.carved) { this.app.carveGrotto(pr); this.app.changed({ terrain: true }); } }
         if (!d.changed) this.app.cancel(); else if (d.t !== "propMove") this.world.pruneNodes();
         this.onChange?.();
         break;
@@ -357,9 +378,14 @@ export class Tools {
   setBrush(b: number) { this.brush = Math.max(0.5, Math.min(6, b)); this.updateBrush(); this.onChange?.(); }
   nudgeLift(dir: number) { this.walkLift = Math.max(-2, Math.min(8, this.walkLift + dir * 0.25)); this.updateGhost(); this.onChange?.(); }
   rotate() {
-    if (this.tool === "prop") { this.propRot += Math.PI / 4; this.updateGhost(); return; }
+    if (this.tool === "prop") {
+      if (this.propType === "hull") this.landFlip = !this.landFlip;
+      else if (this.propType === "grotto") { const d = GROTTO_OPTS.dock; const cur = propOpt({ seed: this.propSeed, opts: this.ghostOpts }, "dock", d); this.ghostOpts = { ...this.ghostOpts, dock: d[(d.indexOf(cur) + 1) % d.length] }; }
+      else this.propRot += Math.PI / 4;
+      this.updateGhost(); this.onChange?.(); return;
+    }
     const s = this.sel;
-    if (s?.kind === "prop") { const p = this.world.props.get(s.id); if (p) { this.app.begin(); p.rot += Math.PI / 4; this.app.changed({ structures: true }); } }
+    if (s?.kind === "prop") { const p = this.world.props.get(s.id); if (p && p.type !== "grotto") { this.app.begin(); p.rot += p.type === "hull" ? Math.PI : Math.PI / 4; this.app.changed({ structures: true }); } }
     else if (s?.kind === "house") this.houseEdit("ridge");
   }
   deleteSelection() {
@@ -371,7 +397,11 @@ export class Tools {
       else { this.world.houses.delete(s.id); this.select(null); }
     } else if (s.kind === "node") { this.world.removeNode(s.id); this.world.pruneNodes(); this.select(null); }
     else if (s.kind === "edge") { this.world.edges.delete(s.id); this.world.pruneNodes(); this.select(null); }
-    else if (s.kind === "prop") { this.world.props.delete(s.id); this.select(null); }
+    else if (s.kind === "prop") {
+      const pr = this.world.props.get(s.id);
+      if (pr?.carved) { this.app.uncarve(pr); this.app.changed({ terrain: true }); }
+      this.world.props.delete(s.id); this.select(null);
+    }
     this.app.changed({ structures: true });
   }
   escape() {
@@ -914,10 +944,22 @@ export class Tools {
   // ---------- props + erase ----------
   private placeProp() {
     const p = this.hover ?? this.surface(); if (!p) return;
+    if (isLandmark(this.propType)) {
+      const f = this.fitAt(this.propType, p.x, p.z);
+      if (!f.ok) { this.toast(f.why ?? "Won't fit here"); return; }
+      this.app.begin();
+      const np = this.app.addProp(this.propType, f.x, f.z, f.rot, this.propSeed);
+      if (Object.keys(this.ghostOpts ?? {}).length) { np.opts = { ...this.ghostOpts }; if (np.type === "grotto") this.app.carveGrotto(np); }
+      this.propSeed = Math.random(); this.ghostOpts = {};
+      this.app.changed({ structures: true, terrain: np.type === "grotto" });
+      this.onChange?.();
+      return;
+    }
     const chk = this.propCheck(this.propType, p.x, p.z);
     if (!chk.ok) { this.toast(chk.why ?? "Won't fit there"); return; }
     this.app.begin();
-    this.app.addProp(this.propType, Math.round(p.x * 10) / 10, Math.round(p.z * 10) / 10, this.propRot, Math.random());
+    this.app.addProp(this.propType, Math.round(p.x * 10) / 10, Math.round(p.z * 10) / 10, this.propRot, this.propSeed);
+    this.propSeed = Math.random();
     this.app.changed({ structures: true });
   }
   /** Is a walkway within r of this point (edges as capsules, landings as discs)? */
@@ -957,7 +999,7 @@ export class Tools {
   }
   updateGhost() {
     this.updateBrush();
-    type Foot = { circle: [number, number, number]; y?: number } | { rect: [number, number, number, number]; y?: number };
+    type Foot = { circle: [number, number, number]; y?: number } | { rect: [number, number, number, number]; y?: number } | { poly: [number, number][]; y?: number };
     const setG = (g: THREE.BufferGeometry | null, bad = false, foot?: Foot) => {
       // never hand these meshes an empty geometry: node materials would compile against missing attributes
       const prev = new Set([this.ghost, this.ghostBad, this.ghostX, this.ghostBadX, this.foot].map(m => m.geometry));
@@ -983,7 +1025,15 @@ export class Tools {
       return setG(mb.toGeometry(), !w.footprintFree(r.x0, r.z0, r.x1, r.z1), { rect: [r.x0, r.z0, r.x1, r.z1], y: houseLayout(w, h).base + 0.03 });
     }
     if (this.tool === "prop" && this.hover) {
-      const p = { id: "ghost", type: this.propType, x: this.hover.x, z: this.hover.z, rot: this.propRot, seed: 0.5 };
+      if (isLandmark(this.propType)) {
+        const f = this.fitAt(this.propType, this.hover.x, this.hover.z);
+        const gp: Prop = { id: "ghost", type: this.propType, x: f.x, z: f.z, rot: f.rot, seed: this.propSeed, opts: this.ghostOpts };
+        const mb = new MeshBuilder();
+        buildOneProp(w, mb, gp, { lights: [], foam: [] });
+        if (!f.ok) this.toastSoft(f.why ?? "Won't fit here");
+        return setG(mb.toGeometry(), !f.ok, { poly: landmarkOutline(gp) });
+      }
+      const p = { id: "ghost", type: this.propType, x: this.hover.x, z: this.hover.z, rot: this.propRot, seed: this.propSeed };
       if (PROP_INFO[this.propType].water) {
         const b = buildBoat(p, this.app.d.mats.ghost);
         const g = b.mesh.geometry;
@@ -1022,10 +1072,14 @@ export class Tools {
     setG(null);
   }
   /** A footprint outline that follows the ground (or sits on the water). */
-  private footprint(f: { circle: [number, number, number]; y?: number } | { rect: [number, number, number, number]; y?: number }) {
+  private footprint(f: { circle: [number, number, number]; y?: number } | { rect: [number, number, number, number]; y?: number } | { poly: [number, number][]; y?: number }) {
     const w = this.world;
     const pts: [number, number][] = [];
-    if ("circle" in f) {
+    if ("poly" in f) {
+      const P = f.poly;
+      for (let k = 0; k < P.length; k++) { const [ax, az] = P[k], [bx, bz] = P[(k + 1) % P.length]; const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 0.3)); for (let i = 0; i < n; i++) pts.push([ax + (bx - ax) * i / n, az + (bz - az) * i / n]); }
+      pts.push(P[0]);
+    } else if ("circle" in f) {
       const [x, z, r] = f.circle;
       for (let i = 0; i <= 40; i++) { const a = i / 40 * Math.PI * 2; pts.push([x + Math.cos(a) * r, z + Math.sin(a) * r]); }
     } else {
@@ -1040,6 +1094,9 @@ export class Tools {
     mb.tube(pts.map(([x, z]) => [x, y(x, z), z] as [number, number, number]), 0.035, 4);
     return mb.toGeometry();
   }
+  private softT = 0;
+  /** A quiet reason while hovering a spot a landmark can't use (rate-limited so it doesn't flicker). */
+  private toastSoft(msg: string) { const now = performance.now(); if (now - this.softT > 1800) { this.softT = now; this.toast(msg); } }
   /** Can this prop go here? The ghost turns coral when not, and placing is refused with the same reason. */
   propCheck(type: PropType, x: number, z: number): { ok: boolean; why?: string } {
     const w = this.world, info = PROP_INFO[type];
@@ -1084,3 +1141,17 @@ export class Tools {
   }
 }
 void DECK_Y;
+
+/** Outline of a landmark's footprint for the placement ghost. */
+function landmarkOutline(p: Prop): [number, number][] {
+  const c = Math.cos(p.rot), s = Math.sin(p.rot), out: [number, number][] = [];
+  const W = (lx: number, lz: number): [number, number] => [p.x + lx * c - lz * s, p.z + lx * s + lz * c];
+  if (p.type === "hull") {
+    const { len, wid } = hullDims(p);
+    for (let k = 0; k < 32; k++) { const a = (k / 32) * Math.PI * 2; out.push(W(Math.cos(a) * wid * 0.55, Math.sin(a) * len * 0.52)); }
+  } else if (p.type === "grotto") {
+    const { R, D, T } = grottoDims(p);
+    for (const [lx, lz] of [[-R - T, 0.8], [R + T, 0.8], [R + T, -D], [-R - T, -D]]) out.push(W(lx, lz));
+  } else for (let k = 0; k < 24; k++) { const a = (k / 24) * Math.PI * 2; out.push(W(Math.cos(a) * 1.25, Math.sin(a) * 1.25)); }
+  return out;
+}

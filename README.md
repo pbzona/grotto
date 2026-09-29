@@ -26,7 +26,7 @@ saved cove and loads the starter village.
 | **Docks & walkways** (3) | Click to lay posts or drag a segment. With Select, drag any post (including the far end of a pier) to move it, use the orange cones for height, or pull a dead end's arrow to extend it. Over water it's a dock on posts, on land a boardwalk, and steep runs become stairs. Start or end on an existing walkway to branch (junctions get landings); end against a house wall and a door opens there, on whichever floor matches. `[` `]` raise or lower the next post. Rope style sags between tall posts for bridges. |
 | **Terrain** (4) | Raise, lower, flatten and smooth, in terraces. Cliffs form on their own. |
 | **Paint** (5) | Sandy paths, cobbles, greenery (with bougainvillea blooms) and sand. |
-| **Props & boats** (6) | Palms, bougainvillea, barrels, crates, lanterns, drying nets, laundry, a crane, rowboats and sloops that bob at their moorings, and landmarks: the hull tavern, a sea grotto that carves itself into the cliff, and a lighthouse. |
+| **Props & boats** (6) | Palms, bougainvillea, barrels, crates, lanterns, drying nets, laundry, a crane, rowboats and sloops that bob at their moorings, and landmarks. Landmarks are sited rather than dropped: the ghost searches around the cursor for a spot and heading that suits the ground and clears houses, walkways and props. The hull tavern beds into a beach along the shore, pitched and canted to the slope (R flips it); the sea grotto cuts into a cliff with water in front, and the cliff grows back over its vault (R swaps the dock side). Each has variants you can pick in the panel: hull size, cabin (low, tall or stern), roof, masts and annex (deck or shack); grotto size, arch (round, tall or wide) and dock side. Moving or removing a grotto restores the cliff it cut. |
 
 Camera: right-drag to orbit, scroll to zoom, WASD or the arrow keys to pan, Q/E to turn, F to reset.
 N plays the day, and `,` `.` step the hour. Press `?` in the app for every shortcut.
@@ -43,7 +43,7 @@ from a CPU-baked light map rather than dynamic lights.
 Visual and interaction checks drive the dev server with
 [agent-browser](https://github.com/vercel-labs/agent-browser): `test/ab-shot.sh` renders an
 on-demand frame (`?test`) and screenshots it, and `test/ab-lib.sh` has helpers for projecting
-world points to the screen and sending real mouse input. `test/sweep.js` is a tool regression sweep and `test/features.js` checks pier-end dragging, extending, wall-segment wings and part lifts;
+world points to the screen and sending real mouse input. `test/sweep.js` is a tool regression sweep and `test/landmarks.js` checks landmark siting, carving and restore, `test/features.js` checks pier-end dragging, extending, wall-segment wings and part lifts;
 (terrain, paint, props, boats, erase, walkways, house edits, undo/redo, autosave, shortcuts): open
 `/?webgl&test&fresh` and run it with `agent-browser eval --stdin < test/sweep.js`.
 

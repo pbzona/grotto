@@ -3,7 +3,7 @@ import { Tools, ToolId, HOUSE_PRESETS } from "./tools";
 import { PALETTES } from "./houses";
 import { PROP_INFO } from "./props";
 import { formatHour } from "./lighting";
-import type { PropType } from "./world";
+import { type PropType, type Prop, propOpt, HULL_OPTS, GROTTO_OPTS } from "./world";
 
 const ICON: Record<string, string> = {
   select: '<path d="M5 3l14 8-6 1.5L10 19z"/>',
@@ -272,7 +272,7 @@ export class UI {
       case "house": return `drag or click · ${k("R")} turn`;
       case "walk": return t.chain ? `click to add · ${k("[")}${k("]")} height · ${k("Esc")} finish` : `click to start · snaps to docks & walls`;
       case "terrain": case "paint": return `drag to ${t.tool === "paint" ? "paint" : t.terrainOp} · ${k("[")}${k("]")} size`;
-      case "prop": return `click to place · ${k("R")} turn`;
+      case "prop": return t.propType === "hull" ? `snaps to the shore · ${k("R")} flip` : t.propType === "grotto" ? `snaps into a cliff · ${k("R")} dock side` : `click to place · ${k("R")} turn`;
       case "erase": return `click to remove · ${k("Ctrl")}${k("Z")} undo`;
     }
   }
@@ -300,6 +300,24 @@ export class UI {
     };
     const stepper = (host: HTMLElement, val: string, dec: () => void, inc: () => void) => {
       chip(host, "−", false, dec, "", "sq"); const v = document.createElement("span"); v.className = "val"; v.textContent = val; host.appendChild(v); chip(host, "+", false, inc, "", "sq");
+    };
+    /** variant choices for a landmark: size, cabin, roof, masts, annex / size, arch, dock */
+    const variantRows = (pr: Prop, set: (k: string, v: string | number) => void) => {
+      const pick = (label: string, key: string, choices: readonly (string | number)[], names: string[]) => {
+        const cur = propOpt(pr, key, choices);
+        seg(row(label), choices.map((c, i) => [String(c), names[i]] as [string, string]), String(cur), v => set(key, typeof choices[0] === "number" ? +v : v));
+      };
+      if (pr.type === "hull") {
+        pick("Size", "size", HULL_OPTS.size, ["S", "M", "L"]);
+        pick("Cabin", "cabin", HULL_OPTS.cabin, ["Low", "Tall", "Stern"]);
+        pick("Roof", "roof", HULL_OPTS.roof, ["Gable", "Hip", "Awning"]);
+        pick("Masts", "masts", HULL_OPTS.masts, ["0", "1", "2"]);
+        pick("Annex", "annex", HULL_OPTS.annex, ["None", "Deck", "Shack"]);
+      } else if (pr.type === "grotto") {
+        pick("Size", "size", GROTTO_OPTS.size, ["S", "M", "L"]);
+        pick("Arch", "arch", GROTTO_OPTS.arch, ["Round", "Tall", "Wide"]);
+        pick("Dock", "dock", GROTTO_OPTS.dock, ["Left", "Right", "Both"]);
+      }
     };
     const actions = (items: [string, () => void, string?][]) => { const d = document.createElement("div"); d.className = "pa"; for (const [l, fn, cls] of items) chip(d, l, false, fn, "", cls ?? ""); p.appendChild(d); };
     const I = (d: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
@@ -362,7 +380,11 @@ export class UI {
       } else if (s.kind === "prop") {
         const pr = app.world.props.get(s.id); if (!pr) return;
         title(PROP_INFO[pr.type].label);
-        actions([["Turn", () => t.rotate()], ["Reroll", () => { app.begin(); pr.seed = Math.random(); app.changed({ structures: true }); }], ["Remove", () => t.deleteSelection(), "warn"]]);
+        const regrow = () => { if (pr.type === "grotto") app.carveGrotto(pr); app.changed({ structures: true, terrain: pr.type === "grotto" }); this.refresh(); };
+        variantRows(pr, (k, v) => { app.begin(); pr.opts = { ...pr.opts, [k]: v }; regrow(); });
+        const acts: [string, () => void, string?][] = [["Reroll", () => { app.begin(); pr.seed = Math.random(); pr.opts = undefined; regrow(); }], ["Remove", () => t.deleteSelection(), "warn"]];
+        if (pr.type !== "grotto") acts.unshift([pr.type === "hull" ? "Flip" : "Turn", () => t.rotate()]);
+        actions(acts);
       }
       return;
     }
@@ -396,6 +418,11 @@ export class UI {
         const groups: [string, PropType[]][] = [["Green", ["palm", "bougainvillea", "scrub", "rock"]], ["Dock", ["barrels", "crates", "lantern", "nets", "laundry", "crane"]], ["Boats", ["rowboat", "sloop"]], ["Big", ["hull", "grotto", "lighthouse"]]];
         const short: Record<string, string> = { bougainvillea: "Blooms", nets: "Nets", hull: "Tavern", grotto: "Grotto" };
         for (const [g, items] of groups) seg(row(g), items.map(i => [i, short[i] ?? PROP_INFO[i].label, PROP_INFO[i].label] as [string, string, string]), t.propType, v => { t.propType = v as PropType; this.refresh(); t.updateGhost(); });
+        if (t.propType === "hull" || t.propType === "grotto") {
+          const gp = { type: t.propType, seed: t.propSeed, opts: t.ghostOpts } as Prop;
+          variantRows(gp, (k, v) => { t.ghostOpts = { ...t.ghostOpts, [k]: v }; this.refresh(); t.updateGhost(); });
+          actions([["Shuffle", () => { t.propSeed = Math.random(); t.ghostOpts = {}; this.refresh(); t.updateGhost(); }]]);
+        }
         break;
       }
     }

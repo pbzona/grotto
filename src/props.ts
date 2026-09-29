@@ -1,8 +1,9 @@
 import * as THREE from "three/webgpu";
-import { World, Prop, WATER_Y, N, fbm } from "./world";
+import { World, Prop, WATER_Y, N, fbm, isLandmark, landmarkSamples } from "./world";
 import { MeshBuilder, V3, M, hexRGB, rng, hsh, add, scl, lerp3, norm, sub } from "./mesh";
 import type { Light, Anchor } from "./houses";
 import { landingRadius, isStairs, lanternPost } from "./walks";
+import { buildHullTavern, buildGrotto, buildLighthouseBase } from "./landmarks";
 
 /** Where a prop stands: the ground, or the deck of a walkway it sits on. */
 export function surfaceAt(world: World, x: number, z: number) {
@@ -47,7 +48,9 @@ export function buildOneProp(world: World, mb: MeshBuilder, p: Prop, out: PropBu
     // build in local space (x right, z forward), rotate + translate
     mb.xf = (q: V3) => [p.x + (q[0] * c - q[2] * s) * sc, y + q[1] * sc, p.z + (q[0] * s + q[2] * c) * sc];
     const L: Light[] = [];
-    propMesh(mb, p, L, out, y);
+    if (p.type === "hull") { buildHullTavern(mb, world, p, L); out.lights.push(...L); mb.xf = null; return; }
+    if (p.type === "grotto") buildGrotto(mb, world, p, L);
+    else { if (p.type === "lighthouse") buildLighthouseBase(mb, world, p, y); propMesh(mb, p, L, out, y); }
     for (const l of L) { const w = mb.xf([l.x, l.y, l.z]); out.lights.push({ ...l, x: w[0], y: w[1], z: w[2] }); }
     mb.xf = null;
   }
@@ -115,14 +118,12 @@ function propMesh(mb: MeshBuilder, p: Prop, L: Light[], out: PropBuild, y: numbe
       mb.paint(hexRGB("#9a7650"), M.plank); mb.box([1.62, 0.62, -0.18], [2.0, 0.95, 0.16]);
       break;
     }
-    case "hull": hullTavern(mb, r, L, y); break;
-    case "grotto": grotto(mb, r, L); break;
     case "lighthouse": lighthouse(mb, L); break;
   }
   void out;
 }
 
-function barrel(mb: MeshBuilder, x: number, z: number, y0: number, r: () => number) {
+export function barrel(mb: MeshBuilder, x: number, z: number, y0: number, r: () => number) {
   mb.paint(hexRGB(r() < 0.5 ? "#8a5f3c" : "#9c6e45"), M.plank);
   mb.cyl(x, z, y0, y0 + 0.24, 0.17, 0.2, 9, false); mb.cyl(x, z, y0 + 0.24, y0 + 0.48, 0.2, 0.17, 9, true);
   mb.paint(hexRGB("#3b332c"), M.metal);
@@ -212,120 +213,6 @@ export function hull(mb: MeshBuilder, len: number, wid: number, dep: number, pai
   for (let k = 0; k < NA; k++) mb.tri([[0, st[0][1], st[0][2]], st[k], st[k + 1]], [0, 0, -1]);
   mb.paint(hexRGB("#6b4a33"), M.plank);
   for (const side of [0, NA]) mb.tube(rings.map(rr => [rr[side][0], rr[side][1] + 0.02, rr[side][2]] as V3), 0.035, 4);
-}
-
-function hullTavern(mb: MeshBuilder, r: () => number, L: Light[], y: number) {
-  // the old hull lies canted on the sand; a plank house is built into her deck
-  const len = 8, wid = 3.2, dep = 1.7;
-  const tilt = 0.14;
-  const prev = mb.xf!;
-  const ct = Math.cos(tilt), st = Math.sin(tilt);
-  mb.xf = (q: V3) => prev([q[0] * ct - (q[1]) * st, q[0] * st + q[1] * ct + dep * 0.55, q[2]]);
-  hull(mb, len, wid, dep, hexRGB("#3f5f63"), hexRGB("#6b4a33"), hexRGB("#b85a3a"));
-  // deck
-  mb.paint(hexRGB("#9c7b58"), M.plank);
-  mb.box([-wid * 0.46, 0.05, -len * 0.42], [wid * 0.46, 0.13, len * 0.38]);
-  // cabin with a patched gable roof
-  const cw = 1.2, cl = 2.6, ch = 1.25;
-  mb.paint(hexRGB("#c06c47"), M.plank); mb.box([-cw, 0.13, -cl], [cw, 0.13 + ch, cl], "-y");
-  const ry = 0.13 + ch;
-  mb.paint(hexRGB("#8f6f55"), M.tile);
-  for (const sgn of [-1, 1]) {
-    mb.quad([[sgn * (cw + 0.3), ry - 0.1, -cl - 0.3], [sgn * (cw + 0.3), ry - 0.1, cl + 0.3], [0, ry + 0.9, cl + 0.3], [0, ry + 0.9, -cl - 0.3]], [sgn, 1, 0]);
-    mb.quad([[sgn * (cw + 0.3), ry - 0.16, -cl - 0.3], [sgn * (cw + 0.3), ry - 0.16, cl + 0.3], [0, ry + 0.84, cl + 0.3], [0, ry + 0.84, -cl - 0.3]], [0, -1, 0]);
-  }
-  mb.paint(hexRGB("#b85a3a"), M.tile); mb.box([cw * 0.1, ry + 0.35, -0.6], [cw * 0.8, ry + 0.45, 0.5]);
-  mb.paint(hexRGB("#c06c47"), M.plank);
-  for (const zz of [-cl, cl]) mb.tri([[-cw, ry, zz], [cw, ry, zz], [0, ry + 0.85, zz]], [0, 0, zz]);
-  // windows along the hull and cabin
-  for (let i = 0; i < 4; i++) {
-    const z = -2.6 + i * 1.6;
-    mb.paint([0.2, 0.3, 0.33], M.glass); mb.box([-wid * 0.5 - 0.02, -0.55, z - 0.2], [-wid * 0.5 + 0.2, -0.2, z + 0.2]);
-    L.push({ x: -wid * 0.5 - 0.4, y: -0.4, z, r: 1.8, i: 0.35 });
-  }
-  for (let i = 0; i < 3; i++) { const z = -1.8 + i * 1.8; mb.paint([0.2, 0.3, 0.33], M.glass); mb.box([-cw - 0.03, 0.55, z - 0.25], [-cw + 0.02, 1.0, z + 0.25]); mb.box([cw - 0.02, 0.55, z - 0.25], [cw + 0.03, 1.0, z + 0.25]); }
-  // door + gangplank on the low side
-  mb.paint(hexRGB("#3f8783"), M.plank); mb.box([-cw - 0.04, 0.13, 1.6], [-cw + 0.01, 1.05, 2.2]);
-  // stubby mast with a pennant and a string of lanterns
-  mb.paint(hexRGB("#6b4a33"), M.plank); mb.cyl(0.6, len * 0.3, 0.13, 3.4, 0.1, 0.08, 7);
-  mb.paint(hexRGB("#e9dcbc"), M.cloth);
-  mb.tri([[0.6, 3.35, len * 0.3], [0.6, 2.95, len * 0.3], [0.6, 3.15, len * 0.3 + 1.1]], [1, 0, 0]);
-  mb.tri([[0.6, 3.35, len * 0.3], [0.6, 2.95, len * 0.3], [0.6, 3.15, len * 0.3 + 1.1]], [-1, 0, 0]);
-  const tip: V3 = [0.6, 3.2, len * 0.3];
-  for (const end of [[-wid * 0.45, 0.4, len * 0.45], [-wid * 0.45, 0.4, -len * 0.1]] as V3[]) {
-    const pts: V3[] = [];
-    for (let i = 0; i <= 10; i++) { const t = i / 10; const q = lerp3(tip, end, t); pts.push([q[0], q[1] - Math.sin(Math.PI * t) * 0.4, q[2]]); }
-    mb.paint(hexRGB("#3b332c"), M.cloth); mb.tube(pts, 0.01, 3);
-    for (let i = 2; i < 10; i += 2) { mb.paint(hexRGB(i % 4 ? "#ffcf80" : "#ff9f6a"), M.lamp); mb.blob(add(pts[i], [0, -0.07, 0]), [0.05, 0.07, 0.05], i, 0); L.push({ x: pts[i][0], y: pts[i][1], z: pts[i][2], r: 1.6, i: 0.3 }); }
-  }
-  mb.xf = prev;
-  // steps up to the door
-  mb.paint(hexRGB("#9c7b58"), M.plank);
-  for (let i = 0; i < 4; i++) mb.box([-wid * 0.55 - 0.9 + i * 0.22, 0, 1.55], [-wid * 0.55 - 0.68 + i * 0.22, 0.12 + i * 0.25, 2.25]);
-  // sign
-  mb.paint(hexRGB("#6b4a33"), M.plank); mb.cyl(-wid * 0.55 - 1.4, 3.1, 0, 1.6, 0.04, 0.04, 6);
-  mb.paint(hexRGB("#e6a676"), M.plank); mb.box([-wid * 0.55 - 1.45, 1.1, 2.7], [-wid * 0.55 - 1.37, 1.5, 3.5]);
-  L.push({ x: -wid * 0.55 - 0.8, y: 1, z: 1.9, r: 3, i: 0.9 });
-  void r; void y;
-}
-
-function grotto(mb: MeshBuilder, r: () => number, L: Light[]) {
-  // a vaulted sea cave in honey sandstone, opening toward +z, with a hidden dock inside
-  const R = 2.7, D = 4.6, T = 1.1;
-  const NU = 28, NV = 12;
-  const noise = (u: number, v: number, rad: number) => fbm(u * 4.2 + rad * 0.7, v * 3.1 + rad * 0.3) - 0.5;
-  const shell = (rad: number, u: number, v: number): V3 => {
-    const th = Math.PI * u; // 0..PI across the arch
-    const depth = -D * v;
-    const bulge = 1 + 0.12 * Math.sin(v * Math.PI) + noise(u, v, rad) * (rad > 3 ? 0.42 : 0.22);
-    const rr = rad * bulge * (1 - 0.35 * v * v);
-    return [Math.cos(th) * rr * 1.1, Math.sin(th) * rr * 0.95 - 0.8, depth];
-  };
-  mb.paint(hexRGB("#dba46b"), M.rock);
-  for (let i = 0; i < NU; i++) for (let j = 0; j < NV; j++) {
-    const u0 = i / NU, u1 = (i + 1) / NU, v0 = j / NV, v1 = (j + 1) / NV;
-    const inn = [shell(R, u0, v0), shell(R, u1, v0), shell(R, u1, v1), shell(R, u0, v1)];
-    const outr = [shell(R + T, u0, v0), shell(R + T, u1, v0), shell(R + T, u1, v1), shell(R + T, u0, v1)];
-    const cI = lerp3(inn[0], inn[2], 0.5), cO = lerp3(outr[0], outr[2], 0.5);
-    mb.quad(inn, [-cI[0], -cI[1] - 0.8, 0]);
-    mb.quad(outr, [cO[0], cO[1] + 0.8, 0]);
-  }
-  // the arch face (lip) and the back wall
-  for (let i = 0; i < NU; i++) {
-    const a = shell(R, i / NU, 0), b = shell(R, (i + 1) / NU, 0), c = shell(R + T, (i + 1) / NU, 0), d = shell(R + T, i / NU, 0);
-    mb.quad([a, b, c, d], [0, 0, 1]);
-    const e = shell(R, i / NU, 1), f = shell(R, (i + 1) / NU, 1);
-    mb.tri([[0, -0.8, -D * 0.95], e, f], [0, 0, 1]);
-    const g = shell(R + T, i / NU, 1), hh = shell(R + T, (i + 1) / NU, 1);
-    mb.quad([e, f, hh, g], [0, 0, -1]);
-  }
-  // rubble at the feet of the arch
-  for (let i = 0; i < 6; i++) { const sg = i % 2 ? 1 : -1; mb.blob([sg * (R + 0.3 + r() * 0.8), -0.6, -r() * D * 0.8 + 0.3], [0.6, 0.5, 0.6], r() * 99, 1); }
-  // the hidden dock along one side, with crates and lanterns
-  const dy = 0.95 - 0.2; // DECK_Y relative to water level, prop y ~ seabed so we lift below
-  void dy;
-  mb.paint(hexRGB("#9c7b58"), M.plank);
-  const deckY = 0.75;
-  for (let k = 0; k < 18; k++) { const z = 0.4 - k * 0.24; mb.box([-R * 0.95, deckY - 0.06, z - 0.1], [-R * 0.25, deckY, z + 0.1]); }
-  mb.paint(hexRGB("#4c3b2e"), M.plank);
-  for (let k = 0; k < 4; k++) for (const x of [-R * 0.9, -R * 0.3]) mb.cyl(x, 0.3 - k * 1.3, -1.5, deckY - 0.05, 0.07, 0.07, 6);
-  mb.paint(hexRGB("#9a7650"), M.plank); mb.box([-R * 0.9, deckY, -3.4], [-R * 0.5, deckY + 0.45, -3.0]); mb.box([-R * 0.85, deckY + 0.45, -3.35], [-R * 0.55, deckY + 0.75, -3.05]);
-  barrel(mb, -R * 0.4, -2.6, deckY, r); barrel(mb, -R * 0.6, -2.2, deckY, r);
-  mb.paint(hexRGB("#c9b48a"), M.cloth); mb.box([-R * 0.92, deckY, -1.9], [-R * 0.55, deckY + 0.35, -1.3]);
-  for (const z of [0.2, -1.5, -3.2]) {
-    mb.paint(hexRGB("#3b332c"), M.metal); mb.beam([-R * 1.0, 2.0, z], [-R * 0.7, 2.0, z], [0, 0, 1], 0.02, 0.02);
-    mb.paint(hexRGB("#ffd08a"), M.lamp); mb.box([-R * 0.75, 1.62, z - 0.07], [-R * 0.63, 1.85, z + 0.07]);
-    L.push({ x: -R * 0.7, y: 1.7, z, r: 3.2, i: 0.9 });
-  }
-  // a lantern on the far side too, so the vault glows at night
-  {
-    mb.paint(hexRGB("#3b332c"), M.metal); mb.beam([R * 1.0, 1.9, -2], [R * 0.72, 1.9, -2], [0, 0, 1], 0.02, 0.02);
-    mb.paint(hexRGB("#ffc070"), M.lamp); mb.box([R * 0.66, 1.5, -2.07], [R * 0.78, 1.73, -1.93]);
-    L.push({ x: R * 0.7, y: 1.6, z: -2, r: 3.2, i: 0.8 });
-  }
-  // stair cut into the rock at the back
-  mb.paint(hexRGB("#c99561"), M.rock);
-  for (let k = 0; k < 7; k++) mb.box([-R * 0.25 + k * 0.25, deckY + k * 0.25 - 0.25, -D * 0.78], [-R * 0.25 + k * 0.25 + 0.3, deckY + k * 0.25, -D * 0.78 + 0.8]);
 }
 
 function lighthouse(mb: MeshBuilder, L: Light[]) {
@@ -443,7 +330,10 @@ export function buildScatter(world: World, mb: MeshBuilder) {
   mb.setOwner("scatter");
   const blocked = (x: number, z: number, r: number) => {
     if (world.houseAt(x, z, r + 0.6)) return true;
-    for (const p of world.props.values()) if (Math.hypot(p.x - x, p.z - z) < (PROP_INFO[p.type]?.r ?? 0.5) + r + 0.3) return true;
+    for (const p of world.props.values()) {
+      if (isLandmark(p.type)) { for (const [sx, sz] of landmarkSamples(p)) if (Math.hypot(sx - x, sz - z) < r + 0.55) return true; }
+      else if (Math.hypot(p.x - x, p.z - z) < (PROP_INFO[p.type]?.r ?? 0.5) + r + 0.3) return true;
+    }
     for (const n of world.nodes.values()) if (Math.hypot(n.x - x, n.z - z) < 1.2 + r) return true;
     for (const e of world.edges.values()) {
       const a = world.nodes.get(e.a), b = world.nodes.get(e.b); if (!a || !b) continue;

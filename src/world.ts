@@ -56,7 +56,44 @@ export interface WalkEdge { id: string; a: string; b: string; width: number; sty
 export type PropType =
   | "palm" | "bougainvillea" | "scrub" | "rock" | "barrels" | "crates" | "lantern" | "nets" | "laundry"
   | "rowboat" | "sloop" | "hull" | "grotto" | "lighthouse" | "crane";
-export interface Prop { id: string; type: PropType; x: number; z: number; rot: number; seed: number; scale?: number }
+export interface Prop {
+  id: string; type: PropType; x: number; z: number; rot: number; seed: number; scale?: number;
+  /** variant choices for landmarks (unset keys fall back to a seeded pick) */
+  opts?: Record<string, string | number>;
+  /** cells a grotto lowered, with their original levels, so moving or removing it restores the cliff */
+  carved?: [number, number, number][];
+}
+const optHash = (seed: number, k: string) => { let h = (Math.floor(seed * 1e6) ^ 0x9e3779b9) >>> 0; for (let i = 0; i < k.length; i++) h = Math.imul(h ^ k.charCodeAt(i), 16777619) >>> 0; return (h % 10007) / 10007; };
+export function propOpt<T extends string | number>(p: Pick<Prop, "seed" | "opts">, key: string, choices: readonly T[]): T {
+  const v = p.opts?.[key];
+  if (v !== undefined && (choices as readonly (string | number)[]).includes(v)) return v as T;
+  return choices[Math.floor(optHash(p.seed, key) * choices.length)];
+}
+export const HULL_OPTS = { size: [0, 1, 2], cabin: ["low", "tall", "stern"], roof: ["gable", "hip", "awning"], masts: [0, 1, 2], annex: ["none", "deck", "shack"] } as const;
+export const GROTTO_OPTS = { size: [0, 1, 2], arch: ["round", "tall", "wide"], dock: ["left", "right", "both"] } as const;
+export function hullDims(p: Pick<Prop, "seed" | "opts">) { const s = propOpt(p, "size", HULL_OPTS.size); return { len: [6.6, 8, 9.4][s], wid: [2.7, 3.2, 3.6][s], dep: [1.4, 1.7, 1.9][s] }; }
+export function grottoDims(p: Pick<Prop, "seed" | "opts">) { const s = propOpt(p, "size", GROTTO_OPTS.size); return { R: [2.2, 2.7, 3.2][s], D: [3.8, 4.6, 5.4][s], T: 1.1 }; }
+/** Ground points a landmark covers (world x,z), for collision and placement checks. */
+export function landmarkSamples(p: Prop): [number, number][] {
+  const c = Math.cos(p.rot), s = Math.sin(p.rot), out: [number, number][] = [];
+  const add = (lx: number, lz: number) => out.push([p.x + lx * c - lz * s, p.z + lx * s + lz * c]);
+  if (p.type === "hull") {
+    const { len, wid } = hullDims(p);
+    for (let lz = -len / 2; lz <= len / 2 + 1e-6; lz += 0.7) {
+      const t = (2 * lz) / len, hw = (wid / 2) * Math.sqrt(Math.max(0.05, 1 - t * t));
+      for (let lx = -hw; lx <= hw + 1e-6; lx += 0.7) add(lx, lz);
+      add(-hw, lz); add(hw, lz);
+    }
+    if (propOpt(p, "annex", HULL_OPTS.annex) !== "none") for (let lx = -wid / 2 - 2.4; lx < -wid / 2; lx += 0.6) for (let lz = -1.2; lz <= 1.8; lz += 0.6) add(lx, lz);
+  } else if (p.type === "grotto") {
+    const { R, D, T } = grottoDims(p);
+    for (let lx = -R - T; lx <= R + T + 1e-6; lx += 0.7) for (let lz = -D - 0.3; lz <= 0.8; lz += 0.7) add(lx, lz);
+  } else if (p.type === "lighthouse") {
+    add(0, 0); for (let k = 0; k < 10; k++) add(Math.cos(k * 0.628) * 1.15, Math.sin(k * 0.628) * 1.15);
+  } else add(0, 0);
+  return out;
+}
+export const isLandmark = (t: PropType) => t === "hull" || t === "grotto" || t === "lighthouse";
 export const WATER_PROPS: PropType[] = ["rowboat", "sloop"];
 
 let _id = 0;
@@ -145,6 +182,8 @@ export class World {
       if (h === except) continue;
       for (const v of h.volumes) if (x0 < v.x1 - 0.01 && x1 > v.x0 + 0.01 && z0 < v.z1 - 0.01 && z1 > v.z0 + 0.01) return false;
     }
+    for (const p of this.props.values()) if (isLandmark(p.type))
+      for (const [x, z] of landmarkSamples(p)) if (x > x0 - 0.25 && x < x1 + 0.25 && z > z0 - 0.25 && z < z1 + 0.25) return false;
     return true;
   }
 
