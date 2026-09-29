@@ -229,12 +229,26 @@ export function createMaterials(tex: { paint: THREE.Texture; water: THREE.Textur
     return warmLamp.mul(win.add(lamp).add(g)).add(vec3(1.0, 0.9, 0.7).mul(hl.mul(pulse))).add(U.skyHorizon.mul(rim).mul(float(1).sub(isM(6))));
   })();
 
-  const ghost = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false });
-  ghost.colorNode = vec3(1.0, 0.93, 0.75);
-  ghost.opacityNode = Fn(() => sin(time.mul(4)).mul(0.08).add(0.36))();
-  const ghostBad = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false });
-  ghostBad.colorNode = vec3(1.0, 0.45, 0.35);
-  ghostBad.opacityNode = float(0.38);
+  // placement ghosts: the item's own colours, softly shaded and tinted (teal = fits, coral = won't), with a rim;
+  // the x-ray copies draw faintly through whatever is in front
+  const ghostMat = (tint: string, xray: boolean) => {
+    const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: !xray });
+    const t = hex(tint);
+    m.colorNode = Fn(() => {
+      const shade = max(dot(normalWorld, normalize(U.sunDir)), 0).mul(0.45).add(0.6);
+      const view = normalize(cameraPosition.sub(positionWorld));
+      const rim = pow(float(1).sub(max(dot(normalWorld, view), 0)), 2);
+      return mix(aCol.mul(shade), t, 0.38).add(t.mul(rim.mul(0.45)));
+    })();
+    m.opacityNode = xray ? float(0.16) : Fn(() => sin(time.mul(3.5)).mul(0.05).add(0.62))();
+    return m;
+  };
+  const ghost = ghostMat("#8ff0dc", false), ghostBad = ghostMat("#ff6f5a", true && false);
+  const ghostX = ghostMat("#8ff0dc", true), ghostBadX = ghostMat("#ff6f5a", true);
+  const footOk = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: false });
+  footOk.colorNode = hex("#8ff0dc"); footOk.opacityNode = float(0.9);
+  const footBad = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: false });
+  footBad.colorNode = hex("#ff6f5a"); footBad.opacityNode = float(0.9);
 
   const handle = new THREE.MeshBasicNodeMaterial({ depthTest: false, transparent: true });
   handle.colorNode = attribute("color", "vec3");
@@ -254,6 +268,6 @@ export function createMaterials(tex: { paint: THREE.Texture; water: THREE.Textur
   })();
 
   void exp; void cos; void select; void vec4;
-  return { terrain, water, building, ghost, ghostBad, handle, background };
+  return { terrain, water, building, ghost, ghostBad, ghostX, ghostBadX, footOk, footBad, handle, background };
 }
 export type Materials = ReturnType<typeof createMaterials>;

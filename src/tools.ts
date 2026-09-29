@@ -78,6 +78,9 @@ export class Tools {
   private hover: THREE.Vector3 | null = null;
   private ghost: THREE.Mesh;
   private ghostBad: THREE.Mesh;
+  private ghostX: THREE.Mesh;
+  private ghostBadX: THREE.Mesh;
+  private foot: THREE.Mesh;
   private handles = new THREE.Group();
   private pointerId = -1;
   private downAt = { x: 0, y: 0 };
@@ -88,10 +91,15 @@ export class Tools {
     const m = app.d.mats;
     this.ghost = new THREE.Mesh(new THREE.BufferGeometry(), m.ghost);
     this.ghostBad = new THREE.Mesh(new THREE.BufferGeometry(), m.ghostBad);
+    this.ghostX = new THREE.Mesh(new THREE.BufferGeometry(), m.ghostX);
+    this.ghostBadX = new THREE.Mesh(new THREE.BufferGeometry(), m.ghostBadX);
+    this.foot = new THREE.Mesh(new THREE.BufferGeometry(), m.footOk);
+    this.ghostX.renderOrder = this.ghostBadX.renderOrder = 7;
     this.ghost.renderOrder = this.ghostBad.renderOrder = 8;
-    this.ghost.frustumCulled = this.ghostBad.frustumCulled = false;
+    this.foot.renderOrder = 9;
+    for (const g of [this.ghost, this.ghostBad, this.ghostX, this.ghostBadX, this.foot]) { g.frustumCulled = false; g.visible = false; }
     this.handles.renderOrder = 10;
-    app.d.scene.add(this.ghost, this.ghostBad, this.handles);
+    app.d.scene.add(this.ghostX, this.ghostBadX, this.ghost, this.ghostBad, this.foot, this.handles);
     dom.addEventListener("pointerdown", e => this.down(e));
     dom.addEventListener("pointermove", e => this.move(e));
     dom.addEventListener("pointerup", e => this.up(e));
@@ -885,13 +893,23 @@ export class Tools {
   // ---------- props + erase ----------
   private placeProp() {
     const p = this.hover ?? this.surface(); if (!p) return;
-    const info = PROP_INFO[this.propType];
-    const water = this.world.height(p.x, p.z) < WATER_Y - 0.25;
-    if (info.water && !water) { this.toast("Boats need water"); return; }
-    if (!info.water && !info.big && water && !this.onDeck(p.x, p.z)) { this.toast("That would sink — put it on land or a deck"); return; }
+    const chk = this.propCheck(this.propType, p.x, p.z);
+    if (!chk.ok) { this.toast(chk.why ?? "Won't fit there"); return; }
     this.app.begin();
     this.app.addProp(this.propType, Math.round(p.x * 10) / 10, Math.round(p.z * 10) / 10, this.propRot, Math.random());
     this.app.changed({ structures: true });
+  }
+  /** Is a walkway within r of this point (edges as capsules, landings as discs)? */
+  private nearWalk(x: number, z: number, r: number) {
+    const w = this.world;
+    for (const n of w.nodes.values()) if (w.edgesOf(n.id).length && Math.hypot(n.x - x, n.z - z) < landingRadius(w, n) + r) return true;
+    for (const e of w.edges.values()) {
+      const a = w.nodes.get(e.a), b = w.nodes.get(e.b); if (!a || !b) continue;
+      const dx = b.x - a.x, dz = b.z - a.z, L2 = dx * dx + dz * dz; if (L2 < 1e-3) continue;
+      const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / L2));
+      if (Math.hypot(a.x + dx * t - x, a.z + dz * t - z) < e.width / 2 + r) return true;
+    }
+    return false;
   }
   private onDeck(x: number, z: number) {
     for (const n of this.world.nodes.values()) if (Math.hypot(n.x - x, n.z - z) < landingRadius(this.world, n)) return true;
@@ -918,10 +936,17 @@ export class Tools {
   }
   updateGhost() {
     this.updateBrush();
-    const setG = (g: THREE.BufferGeometry | null, bad = false) => {
-      this.ghost.geometry.dispose(); this.ghostBad.geometry.dispose();
-      this.ghost.geometry = !bad && g ? g : new THREE.BufferGeometry();
-      this.ghostBad.geometry = bad && g ? g : new THREE.BufferGeometry();
+    type Foot = { circle: [number, number, number] } | { rect: [number, number, number, number]; y?: number };
+    const setG = (g: THREE.BufferGeometry | null, bad = false, foot?: Foot) => {
+      // never hand these meshes an empty geometry: node materials would compile against missing attributes
+      const prev = new Set([this.ghost, this.ghostBad, this.ghostX, this.ghostBadX, this.foot].map(m => m.geometry));
+      const show = (m: THREE.Mesh, on: boolean, geo: THREE.BufferGeometry | null) => { if (on && geo) { m.geometry = geo; m.visible = true; } else m.visible = false; };
+      show(this.ghost, !bad, g); show(this.ghostX, !bad, g);
+      show(this.ghostBad, bad, g); show(this.ghostBadX, bad, g);
+      show(this.foot, !!(foot && g), foot && g ? this.footprint(foot) : null);
+      this.foot.material = bad ? this.app.d.mats.footBad : this.app.d.mats.footOk;
+      const now = new Set([this.ghost, this.ghostBad, this.ghostX, this.ghostBadX, this.foot].map(m => m.geometry));
+      for (const old of prev) if (!now.has(old)) old.dispose();
     };
     const w = this.world;
     if (this.tool === "house") {
@@ -934,7 +959,7 @@ export class Tools {
       const mb = new MeshBuilder();
       const out: HouseBuild = { mb, lights: [], anchors: [], foam: [] };
       buildHouse(w, h, out);
-      return setG(mb.toGeometry(), !w.footprintFree(r.x0, r.z0, r.x1, r.z1));
+      return setG(mb.toGeometry(), !w.footprintFree(r.x0, r.z0, r.x1, r.z1), { rect: [r.x0, r.z0, r.x1, r.z1], y: houseLayout(w, h).base + 0.03 });
     }
     if (this.tool === "prop" && this.hover) {
       const p = { id: "ghost", type: this.propType, x: this.hover.x, z: this.hover.z, rot: this.propRot, seed: 0.5 };
@@ -943,11 +968,11 @@ export class Tools {
         const g = b.mesh.geometry;
         const m = new THREE.Matrix4().makeRotationY(-p.rot).setPosition(p.x, WATER_Y + boatFreeboard(p.type), p.z);
         g.applyMatrix4(m);
-        return setG(g, w.height(p.x, p.z) > WATER_Y - 0.25);
+        return setG(g, !this.propCheck(p.type, p.x, p.z).ok, { circle: [p.x, p.z, PROP_INFO[p.type].r * 0.8] });
       }
       const mb = new MeshBuilder();
       buildOneProp(w, mb, p, { lights: [], foam: [] });
-      return setG(mb.toGeometry());
+      return setG(mb.toGeometry(), !this.propCheck(p.type, p.x, p.z).ok, { circle: [p.x, p.z, PROP_INFO[p.type].r] });
     }
     if (this.tool === "walk" && this.hover) {
       const mb = new MeshBuilder();
@@ -961,9 +986,50 @@ export class Tools {
         const side: [number, number, number] = [-(h.z - a.z), 0, h.x - a.x];
         if (Math.hypot(side[0], side[2]) > 0.05) mb.beam([a.x, a.y, a.z], [h.x, y, h.z], side, WALK_W / 2, 0.04);
       }
-      return setG(mb.toGeometry());
+      return setG(mb.toGeometry(), false, { circle: [h.x, h.z, 0.55] });
     }
     setG(null);
+  }
+  /** A footprint outline that follows the ground (or sits on the water). */
+  private footprint(f: { circle: [number, number, number] } | { rect: [number, number, number, number]; y?: number }) {
+    const w = this.world;
+    const pts: [number, number][] = [];
+    if ("circle" in f) {
+      const [x, z, r] = f.circle;
+      for (let i = 0; i <= 40; i++) { const a = i / 40 * Math.PI * 2; pts.push([x + Math.cos(a) * r, z + Math.sin(a) * r]); }
+    } else {
+      const [x0, z0, x1, z1] = f.rect;
+      const edge = (ax: number, az: number, bx: number, bz: number) => { const n = Math.max(2, Math.ceil(Math.hypot(bx - ax, bz - az) / 0.25)); for (let i = 0; i < n; i++) pts.push([ax + (bx - ax) * i / n, az + (bz - az) * i / n]); };
+      edge(x0, z0, x1, z0); edge(x1, z0, x1, z1); edge(x1, z1, x0, z1); edge(x0, z1, x0, z0); pts.push([x0, z0]);
+    }
+    const mb = new MeshBuilder();
+    mb.paint([1, 1, 1], 0);
+    const fixed = "rect" in f ? f.y : undefined;
+    const y = (x: number, z: number) => fixed ?? Math.max(w.height(Math.min(N, Math.max(0, x)), Math.min(N, Math.max(0, z))), WATER_Y) + 0.06;
+    mb.tube(pts.map(([x, z]) => [x, y(x, z), z] as [number, number, number]), 0.035, 4);
+    return mb.toGeometry();
+  }
+  /** Can this prop go here? The ghost turns coral when not, and placing is refused with the same reason. */
+  propCheck(type: PropType, x: number, z: number): { ok: boolean; why?: string } {
+    const w = this.world, info = PROP_INFO[type];
+    if (x < 0.3 || z < 0.3 || x > N - 0.3 || z > N - 0.3) return { ok: false, why: "Too close to the edge" };
+    const water = w.height(x, z) < WATER_Y - 0.25;
+    if (info.water) {
+      if (!water) return { ok: false, why: "Boats need water" };
+      if (w.houseAt(x, z, info.r * 0.5)) return { ok: false, why: "A house is in the way" };
+      if (this.nearWalk(x, z, info.r * 0.55)) return { ok: false, why: "A dock is in the way" };
+      for (const p of w.props.values()) if (PROP_INFO[p.type]?.water && Math.hypot(p.x - x, p.z - z) < (info.r + PROP_INFO[p.type].r) * 0.6) return { ok: false, why: "Another boat is moored there" };
+      return { ok: true };
+    }
+    if (info.big) {
+      if (w.houseAt(x, z, info.r * 0.6)) return { ok: false, why: "A house is in the way" };
+      if (this.nearWalk(x, z, info.r * 0.5)) return { ok: false, why: "A walkway is in the way" };
+      for (const p of w.props.values()) if (PROP_INFO[p.type]?.big && Math.hypot(p.x - x, p.z - z) < (info.r + PROP_INFO[p.type].r) * 0.6) return { ok: false, why: "Too close to another landmark" };
+      return { ok: true };
+    }
+    if (water && !this.onDeck(x, z)) return { ok: false, why: "That would sink — put it on land or a deck" };
+    if (w.houseAt(x, z, 0.05)) return { ok: false, why: "A house is in the way" };
+    return { ok: true };
   }
 
   /** WASD / arrow keys pan the camera target; called every frame. */
