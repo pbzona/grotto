@@ -120,6 +120,7 @@ export class Tools {
     return g;
   }
   private pick(): { owner: string; point: THREE.Vector3; normal: THREE.Vector3 } | null {
+    for (const b of this.app.boats) b.mesh.updateMatrixWorld();
     const objs: THREE.Object3D[] = [this.app.structures, ...this.app.boats.map(b => b.mesh)];
     const hits = this.ray.intersectObjects(objs, false);
     const g = this.ground();

@@ -43,6 +43,8 @@ from a CPU-baked light map rather than dynamic lights.
 Visual and interaction checks drive the dev server with
 [agent-browser](https://github.com/vercel-labs/agent-browser): `test/ab-shot.sh` renders an
 on-demand frame (`?test`) and screenshots it, and `test/ab-lib.sh` has helpers for projecting
-world points to the screen and sending real mouse input.
+world points to the screen and sending real mouse input. `test/sweep.js` is a tool regression sweep
+(terrain, paint, props, boats, erase, walkways, house edits, undo/redo, autosave, shortcuts): open
+`/?webgl&test&fresh` and run it with `agent-browser eval --stdin < test/sweep.js`.
 
 MIT licensed.

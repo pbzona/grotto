@@ -136,6 +136,7 @@ async function boot() {
   scene.add(gulls.group);
   const tools = new Tools(app, renderer.domElement);
   const ui = new UI(app, tools, cam);
+  if (params.has("clean")) document.querySelectorAll<HTMLElement>(".ui").forEach(e => (e.style.display = "none"));
 
   // ---------- frugal render loop: capped fps, idle throttle, pause when hidden ----------
   let last = performance.now(), acc = 0, lastInput = performance.now();

@@ -145,6 +145,7 @@ export class App {
     for (const p of w.props.values()) if (PROP_INFO[p.type]?.water) {
       const b = buildBoat(p, this.d.mats.building);
       this.boats.push(b); this.boatGroup.add(b.mesh);
+      updateBoat(b, this.time); b.mesh.updateMatrixWorld(true);
       const c = Math.cos(p.rot), s = Math.sin(p.rot), L = p.type === "sloop" ? 1.8 : 0.9;
       for (let k = -1; k <= 1; k++) out.foam.push({ x: p.x - s * L * k * 0.7, z: p.z + c * L * k * 0.7, r: p.type === "sloop" ? 0.4 : 0.22 });
     }
