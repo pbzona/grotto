@@ -32,7 +32,7 @@ export interface Volume {
   /** Player overrides for wall bays keyed `side:floor:slot`. */
   openings?: Record<string, "window" | "wall" | "door">;
 }
-export type Foundation = "auto" | "stilts" | "keyed";
+export type Foundation = "auto" | "stilts" | "keyed" | "rock";
 export interface House {
   id: string; seed: number; palette: number; style: WallStyle; volumes: Volume[];
   foundation: Foundation;
@@ -139,8 +139,8 @@ export class World {
       if (px > v.x0 - margin && px < v.x1 + margin && pz > v.z0 - margin && pz < v.z1 + margin) return h;
     return undefined;
   }
-  footprintFree(x0: number, z0: number, x1: number, z1: number, except?: House) {
-    if (x0 < 0.5 || z0 < 0.5 || x1 > N - 0.5 || z1 > N - 0.5 || x1 - x0 < 1 || z1 - z0 < 1) return false;
+  footprintFree(x0: number, z0: number, x1: number, z1: number, except?: House, minSize = 1) {
+    if (x0 < 0.5 || z0 < 0.5 || x1 > N - 0.5 || z1 > N - 0.5 || x1 - x0 < minSize || z1 - z0 < minSize) return false;
     for (const h of this.houses.values()) {
       if (h === except) continue;
       for (const v of h.volumes) if (x0 < v.x1 - 0.01 && x1 > v.x0 + 0.01 && z0 < v.z1 - 0.01 && z1 > v.z0 + 0.01) return false;

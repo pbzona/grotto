@@ -50,8 +50,11 @@ export class Terrain {
       const gx = w.height(x + e, z) - w.height(x - e, z), gz = w.height(x, z + e) - w.height(x, z - e);
       const g = Math.hypot(gx, gz) / (2 * e);
       let px = x, pz = z;
-      if (g > 0.9 && i > 0 && j > 0 && i < GRID - 1 && j < GRID - 1) {
-        const s = Math.min(1, (g - 0.9) / 2.5);
+      // only real cliffs get rocky jitter: measure the slope over a wider span so single terrace steps stay crisp
+      const E = 0.75;
+      const G = Math.hypot(w.height(x + E, z) - w.height(x - E, z), w.height(x, z + E) - w.height(x, z - E)) / (2 * E);
+      if (g > 0.9 && G > 1.1 && i > 0 && j > 0 && i < GRID - 1 && j < GRID - 1) {
+        const s = Math.min(1, (g - 0.9) / 2.5) * Math.min(1, (G - 1.1) / 1.2);
         const n1 = fbm(x * 1.7 + y * 0.9, z * 1.7 - y * 0.6) - 0.5, n2 = fbm(z * 1.9 + 40, x * 1.9 + y) - 0.5;
         px += n1 * 0.34 * s; pz += n2 * 0.34 * s;
         y += (fbm(x * 3.1, z * 3.1 + y) - 0.5) * 0.25 * s;

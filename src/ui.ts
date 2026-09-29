@@ -152,7 +152,9 @@ export class UI {
       <tr><td>Houses</td><td>Drag out a footprint (or click). Select one: pull the <b>arrows</b> to stretch, <b>Shift-drag</b> an arrow for a new wing, drag the <b>ring</b> to move, drag the <b>diamond</b> up/down for floors. Click a wall to cycle window / wall / door.</td></tr>
       <tr><td>Stilts</td><td>Houses over water or on slopes stand on stilts at deck height automatically — the panel can force stilts or key a house into the slope.</td></tr>
       <tr><td>Docks & walkways</td><td>Click to lay posts, or drag a segment. Start or end on a walkway to branch, on a house wall for a door. <kbd>[</kbd> <kbd>]</kbd> raise/lower the next post — steep runs become stairs. Rope style makes sagging bridges. Double-click, right-click or <kbd>Esc</kbd> to finish.</td></tr>
-      <tr><td>Edit a walkway post</td><td>Select it, drag it to move, drag the orange cones for height.</td></tr>
+      <tr><td>Edit a walkway</td><td>Drag any post — including the far end of a pier — to move it. Orange cones set its height; a dead end's cream arrow pulls out a new stretch.</td></tr>
+      <tr><td>Wings & height variety</td><td>Small teal arrows along a selected house's walls pull one stretch of wall out into a wing. Orange cones on top lift one stretch a floor higher — the rest becomes a roof terrace with a door onto it (drag down to cut a terrace in instead).</td></tr>
+      <tr><td>Built into the rock</td><td>Houses on steep ground perch on a sandstone outcrop automatically; pick <b>Rock outcrop</b> in the panel to force it.</td></tr>
       <tr><td>Brush size · rotate</td><td><kbd>[</kbd> <kbd>]</kbd> (or Shift+scroll) · <kbd>R</kbd></td></tr>
       <tr><td>Delete · cancel</td><td><kbd>Del</kbd> / <kbd>Backspace</kbd> · <kbd>Esc</kbd></td></tr>
       <tr><td>Undo · redo</td><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> · <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></td></tr>
@@ -283,7 +285,7 @@ export class UI {
         const h = app.world.houses.get(s.id); if (!h) return;
         const v = h.volumes[s.vi] ?? h.volumes[0];
         const kind = v.kind ?? "room";
-        h2(kind === "lookout" ? "Lookout" : kind === "tower" ? "Tower" : "House", h.volumes.length > 1 ? `Editing part ${s.vi + 1} of ${h.volumes.length} — click another part to switch.` : "Pull the handles in the scene to reshape it.");
+        h2(kind === "lookout" ? "Lookout" : kind === "tower" ? "Tower" : "House", (h.volumes.length > 1 ? `Part ${s.vi + 1} of ${h.volumes.length} — click another part to switch. ` : "") + "Cream arrows stretch a wall · small teal arrows pull a stretch of wall out into a wing · orange cones lift part of the house (the rest becomes a terrace).");
         lbl("Colours");
         const g = document.createElement("div"); g.className = "grid";
         PALETTES.forEach((pal, i) => {
@@ -306,7 +308,7 @@ export class UI {
         lbl(`Floors · ${v.floors}`);
         btns([["− floor", () => t.houseEdit("floors", -1)], ["+ floor", () => t.houseEdit("floors", 1)], ["Turn ridge", () => t.houseEdit("ridge")]]);
         lbl("Foundation");
-        seg([["auto", "Auto"], ["stilts", "Stilts"], ["keyed", "Keyed into slope"]], h.foundation, v2 => t.houseEdit("foundation", v2));
+        seg([["auto", "Auto"], ["stilts", "Stilts"], ["rock", "Rock outcrop"], ["keyed", "Stone plinth"]], h.foundation, v2 => t.houseEdit("foundation", v2));
         lbl("Details");
         btns([
           [`Shutters ${h.shutters ? "✓" : ""}`, () => t.houseEdit("toggle", "shutters"), h.shutters ? "on" : ""],
@@ -319,7 +321,7 @@ export class UI {
         btns([["Reroll details", () => t.houseEdit("reroll")], [h.volumes.length > 1 && s.vi > 0 ? "Remove this part" : "Remove house", () => t.deleteSelection(), "warn"]]);
       } else if (s.kind === "node") {
         const n = app.world.nodes.get(s.id); if (!n) return;
-        h2("Walkway post", "Drag it to move it; drag the orange cones to raise or lower it. Steep runs turn into stairs.");
+        h2("Walkway post", "Drag the post (or its teal ring) to move it; orange cones raise or lower it; a dead end's cream arrow pulls out a new stretch. Steep runs turn into stairs.");
         lbl(`Height · ${n.y.toFixed(2)}`);
         btns([["Lower", () => this.nodeEdit(s.id, "y", -0.25)], ["Raise", () => this.nodeEdit(s.id, "y", 0.25)]]);
         lbl("Landing");
@@ -328,7 +330,7 @@ export class UI {
         btns([["Remove post", () => t.deleteSelection(), "warn"]]);
       } else if (s.kind === "edge") {
         const e = app.world.edges.get(s.id); if (!e) return;
-        h2("Walkway", "One stretch between two posts.");
+        h2("Walkway", "One stretch between two posts — drag either teal ring to move an end.");
         lbl("Style");
         seg([["deck", "Plank deck"], ["rope", "Rope bridge"]], e.style, v2 => this.edgeEdit(s.id, "style", v2));
         slider("Width", 0.7, 2, 0.1, e.width, x => this.edgeEdit(s.id, "width", x));

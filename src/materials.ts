@@ -221,9 +221,12 @@ export function createMaterials(tex: { paint: THREE.Texture; water: THREE.Textur
     const win = isM(6).mul(U.night).mul(mix(0.35, 1.3, winVar)).mul(flick);
     const lamp = isM(7).mul(mix(float(0.25), float(3.2), U.night)).mul(flick);
     const g = lightGlow(tex.light, p).pow(2).mul(U.night).mul(0.05).mul(float(1).sub(isM(6)));
+    // stylised rim: a soft sky-coloured edge light on buildings by day
+    const view = normalize(cameraPosition.sub(p));
+    const rim = pow(float(1).sub(max(dot(normalWorld, view), 0)), 3).mul(0.16).mul(float(1).sub(U.night));
     const hl = step(U.highlight.x, p.x).mul(step(p.x, U.highlight.z)).mul(step(U.highlight.y, p.z)).mul(step(p.z, U.highlight.w));
     const pulse = sin(time.mul(3.5)).mul(0.025).add(0.06);
-    return warmLamp.mul(win.add(lamp).add(g)).add(vec3(1.0, 0.9, 0.7).mul(hl.mul(pulse)));
+    return warmLamp.mul(win.add(lamp).add(g)).add(vec3(1.0, 0.9, 0.7).mul(hl.mul(pulse))).add(U.skyHorizon.mul(rim).mul(float(1).sub(isM(6))));
   })();
 
   const ghost = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false });

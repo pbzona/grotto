@@ -245,7 +245,15 @@ export class App {
     w.edges.forEach(e => { if ((e.a === bwW.id && e.b === beach.id)) w.edges.delete(e.id); });
     this.addEdge(bwMid, stepW);
     // --- west terraces: a cluster with a lookout on the cliff ---
-    H("h", 0.702, [newVolume(6.5, 24.5, 9.5, 27.5, 2, "hip")], 2);
+    // a stepped house: one end lifted a storey, the rest a roof terrace with a door onto it
+    { const lo = newVolume(8, 24.5, 9.5, 27.5, 1, "flat"), hi = newVolume(6.5, 24.5, 8, 27.5, 2, "gable"); hi.ridgeX = false;
+      const bay = newVolume(7, 27.5, 8, 28, 2, "gable"); bay.ridgeX = false;
+      H("h", 0.702, [hi, lo, bay], 2); }
+    // cliff houses perched on sandstone outcrops
+    { const a = newVolume(13, 12, 16, 14.5, 2, "gable"), b = newVolume(16, 12.5, 17.5, 14, 1, "flat");
+      H("h", 0.431, [a, b], 5, { foundation: "rock" }); }
+    { const a = newVolume(38.5, 29.5, 41, 32.5, 2, "hip"), b = newVolume(38.5, 32.5, 40, 33.5, 1, "gable"); b.ridgeX = false;
+      H("h", 0.587, [a, b], 1, { foundation: "rock" }); }
     H("h", 0.811, [newVolume(6.5, 30, 9.5, 32.5, 1, "gable"), newVolume(9.5, 30.5, 10.5, 32, 1, "shed")], 3, { style: "plank" });
     H("h", 0.905, [newVolume(3, 19.5, 5, 21.5, 3, "hip", ), ], 7).volumes[0].kind = "lookout";
     // --- east: lookout tower on the headland ---

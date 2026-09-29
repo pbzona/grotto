@@ -33,9 +33,27 @@ type Drag =
   | { t: "nodeMove"; id: string; start: THREE.Vector3; ox: number; oz: number; changed: boolean }
   | { t: "nodeY"; id: string; y0: number; oy: number; changed: boolean }
   | { t: "propMove"; id: string; start: THREE.Vector3; ox: number; oz: number; changed: boolean }
-  | { t: "walk"; down: THREE.Vector3; sx: number; sy: number };
+  | { t: "walk"; down: THREE.Vector3; sx: number; sy: number }
+  | { t: "seg"; side: number; a: number; b: number; orig: House; vi: number; wall: number }
+  | { t: "lift"; alongX: boolean; a: number; b: number; orig: House; vi: number; y0: number; df: number }
+  | { t: "extend"; from: string; node: WalkNode | null; changed: boolean };
 
 const SIDE_N: [number, number][] = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+/** Split a span into segments of about a unit each (multiples of 0.5). */
+export function segments(lo: number, hi: number): [number, number][] {
+  const len = hi - lo;
+  const k = Math.max(1, Math.floor(len / 1.0 + 1e-6));
+  const halves = Math.round(len * 2);
+  const out: [number, number][] = [];
+  let at = lo, used = 0;
+  for (let i = 0; i < k; i++) {
+    const rest = halves - used, left = k - i;
+    const w = Math.max(1, Math.round(rest / left)) ;
+    out.push([at, at + w * 0.5]); at += w * 0.5; used += w;
+  }
+  out[out.length - 1][1] = hi;
+  return out;
+}
 
 export class Tools {
   tool: ToolId = "select";
@@ -167,6 +185,24 @@ export class Tools {
         if (s && s.kind === "house" && this.sel?.kind === "house" && this.sel.id === s.id && p) {
           if (this.toggleBay(s.id, p.point, p.normal)) return;
         }
+        // a click on a walkway near one of its ends grabs that post
+        let s2: Selection | null = s;
+        if (s2?.kind === "edge" && p) {
+          const e0 = this.world.edges.get(s2.id);
+          const ends = e0 ? [this.world.nodes.get(e0.a), this.world.nodes.get(e0.b)].filter(Boolean) as WalkNode[] : [];
+          const near = ends.find(n => Math.hypot(n.x - p.point.x, n.z - p.point.z) < 0.85);
+          if (near) s2 = { kind: "node", id: near.id };
+        }
+        // posts and props can be dragged straight away
+        if (s2 && (s2.kind === "prop" || s2.kind === "node") && p) {
+          this.select(s2);
+          const g = this.surface() ?? p.point;
+          app.begin();
+          if (s2.kind === "prop") { const pr = this.world.props.get(s2.id)!; this.drag = { t: "propMove", id: s2.id, start: g.clone(), ox: pr.x, oz: pr.z, changed: false }; }
+          else { const n = this.world.nodes.get(s2.id)!; this.drag = { t: "nodeMove", id: s2.id, start: g.clone(), ox: n.x, oz: n.z, changed: false }; }
+          this.dom.setPointerCapture(e.pointerId);
+          return;
+        }
         if (s && (s.kind === "prop" || s.kind === "node") && this.sel && this.sel.kind === s.kind && this.sel.id === s.id) {
           const g = this.surface() ?? p!.point;
           app.begin();
@@ -219,6 +255,9 @@ export class Tools {
       case "stroke": { const g = this.ground(); if (g) { this.hover = g; this.applyStroke(g, false); this.updateBrush(); } break; }
       case "walk": { this.hover = this.surface(); this.updateGhost(); break; }
       case "side": this.dragSide(d); break;
+      case "seg": this.dragSeg(d); break;
+      case "lift": this.dragLift(d, e); break;
+      case "extend": this.dragExtend(d); break;
       case "move": this.dragMove(d); break;
       case "floors": this.dragFloors(d, e); break;
       case "nodeY": {
@@ -274,6 +313,16 @@ export class Tools {
         this.updateGhost();
         break;
       }
+      case "extend":
+        if (!d.changed) this.app.cancel();
+        else if (d.node) { this.world.pruneNodes(); this.select({ kind: "node", id: d.node.id }); }
+        this.onChange?.();
+        break;
+      case "seg": case "lift":
+        if (!this.housesChanged) this.app.cancel();
+        this.housesChanged = false;
+        this.refreshHandles(); this.refreshHighlight(); this.onChange?.();
+        break;
       case "side": case "move": case "floors":
         if (!this.housesChanged) this.app.cancel();
         this.housesChanged = false;
@@ -459,6 +508,33 @@ export class Tools {
         const m = mk(g, "#fff1c9", new THREE.Vector3(cx, yMid, cz), { t: "side", side });
         m.lookAt(cx + L.n[0], yMid, cz + L.n[1]);
       }
+      // segment handles: pull one stretch of wall out into a new wing
+      for (let side = 0; side < 4; side++) {
+        const L = sideLine(v, side);
+        const along = side % 2 === 0;
+        const lo = along ? v.x0 : v.z0, hi = along ? v.x1 : v.z1;
+        for (const [a, b] of segments(lo, hi)) {
+          const c = (a + b) / 2;
+          const ox = along ? c : L.a[0] + L.n[0] * 0.1, oz = along ? L.a[1] + L.n[1] * 0.1 : c;
+          if (h.volumes.some((o, oi) => oi !== s.vi && ox > o.x0 && ox < o.x1 && oz > o.z0 && oz < o.z1)) continue;
+          const px = along ? c : L.a[0] + L.n[0] * 0.32, pz = along ? L.a[1] + L.n[1] * 0.32 : c;
+          const g = new THREE.ConeGeometry(0.11, 0.24, 10); g.rotateX(Math.PI / 2);
+          const m = mk(g, "#6fdcc9", new THREE.Vector3(px, lay.base + 0.28, pz), { t: "seg", side, a, b });
+          m.lookAt(px + L.n[0], lay.base + 0.28, pz + L.n[1]);
+        }
+      }
+      // lift handles: raise (or lower) one stretch of the house along its length
+      if ((v.kind ?? "room") === "room") {
+        const alongX = v.x1 - v.x0 >= v.z1 - v.z0;
+        const lo = alongX ? v.x0 : v.z0, hi = alongX ? v.x1 : v.z1;
+        const segs = segments(lo, hi);
+        if (segs.length > 1) for (const [a, b] of segs) {
+          const c = (a + b) / 2;
+          const yTop = lay.base + v.floors * FLOOR_H + 0.25;
+          const px = alongX ? c : v.x1 + 0.3, pz = alongX ? v.z1 + 0.3 : c;
+          mk(new THREE.ConeGeometry(0.12, 0.28, 10), "#f2a65a", new THREE.Vector3(px, yTop, pz), { t: "lift", alongX, a, b });
+        }
+      }
       const top = lay.base + v.floors * FLOOR_H + 1.6;
       const cx = (v.x0 + v.x1) / 2, cz = (v.z0 + v.z1) / 2;
       mk(new THREE.OctahedronGeometry(0.24), "#e6a676", new THREE.Vector3(cx, top + 0.7, cz), { t: "floors" });
@@ -470,6 +546,27 @@ export class Tools {
       mk(g, "#e6a676", new THREE.Vector3(n.x, n.y + 1.1, n.z), { t: "nodeY" });
       const g2 = new THREE.ConeGeometry(0.18, 0.4, 12); g2.rotateX(Math.PI);
       mk(g2, "#e6a676", new THREE.Vector3(n.x, n.y + 0.6, n.z), { t: "nodeY" });
+      const ring = new THREE.TorusGeometry(0.34, 0.07, 8, 24); ring.rotateX(Math.PI / 2);
+      mk(ring, "#6fdcc9", new THREE.Vector3(n.x, n.y + 0.15, n.z), { t: "nodeXZ", id: n.id });
+      // a dead end can be pulled onward
+      const es = this.world.edgesOf(n.id);
+      if (es.length === 1) {
+        const o = this.world.nodes.get(es[0].a === n.id ? es[0].b : es[0].a);
+        if (o) {
+          const dx = n.x - o.x, dz = n.z - o.z, l = Math.hypot(dx, dz) || 1;
+          const px = n.x + dx / l * 0.9, pz = n.z + dz / l * 0.9;
+          const ga = new THREE.ConeGeometry(0.16, 0.36, 12); ga.rotateX(Math.PI / 2);
+          const m = mk(ga, "#fff1c9", new THREE.Vector3(px, n.y + 0.2, pz), { t: "extend", id: n.id });
+          m.lookAt(px + dx, n.y + 0.2, pz + dz);
+        }
+      }
+    } else if (s.kind === "edge") {
+      const e = this.world.edges.get(s.id); if (!e) return;
+      for (const id of [e.a, e.b]) {
+        const n = this.world.nodes.get(id); if (!n) continue;
+        const ring = new THREE.TorusGeometry(0.34, 0.07, 8, 24); ring.rotateX(Math.PI / 2);
+        mk(ring, "#6fdcc9", new THREE.Vector3(n.x, n.y + 0.15, n.z), { t: "nodeXZ", id: n.id });
+      }
     }
   }
   private refreshHighlight() {
@@ -486,8 +583,25 @@ export class Tools {
     const s = this.sel!;
     this.app.begin();
     this.housesChanged = false;
+    const hd = o.userData.handle as { t: string; id?: string; side?: number; a?: number; b?: number; alongX?: boolean };
+    if (hd.t === "nodeXZ") {
+      const n = this.world.nodes.get(hd.id!)!; const g = this.surface() ?? new THREE.Vector3(n.x, n.y, n.z);
+      this.drag = { t: "nodeMove", id: n.id, start: g.clone(), ox: n.x, oz: n.z, changed: false }; return;
+    }
+    if (hd.t === "extend") { this.drag = { t: "extend", from: hd.id!, node: null, changed: false }; return; }
     if (s.kind === "node") { const n = this.world.nodes.get(s.id)!; this.drag = { t: "nodeY", id: s.id, y0: n.y, oy: e.clientY, changed: false }; return; }
     if (s.kind !== "house") return;
+    if (hd.t === "seg" || hd.t === "lift") {
+      const h0 = this.world.houses.get(s.id)!;
+      const orig0: House = JSON.parse(JSON.stringify(h0));
+      const v0 = h0.volumes[s.vi];
+      if (hd.t === "seg") {
+        const side = hd.side!;
+        const wall = side === 0 ? v0.z1 : side === 1 ? v0.x1 : side === 2 ? v0.z0 : v0.x0;
+        this.drag = { t: "seg", side, a: hd.a!, b: hd.b!, orig: orig0, vi: s.vi, wall };
+      } else this.drag = { t: "lift", alongX: hd.alongX!, a: hd.a!, b: hd.b!, orig: orig0, vi: s.vi, y0: e.clientY, df: 0 };
+      return;
+    }
     const h = this.world.houses.get(s.id)!;
     const orig: House = JSON.parse(JSON.stringify(h));
     if (d.t === "side") {
@@ -520,6 +634,91 @@ export class Tools {
     } else if (d.t === "floors") {
       this.drag = { t: "floors", y0: e.clientY, floors0: h.volumes[s.vi].floors };
     }
+  }
+  /** Pull one wall segment out into a new wing (or push an existing wing on that segment further). */
+  private dragSeg(d: Extract<Drag, { t: "seg" }>) {
+    const s = this.sel; if (s?.kind !== "house") return;
+    const h = this.world.houses.get(s.id); if (!h) return;
+    const lay = houseLayout(this.world, h);
+    const hit = this.planeHit(lay.base + 0.28); if (!hit) return;
+    const [nx, nz] = SIDE_N[d.side];
+    const out = (hit.x - (d.side % 2 ? d.wall : 0)) * nx + (hit.z - (d.side % 2 ? 0 : d.wall)) * nz;
+    const depth = Math.max(0, Math.min(6, snap(out)));
+    const base = d.orig;
+    const vols = base.volumes.map(v => ({ ...v }));
+    const par = vols[d.vi];
+    if (depth >= 0.5) {
+      let r: { x0: number; z0: number; x1: number; z1: number };
+      if (d.side === 0) r = { x0: d.a, x1: d.b, z0: par.z1, z1: par.z1 + depth };
+      else if (d.side === 2) r = { x0: d.a, x1: d.b, z0: par.z0 - depth, z1: par.z0 };
+      else if (d.side === 1) r = { z0: d.a, z1: d.b, x0: par.x1, x1: par.x1 + depth };
+      else r = { z0: d.a, z1: d.b, x0: par.x0 - depth, x1: par.x0 };
+      // if a wing already fills this segment, grow that one instead of stacking a new one
+      const hitWing = vols.findIndex((o, oi) => oi !== d.vi && o.x0 <= r.x0 + 1e-3 && o.x1 >= r.x1 - 1e-3 && o.z0 <= r.z0 + 1e-3 && o.z1 >= r.z1 - 1e-3);
+      if (hitWing >= 0) { this.toast("That stretch already has a wing — select it to reshape"); return; }
+      if (!this.world.footprintFree(r.x0, r.z0, r.x1, r.z1, h, 0.5)) return;
+      if (vols.some(o => r.x0 < o.x1 - 0.01 && r.x1 > o.x0 + 0.01 && r.z0 < o.z1 - 0.01 && r.z1 > o.z0 + 0.01)) return;
+      const nv = newVolume(r.x0, r.z0, r.x1, r.z1, par.floors, par.roof === "flat" ? "flat" : par.roof === "shed" ? "shed" : "gable");
+      nv.ridgeX = d.side % 2 === 1; // gable end faces out
+      nv.pitch = par.pitch; nv.curve = par.curve; nv.overhang = Math.min(par.overhang, 0.18);
+      vols.push(nv);
+    }
+    const key = JSON.stringify(vols);
+    if (key === JSON.stringify(h.volumes)) return;
+    h.volumes = vols;
+    this.housesChanged = true;
+    this.app.changed({ structures: true });
+    this.refreshHighlight();
+  }
+  /** Raise or lower one stretch of a volume: it splits into up to three parts; the parts left lower become flat roof terraces. */
+  private dragLift(d: Extract<Drag, { t: "lift" }>, e: PointerEvent) {
+    const s = this.sel; if (s?.kind !== "house") return;
+    const h = this.world.houses.get(s.id); if (!h) return;
+    const ov = d.orig.volumes[d.vi];
+    const df = Math.max(1 - ov.floors, Math.min(3, Math.round((d.y0 - e.clientY) / 45)));
+    if (df === d.df) return;
+    d.df = df;
+    const vols = d.orig.volumes.map(v => ({ ...v }));
+    if (df !== 0) {
+      const lo = d.alongX ? ov.x0 : ov.z0, hi = d.alongX ? ov.x1 : ov.z1;
+      const piece = (p0: number, p1: number) => d.alongX ? { ...ov, x0: p0, x1: p1, openings: undefined } : { ...ov, z0: p0, z1: p1, openings: undefined };
+      const parts: Volume[] = [];
+      if (d.a - lo > 1e-3) parts.push(piece(lo, d.a));
+      const mid = piece(d.a, d.b);
+      mid.floors = ov.floors + df;
+      parts.push(mid);
+      if (hi - d.b > 1e-3) parts.push(piece(d.b, hi));
+      for (const p of parts) {
+        if (p === mid) { if (df < 0) p.roof = "flat"; continue; }
+        if (df > 0) p.roof = "flat"; // the lower parts become a terrace to step out onto
+        p.ridgeX = ov.ridgeX ?? (ov.x1 - ov.x0 >= ov.z1 - ov.z0);
+      }
+      mid.ridgeX = df > 0 ? !(ov.ridgeX ?? (ov.x1 - ov.x0 >= ov.z1 - ov.z0)) : mid.ridgeX;
+      vols.splice(d.vi, 1, ...parts);
+      this.sel = { kind: "house", id: h.id, vi: d.vi + parts.indexOf(mid) };
+    } else this.sel = { kind: "house", id: h.id, vi: d.vi };
+    h.volumes = vols;
+    this.housesChanged = true;
+    this.app.changed({ structures: true });
+    this.refreshHighlight(); this.onChange?.();
+  }
+  /** Pull a new walkway segment out of a dead end. */
+  private dragExtend(d: Extract<Drag, { t: "extend" }>) {
+    const from = this.world.nodes.get(d.from); if (!from) return;
+    const g = this.surface(); if (!g) return;
+    const x = Math.round(g.x * 4) / 4, z = Math.round(g.z * 4) / 4;
+    if (Math.hypot(x - from.x, z - from.z) < 0.6) return;
+    if (!d.node) {
+      d.node = this.app.addNode(x, z, from.y);
+      const e0 = this.world.edgesOf(from.id)[0];
+      this.app.addEdge(from, d.node, e0?.style ?? "deck", e0?.width ?? WALK_W);
+    }
+    d.node.x = x; d.node.z = z;
+    // follow the ground up and down gently; over water stay at deck height
+    const want = defaultDeckY(this.world, x, z);
+    d.node.y = Math.abs(want - from.y) < 0.6 ? from.y : want;
+    d.changed = true;
+    this.app.changed({ structures: true });
   }
   private planeHit(y: number) {
     const r = this.ray.ray;

@@ -1,4 +1,4 @@
-import { World, House, Volume, FLOOR_H, PLINTH, DECK_Y, WATER_Y, N, WalkNode } from "./world";
+import { World, House, Volume, FLOOR_H, PLINTH, DECK_Y, WATER_Y, N, WalkNode, fbm } from "./world";
 import { MeshBuilder, V3, M, hexRGB, rng, hsh, add, scl, lerp3, sub, norm, cross } from "./mesh";
 
 /**
@@ -26,7 +26,7 @@ export interface Anchor { x: number; y: number; z: number; house: string }
 export interface HouseBuild { mb: MeshBuilder; lights: Light[]; anchors: Anchor[]; foam: { x: number; z: number; r: number }[] }
 
 export interface Bay { vi: number; side: number; floor: number; a: [number, number]; b: [number, number]; n: [number, number]; key: string; kind: "window" | "wall" | "door"; y0: number }
-export interface Layout { base: number; gmin: number; gmax: number; over: boolean; stilts: boolean; plinth: boolean; bays: Bay[]; lean: [number, number]; top: number }
+export interface Layout { base: number; gmin: number; gmax: number; over: boolean; stilts: boolean; plinth: boolean; rock: boolean; bays: Bay[]; lean: [number, number]; top: number }
 
 export const SIDES: [number, number][] = [[0, 1], [1, 0], [0, -1], [-1, 0]];
 export function sideLine(v: Volume, s: number): { a: [number, number]; b: [number, number]; n: [number, number] } {
@@ -85,8 +85,13 @@ export function nodeWall(h: House, n: WalkNode, base: number) {
 
 export function houseLayout(world: World, h: House): Layout {
   const { gmin, gmax, over } = houseGround(world, h);
-  let base: number, stilts = false, plinth = false;
+  let base: number, stilts = false, plinth = false, rock = false;
   if (h.foundation === "stilts") { base = Math.max(DECK_Y, gmax + 0.8); stilts = true; }
+  else if (h.foundation === "rock" || (h.foundation === "auto" && !over && gmax - gmin > 1.1)) {
+    // perched on a sandstone outcrop, keyed into the slope: the floor sits a little below the high side
+    base = Math.max(gmin + PLINTH, gmax - Math.min(1.6, (gmax - gmin) * 0.55)); rock = true;
+    if (over) base = Math.max(base, DECK_Y);
+  }
   else if (h.foundation === "keyed") { base = Math.max(gmin + PLINTH, over ? DECK_Y : -99); plinth = true; stilts = over; }
   else if (over) { base = Math.max(DECK_Y, gmax + PLINTH); stilts = true; }
   else if (gmax - gmin > 0.55) { base = gmax + PLINTH; stilts = true; }
@@ -153,7 +158,23 @@ export function houseLayout(world: World, h: House): Layout {
     }
     if (best) best.kind = "door";
   }
-  return { base, gmin, gmax, over, stilts, plinth, bays, lean, top };
+  // walls that open onto a lower part's flat roof get a terrace door on that floor
+  const runs = new Map<string, Bay[]>();
+  for (const b of bays) {
+    if (b.floor < 1) continue;
+    const mx = (b.a[0] + b.b[0]) / 2 + b.n[0] * 0.3, mz = (b.a[1] + b.b[1]) / 2 + b.n[1] * 0.3;
+    const o = h.volumes.find((q, qi) => qi !== b.vi && q.floors === b.floor && q.roof === "flat" && (q.kind ?? "room") === "room" && mx > q.x0 && mx < q.x1 && mz > q.z0 && mz < q.z1);
+    if (!o) continue;
+    const k = `${b.vi}:${b.side}:${b.floor}`;
+    if (!runs.has(k)) runs.set(k, []);
+    runs.get(k)!.push(b);
+  }
+  for (const list of runs.values()) {
+    if (list.some(b => b.kind === "door")) continue;
+    const mid = list[Math.floor((list.length - 1) / 2)];
+    if (!h.volumes[mid.vi].openings?.[mid.key]) mid.kind = "door";
+  }
+  return { base, gmin, gmax, over, stilts, plinth, rock, bays, lean, top };
 }
 
 export function buildHouses(world: World): HouseBuild {
@@ -208,7 +229,11 @@ export function buildHouse(world: World, h: House, out: HouseBuild, ghost = fals
     }
   }
   for (const v of h.volumes) {
-    if (lay.plinth) {
+    if (lay.rock) {
+      rockBase(mb, world, v, base, lay.gmin, h.seed);
+      mb.paint(wood, M.plank);
+      mb.box([v.x0 - 0.06, base - 0.12, v.z0 - 0.06], [v.x1 + 0.06, base, v.z1 + 0.06]);
+    } else if (lay.plinth) {
       mb.paint(stone, M.stone);
       mb.box([v.x0 - 0.05, lay.gmin - 0.3, v.z0 - 0.05], [v.x1 + 0.05, base, v.z1 + 0.05]);
     } else {
@@ -544,4 +569,51 @@ export function makeHouse(id: string, seed: number, volumes: Volume[], palette?:
     id, seed, palette: palette ?? Math.floor(r() * PALETTES.length), style: r() < 0.35 ? "plank" : "plaster", volumes,
     foundation: "auto", shutters: r() < 0.75, boxes: r() < 0.7, awning: r() < 0.5,
   };
+}
+
+/** A sandstone outcrop under a house: a noisy, rounded, stepped pedestal flaring into the slope,
+ *  plus boulder shoulders hugging any wall that backs onto higher ground. */
+function rockBase(mb: MeshBuilder, world: World, v: Volume, base: number, gmin: number, seed: number) {
+  const cx = (v.x0 + v.x1) / 2, cz = (v.z0 + v.z1) / 2, hw = (v.x1 - v.x0) / 2, hd = (v.z1 - v.z0) / 2;
+  const M_ = 28, K = 7;
+  const y0 = gmin - 0.8, y1 = base - 0.05;
+  const ring = (k: number): V3[] => {
+    const t = k / K; // 0 bottom .. 1 top
+    const y = y0 + (y1 - y0) * t;
+    const pts: V3[] = [];
+    for (let i = 0; i < M_; i++) {
+      const th = (i / M_) * Math.PI * 2, c = Math.cos(th), s = Math.sin(th);
+      const step = (k % 2) * 0.07; // stepped strata ledges
+      const off = 0.14 + Math.pow(1 - t, 1.6) * 1.0 + step + (fbm(th * 1.7 + seed * 9, t * 2.3 + cx * 0.3) - 0.5) * 0.45;
+      const px = cx + (hw + off) * Math.sign(c) * Math.pow(Math.abs(c), 0.35);
+      const pz = cz + (hd + off) * Math.sign(s) * Math.pow(Math.abs(s), 0.35);
+      pts.push([px, k === K ? y1 : y + (fbm(th * 3.1, t * 5 + seed) - 0.5) * 0.18, pz]);
+    }
+    return pts;
+  };
+  const rings = Array.from({ length: K + 1 }, (_, k) => ring(k));
+  mb.paint(hexRGB("#dba46b"), M.rock);
+  for (let k = 0; k < K; k++) for (let i = 0; i < M_; i++) {
+    const a = rings[k][i], b = rings[k][(i + 1) % M_], c = rings[k + 1][(i + 1) % M_], d = rings[k + 1][i];
+    const mid = lerp3(lerp3(a, b, 0.5), lerp3(c, d, 0.5), 0.5);
+    mb.quad([a, b, c, d], [mid[0] - cx, 0, mid[2] - cz]);
+  }
+  const top = rings[K];
+  for (let i = 0; i < M_; i++) mb.tri([[cx, y1, cz], top[i], top[(i + 1) % M_]], [0, 1, 0]);
+  // boulder shoulders on walls that back onto higher ground
+  for (let s = 0; s < 4; s++) {
+    const L = sideLine(v, s);
+    const len = Math.hypot(L.b[0] - L.a[0], L.b[1] - L.a[1]);
+    const n = Math.max(2, Math.round(len / 0.9));
+    for (let i = 0; i < n; i++) {
+      const t = (i + 0.5) / n;
+      const px = L.a[0] + (L.b[0] - L.a[0]) * t, pz = L.a[1] + (L.b[1] - L.a[1]) * t;
+      const out = world.height(Math.min(N, Math.max(0, px + L.n[0] * 1.3)), Math.min(N, Math.max(0, pz + L.n[1] * 1.3)));
+      if (out < base + 0.35) continue;
+      const topY = Math.min(out, base + FLOOR_H * 1.6);
+      const r = rng(seed * 31 + i * 7 + s);
+      const hgt = (topY - base) * 0.5 + 0.25;
+      mb.blob([px + L.n[0] * (0.45 + r() * 0.2), base + hgt * 0.8, pz + L.n[1] * (0.45 + r() * 0.2)], [0.55 + r() * 0.3, hgt, 0.55 + r() * 0.3], r() * 99, 1);
+    }
+  }
 }

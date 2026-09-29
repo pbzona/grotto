@@ -67,7 +67,8 @@ async function boot() {
   const grade = Fn(() => {
     const c = col.rgb.add(bloomPass.rgb).toVar();
     const l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-    c.assign(mix(vec3(l), c, float(1.1)));                       // a touch more saturation
+    c.assign(mix(vec3(l), c, float(1.14)));                      // a touch more saturation
+    c.assign(c.add(vec3(0.028, 0.03, 0.034).mul(float(1).sub(smoothstep(0.0, 0.45, l)))));  // lift the shadows, keep them teal
     const shadowTint = vec3(0.9, 1.0, 1.05), highTint = vec3(1.05, 1.0, 0.93);
     c.assign(c.mul(mix(shadowTint, highTint, smoothstep(0.1, 0.8, l))));
     const d = length(screenUV.sub(0.5));
