@@ -52,9 +52,28 @@ export function injectStyles() {
   .tb .k { position: absolute; right: 4px; bottom: 2px; font-size: 9px; opacity: .6; }
   .tb .tip { position: absolute; left: 54px; top: 50%; transform: translateY(-50%); white-space: nowrap; background: var(--bg); border: 1px solid var(--line); padding: 5px 9px; border-radius: 8px; font-size: 12px; opacity: 0; pointer-events: none; transition: opacity .12s; }
   .tb:hover .tip { opacity: 1; }
-  #panel { right: 16px; top: 64px; width: 268px; max-height: calc(100vh - 170px); overflow: auto; padding: 14px; }
-  #panel h2 { margin: 0 0 2px; font: 600 16px Fraunces, Georgia, serif; }
-  #panel .sub { color: var(--dim); font-size: 12px; margin-bottom: 10px; line-height: 1.45; }
+  #panel { right: 16px; top: 64px; width: 236px; max-height: calc(100vh - 170px); overflow: auto; padding: 10px 12px 12px; }
+  #panel .ph { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+  #panel h2 { margin: 0; font: 600 15px Fraunces, Georgia, serif; }
+  #panel h2 small { font: 500 11px Inter, sans-serif; color: var(--dim); }
+  .leg { display: flex; gap: 7px; font-size: 10px; color: var(--dim); }
+  .leg i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 3px; vertical-align: 0; }
+  .pr { display: grid; grid-template-columns: 50px 1fr; align-items: center; gap: 6px; margin: 5px 0; }
+  .pl { font-size: 10.5px; color: var(--dim); text-transform: uppercase; letter-spacing: .05em; }
+  .pc { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; }
+  .pc input[type=range] { width: 100%; accent-color: var(--acc); margin: 0; }
+  .chip { border: 1px solid var(--line); background: var(--bg2); color: var(--ink); border-radius: 7px; padding: 4px 7px; font: 500 11.5px Inter, sans-serif; cursor: pointer; line-height: 1.2; }
+  .chip:hover { border-color: rgba(239,228,204,.35); }
+  .chip.on { background: var(--acc); color: #2a1f18; border-color: var(--acc); }
+  .chip.ic { padding: 3px; width: 28px; height: 26px; display: grid; place-items: center; }
+  .chip.ic svg { width: 17px; height: 17px; }
+  .chip.sq { width: 24px; padding: 3px 0; }
+  .chip.warn { color: #f1a58a; }
+  .dot { display: block; width: 14px; height: 14px; border-radius: 50%; }
+  .val { min-width: 38px; text-align: center; font-size: 12px; }
+  .pa { display: flex; gap: 4px; justify-content: flex-end; margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--line); }
+  .sws { display: grid; grid-template-columns: repeat(8, 1fr); gap: 3px; margin: 2px 0 7px; }
+  .sws .sw { height: 20px; border-radius: 5px; }
   .lbl { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; margin: 12px 0 6px; }
   .seg { display: flex; flex-wrap: wrap; gap: 4px; }
   .btn { border: 1px solid var(--line); background: var(--bg2); color: var(--ink); border-radius: 8px; padding: 6px 9px; font: 500 12px Inter, sans-serif; cursor: pointer; }
@@ -74,10 +93,11 @@ export function injectStyles() {
   #time .tb { width: 34px; height: 34px; }
   #time input { width: 150px; accent-color: var(--acc); }
   #time .t { font: 500 13px Inter, sans-serif; width: 64px; }
-  #hint { left: 50%; bottom: 18px; transform: translateX(-50%); padding: 8px 14px; font-size: 12.5px; color: var(--dim); max-width: min(620px, 60vw); text-align: center; }
+  #hint { left: 50%; bottom: 18px; transform: translateX(-50%); padding: 6px 12px; font-size: 12px; color: var(--dim); max-width: min(620px, 60vw); text-align: center; }
   #hint b { color: var(--ink); font-weight: 600; }
   #toast { left: 50%; top: 18px; transform: translate(-50%, -10px); padding: 9px 16px; font-size: 13px; opacity: 0; transition: all .2s; pointer-events: none; }
   #toast.on { opacity: 1; transform: translate(-50%, 0); }
+  body.noui .ui:not(#toast) { display: none !important; }
   #help { inset: 0; display: none; place-items: center; background: rgba(10,20,26,.55); z-index: 30; }
   #help.on { display: grid; }
   #help .card { width: min(640px, 92vw); padding: 20px 22px; max-height: 86vh; overflow: auto; }
@@ -147,6 +167,7 @@ export class UI {
     this.timeIn.oninput = () => { app.hour = +this.timeIn.value; this.refreshTime(); };
     this.help = el(`<div id="help" class="ui"><div class="card"><h2>Building the cove</h2><table>
       <tr><td>Orbit · zoom · pan</td><td>Right-drag · scroll · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrows</td></tr>
+      <tr><td>Low, upward shots</td><td>Right-drag down to tip the view up · scroll toward a subject · <kbd>U</kbd> hides the interface</td></tr>
       <tr><td>Turn the view · zoom · reset</td><td><kbd>Q</kbd> <kbd>E</kbd> · <kbd>+</kbd> <kbd>−</kbd> · <kbd>F</kbd></td></tr>
       <tr><td>Tools</td><td><kbd>1</kbd> select · <kbd>2</kbd> houses · <kbd>3</kbd> docks · <kbd>4</kbd> terrain · <kbd>5</kbd> paint · <kbd>6</kbd> props · <kbd>7</kbd> remove</td></tr>
       <tr><td>Houses</td><td>Drag out a footprint (or click). Select one: pull the <b>arrows</b> to stretch, <b>Shift-drag</b> an arrow for a new wing, drag the <b>ring</b> to move, drag the <b>diamond</b> up/down for floors. Click a wall to cycle window / wall / door.</td></tr>
@@ -217,6 +238,7 @@ export class UI {
       case ".": this.app.hour = (this.app.hour + 1) % 24; this.refreshTime(); break;
       case "?": case "/": this.toggleHelp(); break;
       case "h": case "H": this.toggleHelp(); break;
+      case "u": case "U": { const hide = !document.body.classList.toggle("noui"); void hide; break; }
     }
   }
 
@@ -244,137 +266,138 @@ export class UI {
   private refreshPanelValues() { if (this.tools.sel) this.buildPanel(); }
   private hintText() {
     const t = this.tools;
+    const k = (x: string) => `<kbd>${x}</kbd>`;
     switch (t.tool) {
-      case "select": return t.sel ? "<b>Drag handles</b> to reshape · <b>Del</b> removes · <b>Esc</b> deselects" : "<b>Click</b> anything to edit it · <b>right-drag</b> to orbit · <b>?</b> for all controls";
-      case "house": return "<b>Drag</b> out a footprint or <b>click</b> to drop a " + HOUSE_PRESETS[t.preset].label.toLowerCase() + " · <b>R</b> turns it";
-      case "walk": return t.chain ? `Posts <b>snap</b> to nearby walkways (double ring) · <b>Click</b> to add a post · next post ${t.walkLift >= 0 ? "+" : ""}${t.walkLift.toFixed(2)} (<b>[ ]</b>) · <b>double-click</b> or <b>Esc</b> to finish` : "<b>Click</b> to start a walkway — over water it becomes a dock on posts · end on a wall for a door";
-      case "terrain": return `<b>Drag</b> to ${t.terrainOp} · brush ${t.brush.toFixed(1)} (<b>[ ]</b>)`;
-      case "paint": return `<b>Drag</b> to paint ${t.paintType} · brush ${t.brush.toFixed(1)} (<b>[ ]</b>)`;
-      case "prop": return `<b>Click</b> to place · <b>R</b> or Shift+scroll to turn`;
-      case "erase": return "<b>Click</b> a house, walkway, boat or prop to remove it";
+      case "select": return t.sel ? `${k("Del")} remove · ${k("Esc")} done` : `click to edit · right-drag to orbit · ${k("?")} help`;
+      case "house": return `drag or click · ${k("R")} turn`;
+      case "walk": return t.chain ? `click to add · ${k("[")}${k("]")} height · ${k("Esc")} finish` : `click to start · snaps to docks & walls`;
+      case "terrain": case "paint": return `drag to ${t.tool === "paint" ? "paint" : t.terrainOp} · ${k("[")}${k("]")} size`;
+      case "prop": return `click to place · ${k("R")} turn`;
+      case "erase": return `click to remove · ${k("Ctrl")}${k("Z")} undo`;
     }
   }
   private buildPanel() {
     const p = this.panel, t = this.tools, app = this.app;
     p.innerHTML = "";
-    const h2 = (title: string, sub?: string) => { p.insertAdjacentHTML("beforeend", `<h2>${title}</h2>${sub ? `<div class="sub">${sub}</div>` : ""}`); };
-    const lbl = (s: string) => p.insertAdjacentHTML("beforeend", `<div class="lbl">${s}</div>`);
-    const seg = (opts: [string, string][], cur: string, fn: (v: string) => void) => {
-      const d = document.createElement("div"); d.className = "seg";
-      for (const [v, l] of opts) { const b = document.createElement("button"); b.className = "btn" + (v === cur ? " on" : ""); b.textContent = l; b.onclick = () => fn(v); d.appendChild(b); }
-      p.appendChild(d);
-    };
-    const btns = (items: [string, () => void, string?][]) => {
-      const d = document.createElement("div"); d.className = "seg";
-      for (const [l, fn, cls] of items) { const b = document.createElement("button"); b.className = "btn" + (cls ? " " + cls : ""); b.textContent = l; b.onclick = fn; d.appendChild(b); }
-      p.appendChild(d);
-    };
-    const slider = (label: string, min: number, max: number, step: number, val: number, fn: (v: number) => void) => {
-      const r = document.createElement("div"); r.className = "row";
-      r.innerHTML = `<span style="width:64px">${label}</span><input type="range" min="${min}" max="${max}" step="${step}" value="${val}"><b>${val.toFixed(2)}</b>`;
-      const i = r.querySelector("input")!, b = r.querySelector("b")!;
-      let started = false;
-      i.oninput = () => { b.textContent = (+i.value).toFixed(2); fn(+i.value); started = true; };
-      i.onchange = () => { started = false; };
-      void started;
-      p.appendChild(r);
-    };
     const s = t.sel;
+    const show = !(t.tool === "erase" || (t.tool === "select" && !s));
+    p.style.display = show ? "" : "none";
+    if (!show) return;
+    const title = (text: string, legend?: [string, string][]) => {
+      const h = document.createElement("div"); h.className = "ph";
+      h.innerHTML = `<h2>${text}</h2>` + (legend ? `<div class="leg">${legend.map(([c, l]) => `<span><i style="background:${c}"></i>${l}</span>`).join("")}</div>` : "");
+      p.appendChild(h);
+    };
+    /** one labelled row; returns the control container */
+    const row = (label: string) => { const r = document.createElement("div"); r.className = "pr"; r.innerHTML = `<span class="pl">${label}</span><div class="pc"></div>`; p.appendChild(r); return r.querySelector(".pc") as HTMLDivElement; };
+    const chip = (host: HTMLElement, content: string, on: boolean, fn: () => void, tip?: string, cls = "") => {
+      const b = document.createElement("button"); b.className = `chip${on ? " on" : ""} ${cls}`; b.innerHTML = content; if (tip) b.title = tip; b.onclick = fn; host.appendChild(b); return b;
+    };
+    const seg = (host: HTMLElement, opts: [string, string, string?][], cur: string, fn: (v: string) => void) => { for (const [v, l, tip] of opts) chip(host, l, v === cur, () => fn(v), tip); };
+    const slider = (host: HTMLElement, min: number, max: number, step: number, val: number, fn: (v: number) => void) => {
+      const i = document.createElement("input"); i.type = "range"; i.min = String(min); i.max = String(max); i.step = String(step); i.value = String(val);
+      i.oninput = () => fn(+i.value); host.appendChild(i);
+    };
+    const stepper = (host: HTMLElement, val: string, dec: () => void, inc: () => void) => {
+      chip(host, "−", false, dec, "", "sq"); const v = document.createElement("span"); v.className = "val"; v.textContent = val; host.appendChild(v); chip(host, "+", false, inc, "", "sq");
+    };
+    const actions = (items: [string, () => void, string?][]) => { const d = document.createElement("div"); d.className = "pa"; for (const [l, fn, cls] of items) chip(d, l, false, fn, "", cls ?? ""); p.appendChild(d); };
+    const I = (d: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+    const ROOF: Record<string, string> = {
+      gable: I('<path d="M3 17L12 6l9 11z"/>'), hip: I('<path d="M3 17l5-9h8l5 9z"/>'),
+      flat: I('<path d="M3 12h18v5H3z"/><path d="M3 10h18"/>'), shed: I('<path d="M3 17V9l18 4v4z"/>'),
+    };
+    const FOUND: Record<string, string> = {
+      auto: I('<path d="M5 19l7-14 7 14M8 14h8"/>'), stilts: I('<path d="M4 8h16M6 8v11M12 8v11M18 8v11"/>'),
+      rock: I('<path d="M3 19c1-5 3-9 7-10s5 2 8 3 3 5 3 7z"/>'), keyed: I('<path d="M4 10h16v9H4z"/><path d="M4 14h16M9 10v4M15 14v5"/>'),
+    };
     if (t.tool === "select" && s) {
       if (s.kind === "house") {
         const h = app.world.houses.get(s.id); if (!h) return;
         const v = h.volumes[s.vi] ?? h.volumes[0];
         const kind = v.kind ?? "room";
-        h2(kind === "lookout" ? "Lookout" : kind === "tower" ? "Tower" : "House", (h.volumes.length > 1 ? `Part ${s.vi + 1} of ${h.volumes.length} — click another part to switch. ` : "") + "Cream arrows stretch a wall · small teal arrows pull a stretch of wall out into a wing · orange cones lift part of the house (the rest becomes a terrace).");
-        lbl("Colours");
-        const g = document.createElement("div"); g.className = "grid";
+        title((kind === "lookout" ? "Lookout" : kind === "tower" ? "Tower" : "House") + (h.volumes.length > 1 ? ` <small>${s.vi + 1}/${h.volumes.length}</small>` : ""),
+          [["#fff1c9", "stretch"], ["#6fdcc9", "wing"], ["#f2a65a", "lift"]]);
+        const g = document.createElement("div"); g.className = "sws";
         PALETTES.forEach((pal, i) => {
           const d = document.createElement("div"); d.className = "sw" + (h.palette === i ? " on" : ""); d.title = pal.name;
           d.style.background = pal.wall; d.innerHTML = `<i style="background:${pal.trim}"></i>`;
           d.onclick = () => t.houseEdit("palette", i); g.appendChild(d);
         });
         p.appendChild(g);
-        lbl("Walls");
-        seg([["plaster", "Plaster"], ["plank", "Painted planks"], ["stone", "Stone base"]], h.style, v2 => t.houseEdit("style", v2));
+        seg(row("Walls"), [["plaster", "Plaster"], ["plank", "Plank"], ["stone", "Stone"]], h.style, v2 => t.houseEdit("style", v2));
         if (kind !== "lookout") {
-          lbl("Roof");
-          seg([["gable", "Gable"], ["hip", "Hip"], ["flat", "Flat terrace"], ["shed", "Lean-to"]], v.roof, v2 => t.houseEdit("roof", v2));
+          const r = row("Roof");
+          for (const k of ["gable", "hip", "flat", "shed"]) chip(r, ROOF[k], v.roof === k, () => t.houseEdit("roof", k), { gable: "Gable", hip: "Hip", flat: "Flat terrace", shed: "Lean-to" }[k], "ic");
+          chip(r, I('<path d="M4 12a8 8 0 0 1 14-5l2 2M20 12a8 8 0 0 1-14 5l-2-2"/><path d="M20 4v5h-5M4 20v-5h5"/>'), false, () => t.houseEdit("ridge"), "Turn ridge", "ic");
           if (v.roof !== "flat") {
-            slider("Pitch", 0.5, 1.6, 0.05, v.pitch, x => t.houseEdit("pitch", x));
-            slider("Curve", -1, 1, 0.05, v.curve, x => t.houseEdit("curve", x));
-            slider("Eaves", 0.05, 0.45, 0.01, v.overhang, x => t.houseEdit("overhang", x));
+            slider(row("Pitch"), 0.5, 1.6, 0.05, v.pitch, x => t.houseEdit("pitch", x));
+            slider(row("Curve"), -1, 1, 0.05, v.curve, x => t.houseEdit("curve", x));
+            slider(row("Eaves"), 0.05, 0.45, 0.01, v.overhang, x => t.houseEdit("overhang", x));
           }
         }
-        lbl(`Floors · ${v.floors}`);
-        btns([["− floor", () => t.houseEdit("floors", -1)], ["+ floor", () => t.houseEdit("floors", 1)], ["Turn ridge", () => t.houseEdit("ridge")]]);
-        lbl("Foundation");
-        seg([["auto", "Auto"], ["stilts", "Stilts"], ["rock", "Rock outcrop"], ["keyed", "Stone plinth"]], h.foundation, v2 => t.houseEdit("foundation", v2));
-        lbl("Details");
-        btns([
-          [`Shutters ${h.shutters ? "✓" : ""}`, () => t.houseEdit("toggle", "shutters"), h.shutters ? "on" : ""],
-          [`Flower boxes ${h.boxes ? "✓" : ""}`, () => t.houseEdit("toggle", "boxes"), h.boxes ? "on" : ""],
-          [`Awnings ${h.awning ? "✓" : ""}`, () => t.houseEdit("toggle", "awning"), h.awning ? "on" : ""],
-        ]);
-        lbl("Add a wing");
-        btns([["Room", () => t.houseEdit("wing", "room")], ["Lean-to", () => t.houseEdit("wing", "shed")], ["Tower", () => t.houseEdit("wing", "tower")], ["Lookout", () => t.houseEdit("wing", "lookout")]]);
-        lbl("");
-        btns([["Reroll details", () => t.houseEdit("reroll")], [h.volumes.length > 1 && s.vi > 0 ? "Remove this part" : "Remove house", () => t.deleteSelection(), "warn"]]);
+        stepper(row("Floors"), String(v.floors), () => t.houseEdit("floors", -1), () => t.houseEdit("floors", 1));
+        const fr = row("Base");
+        for (const k of ["auto", "stilts", "rock", "keyed"]) chip(fr, FOUND[k], h.foundation === k, () => t.houseEdit("foundation", k), { auto: "Auto", stilts: "Stilts", rock: "Rock outcrop", keyed: "Stone plinth" }[k], "ic");
+        const dr = row("Details");
+        chip(dr, I('<path d="M5 4h5v16H5zM14 4h5v16h-5z"/><path d="M5 9h5M14 9h5M5 14h5M14 14h5"/>'), h.shutters, () => t.houseEdit("toggle", "shutters"), "Shutters", "ic");
+        chip(dr, I('<path d="M4 14h16l-2 6H6z"/><circle cx="8" cy="10" r="2"/><circle cx="16" cy="10" r="2"/><circle cx="12" cy="8" r="2"/>'), h.boxes, () => t.houseEdit("toggle", "boxes"), "Flower boxes", "ic");
+        chip(dr, I('<path d="M3 8h18l-2 5H5z"/><path d="M5 13v7M19 13v7"/>'), h.awning, () => t.houseEdit("toggle", "awning"), "Awnings", "ic");
+        chip(dr, I('<path d="M4 4h16v16H4z"/><circle cx="9" cy="9" r="1.2"/><circle cx="15" cy="15" r="1.2"/><circle cx="15" cy="9" r="1.2"/><circle cx="9" cy="15" r="1.2"/>'), false, () => t.houseEdit("reroll"), "Reroll details", "ic");
+        seg(row("+ Wing"), [["room", "Room"], ["shed", "Lean-to"], ["tower", "Tower"], ["lookout", "Lookout"]], "", v2 => t.houseEdit("wing", v2));
+        actions([[h.volumes.length > 1 && s.vi > 0 ? "Remove part" : "Remove", () => t.deleteSelection(), "warn"]]);
       } else if (s.kind === "node") {
         const n = app.world.nodes.get(s.id); if (!n) return;
-        h2("Walkway post", "Drag the post (or its teal ring) to move it; orange cones raise or lower it; a dead end's cream arrow pulls out a new stretch. Steep runs turn into stairs.");
-        lbl(`Height · ${n.y.toFixed(2)}`);
-        btns([["Lower", () => this.nodeEdit(s.id, "y", -0.25)], ["Raise", () => this.nodeEdit(s.id, "y", 0.25)]]);
-        lbl("Landing");
-        seg([["0", "None"], ["1", "Small"], ["1.5", "Large"]], String(n.pad), v2 => this.nodeEdit(s.id, "pad", +v2));
-        lbl("");
-        btns([["Remove post", () => t.deleteSelection(), "warn"]]);
+        title("Post", [["#6fdcc9", "move"], ["#e6a676", "height"], ["#fff1c9", "extend"]]);
+        stepper(row("Height"), n.y.toFixed(2), () => this.nodeEdit(s.id, "y", -0.25), () => this.nodeEdit(s.id, "y", 0.25));
+        seg(row("Landing"), [["0", "None"], ["1", "S"], ["1.5", "L"]], String(n.pad), v2 => this.nodeEdit(s.id, "pad", +v2));
+        actions([["Remove", () => t.deleteSelection(), "warn"]]);
       } else if (s.kind === "edge") {
         const e = app.world.edges.get(s.id); if (!e) return;
-        h2("Walkway", "One stretch between two posts — drag either teal ring to move an end.");
-        lbl("Style");
-        seg([["deck", "Plank deck"], ["rope", "Rope bridge"]], e.style, v2 => this.edgeEdit(s.id, "style", v2));
-        slider("Width", 0.7, 2, 0.1, e.width, x => this.edgeEdit(s.id, "width", x));
-        lbl("");
-        btns([[`Rope rail ${e.rail ? "✓" : ""}`, () => this.edgeEdit(s.id, "rail", !e.rail), e.rail ? "on" : ""], ["Remove", () => t.deleteSelection(), "warn"]]);
+        title("Walkway", [["#6fdcc9", "move ends"]]);
+        seg(row("Style"), [["deck", "Deck"], ["rope", "Rope"]], e.style, v2 => this.edgeEdit(s.id, "style", v2));
+        slider(row("Width"), 0.7, 2, 0.1, e.width, x => this.edgeEdit(s.id, "width", x));
+        chip(row("Rail"), e.rail ? "On" : "Off", e.rail, () => this.edgeEdit(s.id, "rail", !e.rail));
+        actions([["Remove", () => t.deleteSelection(), "warn"]]);
       } else if (s.kind === "prop") {
         const pr = app.world.props.get(s.id); if (!pr) return;
-        h2(PROP_INFO[pr.type].label, "Drag it to move it.");
-        btns([["Turn (R)", () => t.rotate()], ["Reroll", () => { app.begin(); pr.seed = Math.random(); app.changed({ structures: true }); }], ["Remove", () => t.deleteSelection(), "warn"]]);
+        title(PROP_INFO[pr.type].label);
+        actions([["Turn", () => t.rotate()], ["Reroll", () => { app.begin(); pr.seed = Math.random(); app.changed({ structures: true }); }], ["Remove", () => t.deleteSelection(), "warn"]]);
       }
       return;
     }
     switch (t.tool) {
-      case "select": h2("The cove", "Click a house, walkway, boat or prop to edit it. Pick a tool on the left to build."); break;
       case "house":
-        h2("Houses", "Drag out a footprint, or click to drop one. Over water or slopes they rise on stilts.");
-        lbl("Type");
-        seg(Object.entries(HOUSE_PRESETS).map(([k, v]) => [k, v.label]), t.preset, v => { t.preset = v; this.refresh(); t.updateGhost(); });
+        title("Houses");
+        seg(row("Type"), Object.entries(HOUSE_PRESETS).map(([k, v]) => [k, v.label] as [string, string]), t.preset, v => { t.preset = v; this.refresh(); t.updateGhost(); });
         break;
       case "walk":
-        h2("Docks & walkways", "Click to lay posts. Over water it's a dock; on land a boardwalk; steep runs become stairs; rope style sags between posts.");
-        lbl("Style");
-        seg([["deck", "Plank deck"], ["rope", "Rope bridge"]], t.walkStyle, v => { t.walkStyle = v as any; this.refresh(); });
-        lbl(`Next post height · ${t.walkLift >= 0 ? "+" : ""}${t.walkLift.toFixed(2)}`);
-        btns([["Lower [", () => t.nudgeLift(-1)], ["Raise ]", () => t.nudgeLift(1)], [`Landing ${t.walkPad ? "✓" : ""}`, () => { t.walkPad = !t.walkPad; this.refresh(); }, t.walkPad ? "on" : ""]]);
-        if (t.chain) btns([["Finish walkway", () => t.endChain()]]);
+        title("Docks");
+        seg(row("Style"), [["deck", "Deck"], ["rope", "Rope"]], t.walkStyle, v => { t.walkStyle = v as any; this.refresh(); });
+        stepper(row("Height"), `${t.walkLift >= 0 ? "+" : ""}${t.walkLift.toFixed(2)}`, () => t.nudgeLift(-1), () => t.nudgeLift(1));
+        chip(row("Landing"), t.walkPad ? "On" : "Off", t.walkPad, () => { t.walkPad = !t.walkPad; this.refresh(); });
+        if (t.chain) actions([["Finish", () => t.endChain()]]);
         break;
       case "terrain":
-        h2("Shape terrain", "Raise and lower the land in terraces. Cliffs form on their own.");
-        seg([["raise", "Raise"], ["lower", "Lower"], ["flatten", "Flatten"], ["smooth", "Smooth"]], t.terrainOp, v => { t.terrainOp = v as any; this.refresh(); });
-        slider("Brush", 0.5, 6, 0.5, t.brush, x => t.setBrush(x));
+        title("Terrain");
+        seg(row("Mode"), [["raise", "Raise"], ["lower", "Lower"], ["flatten", "Flat"], ["smooth", "Smooth"]], t.terrainOp, v => { t.terrainOp = v as any; this.refresh(); });
+        slider(row("Brush"), 0.5, 6, 0.5, t.brush, x => t.setBrush(x));
         break;
-      case "paint":
-        h2("Paint the ground");
-        seg([["path", "Sandy path"], ["cobble", "Cobbles"], ["greenery", "Greenery"], ["sand", "Sand"], ["erase", "Clear"]], t.paintType, v => { t.paintType = v as any; this.refresh(); });
-        slider("Brush", 0.5, 6, 0.5, t.brush, x => t.setBrush(x));
-        break;
-      case "prop": {
-        h2("Props & boats", "Boats go on the water; props can stand on land or on the docks.");
-        const groups: [string, PropType[]][] = [["Greenery", ["palm", "bougainvillea", "scrub", "rock"]], ["Dockside", ["barrels", "crates", "lantern", "nets", "laundry", "crane"]], ["Boats", ["rowboat", "sloop"]], ["Landmarks", ["hull", "grotto", "lighthouse"]]];
-        for (const [g, items] of groups) { lbl(g); seg(items.map(i => [i, PROP_INFO[i].label]), t.propType, v => { t.propType = v as PropType; this.refresh(); t.updateGhost(); }); }
+      case "paint": {
+        title("Paint");
+        const PAINT: [string, string, string][] = [["path", "#c2a276", "Sandy path"], ["cobble", "#9d8f7a", "Cobbles"], ["greenery", "#7c9648", "Greenery"], ["sand", "#e3c795", "Sand"], ["erase", "transparent", "Clear"]];
+        const r = row("Surface");
+        for (const [k, c, tip] of PAINT) chip(r, `<i class="dot" style="background:${c}${k === "erase" ? ";border:1.5px dashed var(--dim)" : ""}"></i>`, t.paintType === k, () => { t.paintType = k as any; this.refresh(); }, tip, "ic");
+        slider(row("Brush"), 0.5, 6, 0.5, t.brush, x => t.setBrush(x));
         break;
       }
-      case "erase": h2("Remove", "Click something to remove it. Undo with Ctrl+Z."); break;
+      case "prop": {
+        title("Props");
+        const groups: [string, PropType[]][] = [["Green", ["palm", "bougainvillea", "scrub", "rock"]], ["Dock", ["barrels", "crates", "lantern", "nets", "laundry", "crane"]], ["Boats", ["rowboat", "sloop"]], ["Big", ["hull", "grotto", "lighthouse"]]];
+        const short: Record<string, string> = { bougainvillea: "Blooms", nets: "Nets", hull: "Tavern", grotto: "Grotto" };
+        for (const [g, items] of groups) seg(row(g), items.map(i => [i, short[i] ?? PROP_INFO[i].label, PROP_INFO[i].label] as [string, string, string]), t.propType, v => { t.propType = v as PropType; this.refresh(); t.updateGhost(); });
+        break;
+      }
     }
   }
   private nodeEdit(id: string, op: "y" | "pad", v: number) {

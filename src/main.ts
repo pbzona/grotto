@@ -31,7 +31,7 @@ async function boot() {
 
   const world = new World();
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(32, window.innerWidth / window.innerHeight, 0.3, 900);
+  const camera = new THREE.PerspectiveCamera(32, window.innerWidth / window.innerHeight, 0.1, 900);
 
   const lightMap = new LightMap();
   const terrain = new Terrain(world, new THREE.MeshBasicMaterial(), new THREE.MeshBasicMaterial());
@@ -81,8 +81,11 @@ async function boot() {
   controls.target.copy(center);
   camera.position.set(center.x + 22, 30, center.z + 44);
   controls.enableDamping = true; controls.dampingFactor = 0.08;
-  controls.minDistance = 8; controls.maxDistance = 110;
-  controls.minPolarAngle = 0.15; controls.maxPolarAngle = 1.36;
+  // low, upward-looking shots are allowed: the camera may drop below its target (polar > 90°),
+  // and a ground clamp after every update keeps it above the terrain and the sea
+  controls.minDistance = 2.5; controls.maxDistance = 110;
+  controls.minPolarAngle = 0.12; controls.maxPolarAngle = 1.78;
+  controls.zoomToCursor = true;
   controls.mouseButtons = { LEFT: null as any, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
   controls.touches = { ONE: null as any, TWO: THREE.TOUCH.DOLLY_ROTATE };
   controls.screenSpacePanning = false;
@@ -135,6 +138,15 @@ async function boot() {
   }
   const gulls = new Gulls();
   scene.add(gulls.group);
+  /** Never let the camera sink into the land or the water; ease the target up with it so orbiting stays smooth. */
+  const _cp = new THREE.Vector3();
+  function keepAboveGround() {
+    const p = camera.position;
+    const inside = p.x > 0 && p.z > 0 && p.x < N && p.z < N;
+    const g = inside ? world.height(p.x, p.z) : -99;
+    const floor = Math.max(g, WATER_Y) + 0.35;
+    if (p.y < floor) { const dy = floor - p.y; p.y = floor; _cp.copy(p); void _cp; if (controls.target.y < floor - 0.5) controls.target.y += dy * 0.5; }
+  }
   const tools = new Tools(app, renderer.domElement);
   const ui = new UI(app, tools, cam);
   if (params.has("clean")) document.querySelectorAll<HTMLElement>(".ui").forEach(e => (e.style.display = "none"));
@@ -162,12 +174,13 @@ async function boot() {
     applySky(app.hour);
     gulls.update(app.time, U.night.value);
     controls.update();
+    keepAboveGround();
     pipeline.render();
   }
   if (params.has("test")) {
     (window as any).__grotto.snap = async (hour?: number) => {
       if (hour !== undefined) app.hour = hour;
-      app.update(0); applySky(app.hour); gulls.update(app.time + 3, U.night.value); controls.update();
+      app.update(0); applySky(app.hour); gulls.update(app.time + 3, U.night.value); controls.update(); keepAboveGround();
       await renderer.compileAsync(scene, camera).catch(() => {});
       pipeline.render();
       return renderer.domElement.toDataURL("image/png");
