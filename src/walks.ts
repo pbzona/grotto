@@ -160,7 +160,9 @@ function edgeMesh(world: World, mb: MeshBuilder, e: WalkEdge, A: WalkNode, B: Wa
   const rail = e.rail || high > 1.5;
   for (let i = 0; i <= np; i++) {
     const d = s0 + (s1 - s0) * i / np;
-    if ((i === 0 && tA > 0) || (i === np && tB > 0)) continue;
+    // at a junction end the landing carries the deck, but a rope rail still needs a post to tie off to
+    const endAtLanding = (i === 0 && tA > 0) || (i === np && tB > 0);
+    if (endAtLanding && !rail) continue;
     const y = stairs ? Math.min(A.y, B.y) + Math.abs(B.y - A.y) * (B.y > A.y ? d / L : 1 - d / L) : yAt(d);
     for (const side of [-1, 1]) {
       const p = P(d, side * (hw - 0.02), 0);

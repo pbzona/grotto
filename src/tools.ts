@@ -324,7 +324,7 @@ export class Tools {
     const moved = Math.hypot(e.clientX - this.downAt.x, e.clientY - this.downAt.y) > 6;
     switch (d.t) {
       case "rect": this.commitHouse(d.a, d.b, moved); break;
-      case "stroke": if (!d.changed) this.app.cancel(); break;
+      case "stroke": if (!d.changed) this.app.cancel(); else if (this.tool === "terrain" && this.app.settleWalks()) this.app.changed({ structures: true }); break;
       case "walk": {
         const g = this.surface() ?? d.down;
         if (moved && d.down.distanceTo(g) > 0.5) {
@@ -343,7 +343,7 @@ export class Tools {
       }
       case "extend":
         if (!d.changed) this.app.cancel();
-        else if (d.node) { this.world.pruneNodes(); this.select({ kind: "node", id: d.node.id }); }
+        else if (d.node) { this.world.pruneNodes(); this.app.settleWalks(new Set([d.from, d.node.id])); this.app.changed({ structures: true }); this.select({ kind: "node", id: d.node.id }); }
         this.onChange?.();
         break;
       case "seg": case "lift":
@@ -358,7 +358,7 @@ export class Tools {
         break;
       case "nodeY": case "nodeMove": case "propMove":
         if (d.t === "propMove") { const pr = this.world.props.get(d.id); if (pr?.type === "grotto" && !pr.carved) { this.app.carveGrotto(pr); this.app.changed({ terrain: true }); } }
-        if (!d.changed) this.app.cancel(); else if (d.t !== "propMove") this.world.pruneNodes();
+        if (!d.changed) this.app.cancel(); else if (d.t !== "propMove") { this.world.pruneNodes(); if (this.app.settleWalks(new Set([d.id]))) this.app.changed({ structures: true }); }
         this.onChange?.();
         break;
     }
@@ -959,23 +959,10 @@ export class Tools {
     if (ma || mb) this.toast("Added a bend so the walkway meets at a walkable angle");
   }
   /** Add a stretch; if the ground rises through its deck line, put a post on the high point so it rides over instead of through. */
-  private addFollowing(a: WalkNode, b: WalkNode, style: WalkEdge["style"], width: number, depth: number) {
-    const L = Math.hypot(b.x - a.x, b.z - a.z);
-    if (style !== "rope" && depth < 4 && L > 1.2) {
-      let worst = 0, wt = 0;
-      for (let t = 0.1; t < 0.95; t += 0.05) {
-        const x = a.x + (b.x - a.x) * t, z = a.z + (b.z - a.z) * t, y = a.y + (b.y - a.y) * t;
-        const over = this.world.height(x, z) + 0.15 - y;
-        if (over > worst) { worst = over; wt = t; }
-      }
-      if (worst > 0.05) {
-        const x = a.x + (b.x - a.x) * wt, z = a.z + (b.z - a.z) * wt;
-        const m = this.app.addNode(Math.round(x * 4) / 4, Math.round(z * 4) / 4, Math.round((this.world.height(x, z) + 0.2) * 20) / 20);
-        this.addFollowing(a, m, style, width, depth + 1); this.addFollowing(m, b, style, width, depth + 1);
-        return;
-      }
-    }
+  /** Add a stretch, then let it settle over any ground it would cut through. */
+  private addFollowing(a: WalkNode, b: WalkNode, style: WalkEdge["style"], width: number, _depth: number) {
     this.app.addEdge(a, b, style, width);
+    this.app.settleWalks(new Set([a.id, b.id]));
   }
   private walkTo(p: THREE.Vector3) {
     if (!this.chain) return;

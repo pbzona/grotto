@@ -49,6 +49,7 @@ export class App {
       const o = JSON.parse(s);
       this.world.load(o.world);
       if (typeof o.hour === "number") this.hour = o.hour;
+      this.settleWalks();
       return true;
     } catch { return false; }
   }
@@ -183,6 +184,51 @@ export class App {
     if (type === "grotto") this.carveGrotto(p);
     return p;
   }
+  /**
+   * Keep walkways out of the ground. Samples each stretch across its full width; where the ground rises through the deck,
+   * a post goes in at the worst point, lifted clear (recursively). Posts buried on a side slope are raised.
+   * Returns true if anything changed.
+   */
+  settleWalks(only?: Set<string>): boolean {
+    const w = this.world;
+    let changed = false;
+    const Hc = (x: number, z: number) => w.height(Math.min(N - 0.01, Math.max(0.01, x)), Math.min(N - 0.01, Math.max(0.01, z)));
+    const nearHouse = (n: WalkNode) => !!w.houseAt(n.x, n.z, 0.9);
+    // posts: a deck sitting in a side slope comes up to clear the ground under its footprint
+    for (const n of w.nodes.values()) {
+      if (only && !only.has(n.id)) continue;
+      if (!w.edgesOf(n.id).length || nearHouse(n)) continue;
+      const r = Math.max(0.5, w.edgesOf(n.id).reduce((m, e) => Math.max(m, e.width), 0.6) / 2);
+      let g = -Infinity;
+      for (let k = 0; k < 8; k++) g = Math.max(g, Hc(n.x + Math.cos(k * 0.785) * r, n.z + Math.sin(k * 0.785) * r));
+      g = Math.max(g, Hc(n.x, n.z));
+      if (g + 0.1 > n.y) { n.y = Math.round((g + 0.16) * 20) / 20; changed = true; }
+    }
+    const settle = (e: WalkEdge, depth: number) => {
+      const A = w.nodes.get(e.a), B = w.nodes.get(e.b); if (!A || !B || e.style === "rope") return;
+      const L = Math.hypot(B.x - A.x, B.z - A.z); if (L < 0.9 || depth > 5) return;
+      const ux = (B.x - A.x) / L, uz = (B.z - A.z) / L, hw = e.width / 2;
+      let worst = 0, wt = 0, wg = 0;
+      for (let t = 0.06; t < 0.95; t += 0.04) {
+        const x = A.x + (B.x - A.x) * t, z = A.z + (B.z - A.z) * t, y = A.y + (B.y - A.y) * t;
+        let g = -Infinity;
+        for (const o of [-hw, -hw / 2, 0, hw / 2, hw]) g = Math.max(g, Hc(x - uz * o, z + ux * o));
+        const over = g + 0.1 - y;
+        if (over > worst) { worst = over; wt = t; wg = g; }
+      }
+      if (worst < 0.06) return;
+      const x = A.x + (B.x - A.x) * wt, z = A.z + (B.z - A.z) * wt;
+      const m = this.addNode(Math.round(x * 4) / 4, Math.round(z * 4) / 4, Math.round((wg + 0.18) * 20) / 20);
+      w.edges.delete(e.id);
+      const e1 = this.addEdge(A, m, e.style, e.width), e2 = this.addEdge(m, B, e.style, e.width);
+      e1.rail = e2.rail = e.rail;
+      changed = true;
+      settle(e1, depth + 1); settle(e2, depth + 1);
+    };
+    for (const e of [...w.edges.values()]) if (!only || only.has(e.a) || only.has(e.b)) settle(e, 0);
+    return changed;
+  }
+
   /** A sea grotto cuts a flooded channel into the cliff it faces, under its rock vault; the original levels are kept so it can be undone. */
   carveGrotto(p: Prop) {
     const w = this.world;
@@ -289,6 +335,7 @@ export class App {
     for (let z = 23; z <= 34; z += 1) this.paintDisc("path", 10.7, z, 0.6);
     for (let z = 18; z <= 23; z += 1) this.paintDisc("path", 10 + (z - 18) * 0.15, z, 0.5);
     this.paintDisc("greenery", 5, 28.5, 1.8); this.paintDisc("greenery", 25, 10.5, 1.6); this.paintDisc("greenery", 31.5, 11, 1.2);
+    this.settleWalks();
     // nothing small may end up inside a landmark
     for (const lm of [...w.props.values()].filter(p => isLandmark(p.type))) {
       const pts = landmarkSamples(lm);
