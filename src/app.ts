@@ -4,10 +4,10 @@ import { World, N, uid, newVolume, DECK_Y, Prop, PropType, WalkNode, WalkEdge, P
 import { Terrain } from "./terrain";
 import type { Materials } from "./materials";
 import { LightMap } from "./lighting";
-import { MeshBuilder } from "./mesh";
+import { MeshBuilder, Part, mergeParts } from "./mesh";
 import { buildHouse, makeHouse, HouseBuild, Light } from "./houses";
 import { buildWalks, defaultDeckY, WALK_W } from "./walks";
-import { buildProps, buildBoat, updateBoat, Boat, stringLights, PROP_INFO } from "./props";
+import { buildProps, buildBoat, updateBoat, Boat, stringLights, PROP_INFO, buildScatter } from "./props";
 
 const SAVE_KEY = "grotto.cove.v1";
 
@@ -76,23 +76,69 @@ export class App {
   rebuildAll() { this.dirty = { terrain: true, paint: true, structures: true }; this.rebuild(); }
   rebuild() {
     const { terrain } = this.d;
-    if (this.dirty.terrain) { terrain.rebuild(); this.dirty.terrain = false; }
+    if (this.dirty.terrain) { terrain.rebuild(); this.terrainVersion++; this.dirty.terrain = false; }
     if (this.dirty.paint) { terrain.updatePaint(); this.dirty.paint = false; }
     if (this.dirty.structures) { this.buildStructures(); this.dirty.structures = false; }
   }
 
+  /** Terrain edits bump this so cached pieces that sit on the ground rebuild. */
+  terrainVersion = 0;
+  /** Set by the tools while a drag is in progress: the scatter layer waits until it ends. */
+  interacting = false;
+  private houseCache = new Map<string, { key: string; part: Part; b: Omit<HouseBuild, "mb"> }>();
+  private restCache: { key: string; part: Part; b: Omit<HouseBuild, "mb"> } | null = null;
+  private scatterCache: { key: string; part: Part } | null = null;
+  lastBuildMs = 0;
+
   buildStructures() {
+    const t0 = performance.now();
     const w = this.world;
-    const mb = new MeshBuilder();
-    const out: HouseBuild = { mb, lights: [], anchors: [], foam: [] };
-    for (const h of w.houses.values()) buildHouse(w, h, out);
-    buildWalks(w, mb, out);
-    buildProps(w, mb, out);
-    stringLights(out.anchors, mb, out);
+    const parts: Part[] = [];
+    const out: Omit<HouseBuild, "mb"> = { lights: [], anchors: [], foam: [] };
+    const merge = (b: Omit<HouseBuild, "mb">) => { out.lights.push(...b.lights); out.anchors.push(...b.anchors); out.foam.push(...b.foam); };
+    const liveNodes = [...w.nodes.values()].filter(n => w.edgesOf(n.id).length);
+    // houses: each cached on its own description, the terrain and the walkways that can open doors in it
+    const seen = new Set<string>();
+    for (const h of w.houses.values()) {
+      seen.add(h.id);
+      const near = liveNodes.filter(n => h.volumes.some(v => n.x > v.x0 - 1.2 && n.x < v.x1 + 1.2 && n.z > v.z0 - 1.2 && n.z < v.z1 + 1.2));
+      const key = JSON.stringify(h) + "|" + this.terrainVersion + "|" + JSON.stringify(near);
+      let c = this.houseCache.get(h.id);
+      if (!c || c.key !== key) {
+        const hb: HouseBuild = { mb: new MeshBuilder(), lights: [], anchors: [], foam: [] };
+        buildHouse(w, h, hb);
+        c = { key, part: hb.mb.freeze(), b: { lights: hb.lights, anchors: hb.anchors, foam: hb.foam } };
+        this.houseCache.set(h.id, c);
+      }
+      parts.push(c.part); merge(c.b);
+    }
+    for (const id of [...this.houseCache.keys()]) if (!seen.has(id)) this.houseCache.delete(id);
+    // walkways + props
+    const walkSig = JSON.stringify([...w.nodes.values()]) + JSON.stringify([...w.edges.values()]);
+    const restKey = walkSig + JSON.stringify([...w.props.values()]) + "|" + this.terrainVersion;
+    if (!this.restCache || this.restCache.key !== restKey) {
+      const rb: HouseBuild = { mb: new MeshBuilder(), lights: [], anchors: [], foam: [] };
+      buildWalks(w, rb.mb, rb);
+      buildProps(w, rb.mb, rb);
+      this.restCache = { key: restKey, part: rb.mb.freeze(), b: { lights: rb.lights, anchors: [], foam: rb.foam } };
+    }
+    parts.push(this.restCache.part); merge(this.restCache.b);
+    // natural scatter keeps clear of everything; it catches up once a drag ends
+    const scKey = restKey + JSON.stringify([...w.houses.values()].map(h => h.volumes.map(v => [v.x0, v.z0, v.x1, v.z1]))) + w.paint.length + hashBytes(w.paint);
+    if (!this.scatterCache || (this.scatterCache.key !== scKey && !this.interacting)) {
+      const sm = new MeshBuilder(); buildScatter(w, sm);
+      this.scatterCache = { key: scKey, part: sm.freeze() };
+    } else if (this.scatterCache.key !== scKey) this.dirtyLater = true;
+    parts.push(this.scatterCache.part);
+    const smb = new MeshBuilder();
+    stringLights(out.anchors, smb, out);
+    parts.push(smb.freeze());
+    const m = mergeParts(parts);
     this.structures.geometry.dispose();
-    this.structures.geometry = mb.toGeometry();
-    this.structures.userData.owners = mb.owners;
-    this.structures.userData.triOwner = mb.triOwner;
+    this.structures.geometry = m.geometry;
+    this.structures.userData.owners = m.owners;
+    this.structures.userData.triOwner = m.triOwner;
+    const mb = { lights: out.lights, anchors: out.anchors, foam: out.foam };
     // boats
     for (const b of this.boats) { b.mesh.geometry.dispose(); this.boatGroup.remove(b.mesh); }
     this.boats = [];
@@ -104,10 +150,15 @@ export class App {
     }
     this.d.terrain.setFoam(out.foam);
     this.lights = out.lights;
+    void mb;
     this.d.lightMap.update(out.lights.map((l: Light) => ({ x: l.x, z: l.z, r: l.r, i: l.i })));
+    this.lastBuildMs = performance.now() - t0;
   }
   lights: Light[] = [];
 
+  /** Deferred work (the scatter layer) waiting for a drag to finish. */
+  dirtyLater = false;
+  endInteraction() { this.interacting = false; if (this.dirtyLater) { this.dirtyLater = false; this.dirty.structures = true; } }
   update(dt: number) {
     this.time += dt;
     if (this.playing) this.hour = (this.hour + dt * this.speed * 24 / 300) % 24;
@@ -227,3 +278,5 @@ export class App {
     w.version++;
   }
 }
+
+function hashBytes(a: Uint8Array) { let h = 2166136261; for (let i = 0; i < a.length; i += 3) { h ^= a[i]; h = Math.imul(h, 16777619); } return h >>> 0; }

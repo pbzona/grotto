@@ -24,6 +24,12 @@ type Node = any;
 const hex = (h: string) => color(h);
 const n3 = (p: Node) => mx_noise_float(p).mul(0.5).add(0.5);
 
+/** Soft cloud shadows drifting across the cove by day. */
+export const cloudShade = (p: Node): Node => {
+  const n = mx_noise_float(vec3(p.x.mul(0.035).add(time.mul(0.018)), p.z.mul(0.035).add(time.mul(0.006)), time.mul(0.01))).mul(0.5).add(0.5);
+  return mix(float(1), float(0.8), smoothstep(0.52, 0.72, n).mul(float(1).sub(U.night)));
+};
+
 /** Warm glow from lanterns/windows at night: a low-res light map sampled in world XZ. */
 export function lightGlow(lightTex: THREE.Texture, p: Node): Node {
   return texture(lightTex, p.xz.div(N)).r;
@@ -85,6 +91,7 @@ export function createMaterials(tex: { paint: THREE.Texture; water: THREE.Textur
     // brush ring
     const bd = length(p.xz.sub(U.brush.xy));
     const ring = smoothstep(0.09, 0.0, abs(bd.sub(U.brush.z))).add(smoothstep(U.brush.z, 0, bd).mul(0.12));
+    col.assign(col.mul(cloudShade(p)));
     col.assign(mix(col, U.brushColor, ring.mul(U.brush.w).clamp()));
     return col;
   })();
@@ -140,7 +147,7 @@ export function createMaterials(tex: { paint: THREE.Texture; water: THREE.Textur
     c.assign(mix(c, deep, smoothstep(0.9, 2.6, depthN)));
     c.assign(mix(c, ocean, smoothstep(3.2, 4.0, depthN)));
     c.assign(mix(c, hex("#f6f1e2"), foam));
-    return c.mul(float(1).sub(farFog));
+    return c.mul(cloudShade(positionWorld)).mul(float(1).sub(farFog));
   })();
   water.opacityNode = Fn(() => {
     const a = mix(float(0.28), float(0.93), smoothstep(0.0, 1.6, depthN)).add(smoothstep(2.6, 3.4, depthN).mul(0.07));
@@ -203,7 +210,7 @@ export function createMaterials(tex: { paint: THREE.Texture; water: THREE.Textur
     // weathering: bottoms of plaster/plank walls are a touch darker and greener near the water
     const damp = smoothstep(WATER_Y + 1.2, WATER_Y, p.y).mul(isM(1).add(isM(2)).clamp());
     c.assign(mix(c, c.mul(vec3(0.7, 0.75, 0.7)), damp.mul(0.6)));
-    return c;
+    return c.mul(cloudShade(p));
   })();
   building.roughnessNode = Fn(() => mix(float(0.88), float(0.25), isM(6)).sub(isM(9).mul(0.4)))();
   building.metalnessNode = Fn(() => isM(9).mul(0.5))();

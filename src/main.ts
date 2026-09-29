@@ -7,6 +7,7 @@ import { Terrain } from "./terrain";
 import { createMaterials, U } from "./materials";
 import { skyAt, LightMap } from "./lighting";
 import { App } from "./app";
+import { Gulls } from "./life";
 import { Tools } from "./tools";
 import { UI, injectStyles } from "./ui";
 
@@ -131,6 +132,8 @@ async function boot() {
       if (resetAnim.t >= 1) resetAnim = null;
     }
   }
+  const gulls = new Gulls();
+  scene.add(gulls.group);
   const tools = new Tools(app, renderer.domElement);
   const ui = new UI(app, tools, cam);
 
@@ -155,13 +158,14 @@ async function boot() {
     tools.panCamera(step); updateCamera(step);
     app.update(step);
     applySky(app.hour);
+    gulls.update(app.time, U.night.value);
     controls.update();
     pipeline.render();
   }
   if (params.has("test")) {
     (window as any).__grotto.snap = async (hour?: number) => {
       if (hour !== undefined) app.hour = hour;
-      app.update(0); applySky(app.hour); controls.update();
+      app.update(0); applySky(app.hour); gulls.update(app.time + 3, U.night.value); controls.update();
       await renderer.compileAsync(scene, camera).catch(() => {});
       pipeline.render();
       return renderer.domElement.toDataURL("image/png");

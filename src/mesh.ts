@@ -129,26 +129,34 @@ export class MeshBuilder {
   }
   /** A lumpy blob (bushes, rocks). */
   blob(c: V3, r: V3, seed: number, detail = 1) {
-    const g = new THREE.IcosahedronGeometry(1, detail);
-    const P = g.getAttribute("position");
+    const ico = icoCache(detail);
     const R = rng(seed);
-    const off: number[] = [];
-    const cache = new Map<string, number>();
-    for (let i = 0; i < P.count; i++) {
-      const k = `${P.getX(i).toFixed(3)},${P.getY(i).toFixed(3)},${P.getZ(i).toFixed(3)}`;
-      if (!cache.has(k)) cache.set(k, 0.8 + R() * 0.35);
-      off.push(cache.get(k)!);
-    }
-    for (let i = 0; i < P.count; i += 3) {
+    const off = new Array(ico.unique).fill(0).map(() => 0.8 + R() * 0.35);
+    for (let i = 0; i < ico.pos.length; i += 9) {
       const t: V3[] = [];
-      for (let j = 0; j < 3; j++) { const q = i + j; t.push([c[0] + P.getX(q) * r[0] * off[q], c[1] + P.getY(q) * r[1] * off[q], c[2] + P.getZ(q) * r[2] * off[q]]); }
+      for (let j = 0; j < 3; j++) { const q = i / 3 + j; const o = off[ico.vid[q]]; t.push([c[0] + ico.pos[q * 3] * r[0] * o, c[1] + ico.pos[q * 3 + 1] * r[1] * o, c[2] + ico.pos[q * 3 + 2] * r[2] * o]); }
       const m = lerp3(lerp3(t[0], t[1], 0.5), t[2], 1 / 3);
       this.tri(t, sub(m, c));
     }
-    g.dispose();
   }
 
   get empty() { return this.idx.length === 0; }
+  /** Freeze into typed arrays for fast merging. */
+  freeze(): Part {
+    return { pos: new Float32Array(this.pos), nrm: new Float32Array(this.nrm), col: new Float32Array(this.col), mat: new Float32Array(this.mat), uv: new Float32Array(this.uv), idx: new Uint32Array(this.idx), triOwner: new Int32Array(this.triOwner), owners: this.owners.slice() };
+  }
+  /** Merge another builder's triangles in (owners are remapped by key). */
+  append(o: MeshBuilder) {
+    const base = this.pos.length / 3;
+    for (let i = 0; i < o.pos.length; i++) this.pos.push(o.pos[i]);
+    for (let i = 0; i < o.nrm.length; i++) this.nrm.push(o.nrm[i]);
+    for (let i = 0; i < o.col.length; i++) this.col.push(o.col[i]);
+    for (let i = 0; i < o.mat.length; i++) this.mat.push(o.mat[i]);
+    for (let i = 0; i < o.uv.length; i++) this.uv.push(o.uv[i]);
+    for (let i = 0; i < o.idx.length; i++) this.idx.push(o.idx[i] + base);
+    const remap = o.owners.map(k => { this.setOwner(k); return this.owner; });
+    for (let i = 0; i < o.triOwner.length; i++) this.triOwner.push(o.triOwner[i] < 0 ? -1 : remap[o.triOwner[i]]);
+  }
   toGeometry() {
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.Float32BufferAttribute(this.pos, 3));
@@ -167,4 +175,51 @@ function planarUV(p: V3[], n: V3): [number, number][] {
   if (ay >= ax && ay >= az) return p.map(q => [q[0], q[2]] as [number, number]);
   if (ax >= az) return p.map(q => [q[2], q[1]] as [number, number]);
   return p.map(q => [q[0], q[1]] as [number, number]);
+}
+
+const _ico = new Map<number, { pos: number[]; vid: number[]; unique: number }>();
+/** Unit icosphere triangles with a shared-vertex id per corner, built once per detail level. */
+function icoCache(detail: number) {
+  let c = _ico.get(detail);
+  if (c) return c;
+  const g = new THREE.IcosahedronGeometry(1, detail);
+  const P = g.getAttribute("position");
+  const ids = new Map<string, number>();
+  const pos: number[] = [], vid: number[] = [];
+  for (let i = 0; i < P.count; i++) {
+    const k = `${P.getX(i).toFixed(3)},${P.getY(i).toFixed(3)},${P.getZ(i).toFixed(3)}`;
+    if (!ids.has(k)) ids.set(k, ids.size);
+    pos.push(P.getX(i), P.getY(i), P.getZ(i)); vid.push(ids.get(k)!);
+  }
+  g.dispose();
+  c = { pos, vid, unique: ids.size };
+  _ico.set(detail, c);
+  return c;
+}
+
+export interface Part { pos: Float32Array; nrm: Float32Array; col: Float32Array; mat: Float32Array; uv: Float32Array; idx: Uint32Array; triOwner: Int32Array; owners: string[] }
+/** Concatenate frozen parts into one geometry; owners are merged by key. */
+export function mergeParts(parts: Part[]) {
+  let nv = 0, ni = 0, nt = 0;
+  for (const p of parts) { nv += p.pos.length / 3; ni += p.idx.length; nt += p.triOwner.length; }
+  const pos = new Float32Array(nv * 3), nrm = new Float32Array(nv * 3), col = new Float32Array(nv * 3), mat = new Float32Array(nv), uv = new Float32Array(nv * 2);
+  const idx = new Uint32Array(ni), triOwner = new Int32Array(nt);
+  const owners: string[] = [], ownerIdx = new Map<string, number>();
+  let v = 0, i = 0, t = 0;
+  for (const p of parts) {
+    pos.set(p.pos, v * 3); nrm.set(p.nrm, v * 3); col.set(p.col, v * 3); mat.set(p.mat, v); uv.set(p.uv, v * 2);
+    for (let k = 0; k < p.idx.length; k++) idx[i + k] = p.idx[k] + v;
+    const remap = p.owners.map(o => { let n = ownerIdx.get(o); if (n === undefined) { n = owners.length; owners.push(o); ownerIdx.set(o, n); } return n; });
+    for (let k = 0; k < p.triOwner.length; k++) triOwner[t + k] = p.triOwner[k] < 0 ? -1 : remap[p.triOwner[k]];
+    v += p.pos.length / 3; i += p.idx.length; t += p.triOwner.length;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  g.setAttribute("normal", new THREE.BufferAttribute(nrm, 3));
+  g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  g.setAttribute("mat", new THREE.BufferAttribute(mat, 1));
+  g.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+  g.setIndex(new THREE.BufferAttribute(idx, 1));
+  g.computeBoundingSphere(); g.computeBoundingBox();
+  return { geometry: g, owners, triOwner };
 }

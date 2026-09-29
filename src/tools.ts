@@ -127,7 +127,7 @@ export class Tools {
       if (g && g.distanceTo(this.ray.ray.origin) < h.distance - 0.05) return null;
       const ud = (h.object as THREE.Mesh).userData;
       const owner = ud.owners?.[ud.triOwner?.[h.faceIndex ?? -1]];
-      if (!owner || owner === "strings") continue;
+      if (!owner || owner === "strings" || owner === "scatter") continue;
       return { owner, point: h.point.clone(), normal: h.face?.normal.clone() ?? new THREE.Vector3(0, 1, 0) };
     }
     return null;
@@ -206,6 +206,7 @@ export class Tools {
   private move(e: PointerEvent) {
     this.setRay(e);
     const d = this.drag;
+    if (d && d.t !== "walk" && d.t !== "rect") this.app.interacting = true;
     if (!d) {
       if (this.tool === "select") { this.dom.style.cursor = this.pickHandle() ? "grab" : ""; return; }
       this.hover = this.tool === "walk" || this.tool === "prop" ? this.surface() : this.ground();
@@ -248,6 +249,7 @@ export class Tools {
     if (e.button !== 0 && e.pointerType === "mouse") return;
     const d = this.drag;
     this.drag = null;
+    this.app.endInteraction();
     try { this.dom.releasePointerCapture(this.pointerId); } catch { /* not captured */ }
     if (!d) return;
     this.setRay(e);

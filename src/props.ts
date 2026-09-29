@@ -1,5 +1,5 @@
 import * as THREE from "three/webgpu";
-import { World, Prop, WATER_Y, N } from "./world";
+import { World, Prop, WATER_Y, N, fbm } from "./world";
 import { MeshBuilder, V3, M, hexRGB, rng, hsh, add, scl, lerp3, norm, sub } from "./mesh";
 import type { Light, Anchor } from "./houses";
 import { landingRadius, isStairs, lanternPost } from "./walks";
@@ -249,12 +249,12 @@ function hullTavern(mb: MeshBuilder, r: () => number, L: Light[], y: number) {
 function grotto(mb: MeshBuilder, r: () => number, L: Light[]) {
   // a vaulted sea cave in honey sandstone, opening toward +z, with a hidden dock inside
   const R = 2.7, D = 4.6, T = 1.1;
-  const NU = 22, NV = 10;
-  const noise = (a: number, b: number, c: number) => (hsh(a * 12.9 + b * 78.2 + c * 3.7) - 0.5);
+  const NU = 28, NV = 12;
+  const noise = (u: number, v: number, rad: number) => fbm(u * 4.2 + rad * 0.7, v * 3.1 + rad * 0.3) - 0.5;
   const shell = (rad: number, u: number, v: number): V3 => {
     const th = Math.PI * u; // 0..PI across the arch
     const depth = -D * v;
-    const bulge = 1 + 0.12 * Math.sin(v * Math.PI) + noise(Math.round(u * NU), Math.round(v * NV), rad) * 0.14;
+    const bulge = 1 + 0.12 * Math.sin(v * Math.PI) + noise(u, v, rad) * (rad > 3 ? 0.42 : 0.22);
     const rr = rad * bulge * (1 - 0.35 * v * v);
     return [Math.cos(th) * rr * 1.1, Math.sin(th) * rr * 0.95 - 0.8, depth];
   };
@@ -289,10 +289,16 @@ function grotto(mb: MeshBuilder, r: () => number, L: Light[]) {
   mb.paint(hexRGB("#9a7650"), M.plank); mb.box([-R * 0.9, deckY, -3.4], [-R * 0.5, deckY + 0.45, -3.0]); mb.box([-R * 0.85, deckY + 0.45, -3.35], [-R * 0.55, deckY + 0.75, -3.05]);
   barrel(mb, -R * 0.4, -2.6, deckY, r); barrel(mb, -R * 0.6, -2.2, deckY, r);
   mb.paint(hexRGB("#c9b48a"), M.cloth); mb.box([-R * 0.92, deckY, -1.9], [-R * 0.55, deckY + 0.35, -1.3]);
-  for (const z of [-0.6, -2.4]) {
+  for (const z of [0.2, -1.5, -3.2]) {
     mb.paint(hexRGB("#3b332c"), M.metal); mb.beam([-R * 1.0, 2.0, z], [-R * 0.7, 2.0, z], [0, 0, 1], 0.02, 0.02);
     mb.paint(hexRGB("#ffd08a"), M.lamp); mb.box([-R * 0.75, 1.62, z - 0.07], [-R * 0.63, 1.85, z + 0.07]);
-    L.push({ x: -R * 0.7, y: 1.7, z, r: 3.4, i: 1.0 });
+    L.push({ x: -R * 0.7, y: 1.7, z, r: 3.2, i: 0.9 });
+  }
+  // a lantern on the far side too, so the vault glows at night
+  {
+    mb.paint(hexRGB("#3b332c"), M.metal); mb.beam([R * 1.0, 1.9, -2], [R * 0.72, 1.9, -2], [0, 0, 1], 0.02, 0.02);
+    mb.paint(hexRGB("#ffc070"), M.lamp); mb.box([R * 0.66, 1.5, -2.07], [R * 0.78, 1.73, -1.93]);
+    L.push({ x: R * 0.7, y: 1.6, z: -2, r: 3.2, i: 0.8 });
   }
   // stair cut into the rock at the back
   mb.paint(hexRGB("#c99561"), M.rock);
@@ -401,4 +407,76 @@ export function stringLights(anchors: Anchor[], mb: MeshBuilder, out: { lights: 
     out.lights.push({ x: mid[0], y: mid[1], z: mid[2], r: L * 0.55, i: 0.35 });
   }
   void norm; void sub;
+}
+
+// ---------- natural scatter: scrub, rocks, agaves and stone pines on open ground ----------
+const hash2 = (i: number, j: number, k: number) => { const v = Math.sin(i * 127.1 + j * 311.7 + k * 74.7) * 43758.5453; return v - Math.floor(v); };
+export function buildScatter(world: World, mb: MeshBuilder) {
+  mb.setOwner("scatter");
+  const blocked = (x: number, z: number, r: number) => {
+    if (world.houseAt(x, z, r + 0.6)) return true;
+    for (const p of world.props.values()) if (Math.hypot(p.x - x, p.z - z) < (PROP_INFO[p.type]?.r ?? 0.5) + r + 0.3) return true;
+    for (const n of world.nodes.values()) if (Math.hypot(n.x - x, n.z - z) < 1.2 + r) return true;
+    for (const e of world.edges.values()) {
+      const a = world.nodes.get(e.a), b = world.nodes.get(e.b); if (!a || !b) continue;
+      const dx = b.x - a.x, dz = b.z - a.z, L2 = dx * dx + dz * dz; if (L2 < 1e-3) continue;
+      const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / L2));
+      if (Math.hypot(a.x + dx * t - x, a.z + dz * t - z) < e.width / 2 + r + 0.3) return true;
+    }
+    return false;
+  };
+  for (let j = 1; j < N - 1; j++) for (let i = 1; i < N - 1; i++) {
+    const h = hash2(i, j, 1);
+    const lvl = world.level(i, j);
+    const green = world.paint[(j * N + i) * 4 + 2] / 255, paved = (world.paint[(j * N + i) * 4] + world.paint[(j * N + i) * 4 + 1]) / 255;
+    if (paved > 0.3) continue;
+    const top = lvl >= 13, low = lvl >= 7 && lvl < 13;
+    const dens = green > 0.4 ? 0.3 : top ? 0.16 : low ? 0.06 : 0;
+    if (h > dens) continue;
+    const x = i + 0.2 + hash2(i, j, 2) * 0.6, z = j + 0.2 + hash2(i, j, 3) * 0.6;
+    const y = world.height(x, z);
+    const e = 0.4;
+    const slope = Math.max(Math.abs(world.height(x + e, z) - world.height(x - e, z)), Math.abs(world.height(x, z + e) - world.height(x, z - e)));
+    if (slope > 0.12 || y < WATER_Y + 0.9) continue;
+    const pick = hash2(i, j, 4);
+    const kind = green > 0.4 ? (pick < 0.3 ? "bloom" : "scrub") : top ? (pick < 0.08 ? "pine" : pick < 0.2 ? "agave" : pick < 0.32 ? "rock" : "scrub") : (pick < 0.15 ? "agave" : pick < 0.25 ? "rock" : "scrub");
+    const r = kind === "pine" ? 1.3 : 0.4;
+    if (blocked(x, z, r)) continue;
+    const rr = rng(h * 1000 + i);
+    const sc = 0.7 + rr() * 0.6;
+    const prev = mb.xf;
+    const rot = rr() * Math.PI * 2, c = Math.cos(rot), s = Math.sin(rot);
+    mb.xf = (q: V3) => [x + (q[0] * c - q[2] * s) * sc, y + q[1] * sc - 0.03, z + (q[0] * s + q[2] * c) * sc];
+    if (kind === "scrub" || kind === "bloom") {
+      const n = 2 + Math.floor(rr() * 2);
+      for (let k = 0; k < n; k++) { mb.paint(hexRGB(["#7b8a4c", "#8e9656", "#6d7d45", "#94904f"][Math.floor(rr() * 4)]), M.leaf); mb.blob([(rr() - 0.5) * 0.5, 0.12 + rr() * 0.08, (rr() - 0.5) * 0.5], [0.22, 0.17, 0.22], rr() * 99, 0); }
+      if (kind === "bloom") for (let k = 0; k < 3; k++) { mb.paint(hexRGB(["#c9577a", "#d36f8f", "#e08a4a"][k]), M.leaf); mb.blob([(rr() - 0.5) * 0.5, 0.26, (rr() - 0.5) * 0.5], [0.08, 0.06, 0.08], rr() * 99, 0); }
+    } else if (kind === "rock") {
+      mb.paint(hexRGB("#d9a36c"), M.rock); mb.blob([0, 0.08, 0], [0.34, 0.22, 0.28], rr() * 99, 0);
+    } else if (kind === "agave") {
+      mb.paint(hexRGB(rr() < 0.5 ? "#7d9a8a" : "#8aa38a"), M.leaf);
+      const nl = 9;
+      for (let k = 0; k < nl; k++) {
+        const a = (k / nl) * Math.PI * 2, len = 0.45 + rr() * 0.15, up = 0.25 + rr() * 0.25;
+        const dx = Math.cos(a), dz = Math.sin(a);
+        const tip: V3 = [dx * len, up, dz * len], b0: V3 = [-dz * 0.07, 0.02, dx * 0.07], b1: V3 = [dz * 0.07, 0.02, -dx * 0.07];
+        mb.tri([b0, b1, tip], [dx, 0.6, dz]); mb.tri([b0, b1, tip], [-dx, -0.6, -dz]);
+      }
+    } else {
+      // stone pine: leaning trunk, flat parasol canopy
+      const lean = 0.5 + rr() * 0.5, H = 2.6 + rr() * 1.0;
+      const pts: V3[] = [];
+      for (let k = 0; k <= 6; k++) { const t = k / 6; pts.push([lean * t * t, t * H, 0]); }
+      mb.paint(hexRGB("#7a5a44"), M.plank); mb.tube(pts, (t: number) => 0.13 - t * 0.06, 6);
+      mb.beam(pts[4], [lean * 0.4 - 0.7, H * 0.95, 0.3], [0, 0, 1], 0.04, 0.04);
+      const top = pts[6];
+      const cols = ["#56703a", "#62793f", "#4d6636"];
+      for (let k = 0; k < 5; k++) {
+        const a = k * 1.3 + rr(), d = k === 0 ? 0 : 0.6 + rr() * 0.3;
+        mb.paint(hexRGB(cols[k % 3]), M.leaf);
+        mb.blob([top[0] + Math.cos(a) * d - (k === 4 ? 0.6 : 0), top[1] + (rr() - 0.5) * 0.2, Math.sin(a) * d], [0.85, 0.28, 0.85], rr() * 99, 1);
+      }
+    }
+    mb.xf = prev;
+  }
 }
