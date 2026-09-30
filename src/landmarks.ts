@@ -2,7 +2,7 @@ import { World, Prop, PropType, WATER_Y, N, levelY, propOpt, HULL_OPTS, GROTTO_O
 import { MeshBuilder, V3, M, hexRGB, rng, lerp3, add } from "./mesh";
 import type { Light } from "./houses";
 import { PALETTES } from "./houses";
-import { hull, barrel } from "./props";
+import { hull, barrel, isGreenery } from "./props";
 
 /**
  * Landmarks (hull tavern, sea grotto, lighthouse) are big enough that they have to be sited, not dropped:
@@ -37,7 +37,7 @@ export function landmarkClash(w: World, p: Prop): string | null {
       for (const [x, z] of pts) for (const [ox, oz] of op) if (Math.abs(x - ox) < 0.6 && Math.abs(z - oz) < 0.6) return "Too close to another landmark";
     } else if (o.type === "rowboat" || o.type === "sloop") {
       for (const [x, z] of pts) if (Math.hypot(o.x - x, o.z - z) < (o.type === "sloop" ? 1.4 : 0.8)) return "A boat is moored there";
-    } else {
+    } else if (!isGreenery(o.type)) { // trees and shrubs just get covered
       for (const [x, z] of pts) if (Math.hypot(o.x - x, o.z - z) < 0.45) return "Something is in the way";
     }
   }

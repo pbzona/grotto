@@ -117,7 +117,7 @@ export class App {
     for (const id of [...this.houseCache.keys()]) if (!seen.has(id)) this.houseCache.delete(id);
     // walkways + props
     const walkSig = JSON.stringify([...w.nodes.values()]) + JSON.stringify([...w.edges.values()]);
-    const restKey = walkSig + JSON.stringify([...w.props.values()]) + "|" + this.terrainVersion;
+    const restKey = walkSig + JSON.stringify([...w.props.values()]) + "|" + this.terrainVersion + "|" + JSON.stringify([...w.houses.values()].map(h => h.volumes.map(v => [v.x0, v.z0, v.x1, v.z1])));
     if (!this.restCache || this.restCache.key !== restKey) {
       const rb: HouseBuild = { mb: new MeshBuilder(), lights: [], anchors: [], foam: [] };
       buildWalks(w, rb.mb, rb);

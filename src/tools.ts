@@ -4,7 +4,7 @@ import { World, N, snap, House, Volume, newVolume, uid, FLOOR_H, MAX_LEVEL, Pain
 import { MeshBuilder } from "./mesh";
 import { buildHouse, houseLayout, makeHouse, nodeWall, sideLine, HouseBuild, Bay } from "./houses";
 import { defaultDeckY, landingRadius, WALK_W } from "./walks";
-import { buildOneProp, buildBoat, PROP_INFO, boatFreeboard } from "./props";
+import { buildOneProp, buildBoat, PROP_INFO, boatFreeboard, isGreenery } from "./props";
 import { fitLandmark, Fit } from "./landmarks";
 import { U } from "./materials";
 
@@ -1185,6 +1185,13 @@ export class Tools {
       if (w.houseAt(x, z, info.r * 0.6)) return { ok: false, why: "A house is in the way" };
       if (this.nearWalk(x, z, info.r * 0.5)) return { ok: false, why: "A walkway is in the way" };
       for (const p of w.props.values()) if (PROP_INFO[p.type]?.big && Math.hypot(p.x - x, p.z - z) < (info.r + PROP_INFO[p.type].r) * 0.6) return { ok: false, why: "Too close to another landmark" };
+      return { ok: true };
+    }
+    if (isGreenery(type)) {
+      if (water) return { ok: false, why: "Needs land to grow on" };
+      if (w.houseAt(x, z, 0.2) || this.onDeck(x, z) || this.nearWalk(x, z, 0.15)) return { ok: false, why: "Won't grow through a walkway or house" };
+      const e = 0.35, sl = Math.max(Math.abs(w.height(x + e, z) - w.height(x - e, z)), Math.abs(w.height(x, z + e) - w.height(x, z - e))) / (2 * e);
+      if (sl > 1.4) return { ok: false, why: "Too steep to take root" };
       return { ok: true };
     }
     if (water && !this.onDeck(x, z)) return { ok: false, why: "That would sink — put it on land or a deck" };

@@ -1,7 +1,7 @@
 import type { App } from "./app";
 import { Tools, ToolId, HOUSE_PRESETS } from "./tools";
 import { PALETTES } from "./houses";
-import { PROP_INFO } from "./props";
+import { PROP_INFO, isGreenery } from "./props";
 import { formatHour } from "./lighting";
 import { type PropType, type Prop, propOpt, HULL_OPTS, GROTTO_OPTS } from "./world";
 
@@ -382,6 +382,17 @@ export class UI {
         title(PROP_INFO[pr.type].label);
         const regrow = () => { if (pr.type === "grotto") app.carveGrotto(pr); app.changed({ structures: true, terrain: pr.type === "grotto" }); this.refresh(); };
         variantRows(pr, (k, v) => { app.begin(); pr.opts = { ...pr.opts, [k]: v }; regrow(); });
+        if (isGreenery(pr.type)) {
+          // live sliders: one undo step per gesture
+          let lastT = 0;
+          const live = (fn: () => void) => { const now = performance.now(); if (now - lastT > 1200) app.begin(); lastT = now; fn(); app.changed({ structures: true }); };
+          slider(row("Turn"), 0, 360, 5, ((pr.rot * 180 / Math.PI) % 360 + 360) % 360, v => live(() => { pr.rot = v * Math.PI / 180; }));
+          slider(row("Size"), 0.6, 1.6, 0.05, pr.scale ?? 1, v => live(() => { pr.scale = v; }));
+          if (pr.type === "palm") {
+            slider(row("Height"), 0.6, 1.6, 0.05, +(pr.opts?.height ?? 1), v => live(() => { pr.opts = { ...pr.opts, height: v }; }));
+            slider(row("Lean"), 0, 1.4, 0.05, pr.opts?.lean !== undefined ? +pr.opts.lean : 0.6, v => live(() => { pr.opts = { ...pr.opts, lean: v }; }));
+          }
+        }
         const acts: [string, () => void, string?][] = [["Reroll", () => { app.begin(); pr.seed = Math.random(); pr.opts = undefined; regrow(); }], ["Remove", () => t.deleteSelection(), "warn"]];
         if (pr.type !== "grotto") acts.unshift([pr.type === "hull" ? "Flip" : "Turn", () => t.rotate()]);
         actions(acts);

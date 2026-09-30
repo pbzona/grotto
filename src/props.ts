@@ -33,17 +33,41 @@ export const PROP_INFO: Record<string, { label: string; water?: boolean; big?: b
   hull: { label: "Hull tavern", big: true, r: 4.2 }, grotto: { label: "Sea grotto", big: true, r: 3.4 }, lighthouse: { label: "Lighthouse", big: true, r: 1.4 },
 };
 
+/** Trees, shrubs and rocks are lesser objects: anything built over them hides them instead of being blocked. */
+export const isGreenery = (t: string) => t === "palm" || t === "bougainvillea" || t === "scrub" || t === "rock";
+/** Is this greenery covered by a walkway, a house or a landmark? Then it isn't drawn (it comes back if that goes). */
+export function greeneryHidden(world: World, p: Prop) {
+  if (!isGreenery(p.type)) return false;
+  const r = (p.type === "palm" ? 0.2 : 0.35) * (p.scale ?? 1);
+  if (world.houseAt(p.x, p.z, r + 0.1)) return true;
+  for (const n of world.nodes.values()) if (world.edgesOf(n.id).length && Math.hypot(n.x - p.x, n.z - p.z) < landingRadius(world, n) + r) return true;
+  for (const e of world.edges.values()) {
+    const a = world.nodes.get(e.a), b = world.nodes.get(e.b); if (!a || !b) continue;
+    const dx = b.x - a.x, dz = b.z - a.z, L2 = dx * dx + dz * dz || 1e-6;
+    const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.z - a.z) * dz) / L2));
+    if (Math.hypot(a.x + dx * t - p.x, a.z + dz * t - p.z) < e.width / 2 + r + 0.1) return true;
+  }
+  for (const o of world.props.values()) if (isLandmark(o.type) && landmarkSamples(o).some(([x, z]) => Math.hypot(x - p.x, z - p.z) < 0.55 + r)) return true;
+  return false;
+}
+/** Greenery stands on the ground (never on a deck), with its base sunk to the low side so nothing floats on a slope. */
+export function groundBase(world: World, x: number, z: number, r: number) {
+  let lo = world.height(Math.min(N, Math.max(0, x)), Math.min(N, Math.max(0, z)));
+  for (let k = 0; k < 8; k++) lo = Math.min(lo, world.height(Math.min(N, Math.max(0, x + Math.cos(k * 0.785) * r)), Math.min(N, Math.max(0, z + Math.sin(k * 0.785) * r))));
+  return lo - 0.06;
+}
+
 /** Static props merge into one mesh; boats are separate so they can bob. */
 export function buildProps(world: World, mb: MeshBuilder, out: PropBuild) {
   for (const p of world.props.values()) {
-    if (PROP_INFO[p.type]?.water) continue;
+    if (PROP_INFO[p.type]?.water || greeneryHidden(world, p)) continue;
     buildOneProp(world, mb, p, out);
   }
 }
 export function buildOneProp(world: World, mb: MeshBuilder, p: Prop, out: PropBuild) {
   {
     mb.setOwner(`p:${p.id}`);
-    const y = p.type === "grotto" ? WATER_Y : surfaceAt(world, p.x, p.z);
+    const y = p.type === "grotto" ? WATER_Y : isGreenery(p.type) ? groundBase(world, p.x, p.z, (p.type === "palm" ? 0.16 : 0.3) * (p.scale ?? 1)) : surfaceAt(world, p.x, p.z);
     const c = Math.cos(p.rot), s = Math.sin(p.rot), sc = p.scale ?? 1;
     // build in local space (x right, z forward), rotate + translate
     mb.xf = (q: V3) => [p.x + (q[0] * c - q[2] * s) * sc, y + q[1] * sc, p.z + (q[0] * s + q[2] * c) * sc];
@@ -59,7 +83,7 @@ export function buildOneProp(world: World, mb: MeshBuilder, p: Prop, out: PropBu
 function propMesh(mb: MeshBuilder, p: Prop, L: Light[], out: PropBuild, y: number) {
   const r = rng(p.seed);
   switch (p.type) {
-    case "palm": palm(mb, r); break;
+    case "palm": palm(mb, r, p); break;
     case "bougainvillea": {
       for (let i = 0; i < 4; i++) { mb.paint(hexRGB(i % 2 ? "#6c8743" : "#5d7a3c"), M.leaf); mb.blob([(r() - 0.5) * 0.6, 0.25 + r() * 0.35, (r() - 0.5) * 0.6], [0.35, 0.3, 0.35], r() * 99, 1); }
       for (let i = 0; i < 9; i++) { mb.paint(hexRGB(["#c9577a", "#d36f8f", "#b84a6a", "#e08aa0"][i % 4]), M.leaf); mb.blob([(r() - 0.5) * 0.9, 0.3 + r() * 0.55, (r() - 0.5) * 0.9], [0.16, 0.13, 0.16], r() * 99, 0); }
@@ -130,8 +154,9 @@ export function barrel(mb: MeshBuilder, x: number, z: number, y0: number, r: () 
   for (const hy of [0.07, 0.41]) mb.cyl(x, z, y0 + hy, y0 + hy + 0.03, 0.185 + (hy < 0.2 ? 0 : 0), 0.19, 9, false);
 }
 
-function palm(mb: MeshBuilder, r: () => number) {
-  const h = 2.4 + r() * 1.2, lean = 0.4 + r() * 0.5, dir = r() * Math.PI * 2;
+function palm(mb: MeshBuilder, r: () => number, p: Prop) {
+  const h0 = 2.4 + r() * 1.2, lean0 = 0.4 + r() * 0.5; r();
+  const h = h0 * +(p.opts?.height ?? 1), lean = p.opts?.lean !== undefined ? +p.opts.lean : lean0, dir = 0; // leans along local +x; the prop's rotation aims it
   const pts: V3[] = [];
   for (let i = 0; i <= 10; i++) { const t = i / 10; const off = lean * t * t; pts.push([Math.cos(dir) * off, t * h, Math.sin(dir) * off]); }
   for (let i = 0; i < 10; i++) { mb.paint(hexRGB(i % 2 ? "#8b7358" : "#7a6450"), M.plank); mb.tube([pts[i], pts[i + 1]], (t: number) => 0.13 - (i + t) * 0.006, 7); }
