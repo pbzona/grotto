@@ -10,8 +10,10 @@ import { App } from "./app";
 import { Gulls } from "./life";
 import { Tools } from "./tools";
 import { UI, injectStyles } from "./ui";
+import { inject } from "@vercel/analytics";
 
 async function boot() {
+  inject();
   injectStyles();
   const loading = document.createElement("div");
   loading.id = "loading"; loading.textContent = "Carving the cove…";
