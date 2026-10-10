@@ -1,5 +1,6 @@
 import { World, House, Volume, FLOOR_H, PLINTH, DECK_Y, WATER_Y, N, WalkNode, fbm } from "./world";
 import { MeshBuilder, V3, M, hexRGB, rng, hsh, add, scl, lerp3, sub, norm, cross } from "./mesh";
+import type { Home } from "./villagers";
 
 /**
  * Parametric houses. A house is a few rectangular volumes plus parameters; everything visible —
@@ -81,6 +82,20 @@ export function nodeWall(h: House, n: WalkNode, base: number) {
     }
   });
   return best as { vi: number; side: number; floor: number; t: number; d: number } | null;
+}
+
+/** Houses whose wall a walkway reaches: the door node for each, used to give the house villagers. */
+export function villagerHomes(world: World): Home[] {
+  const live = [...world.nodes.values()].filter(n => world.edgesOf(n.id).length).sort((a, b) => (a.id < b.id ? -1 : 1));
+  const out: Home[] = [];
+  for (const h of world.houses.values()) {
+    const near = live.filter(n => h.volumes.some(v => n.x > v.x0 - 1 && n.x < v.x1 + 1 && n.z > v.z0 - 1 && n.z < v.z1 + 1));
+    if (!near.length) continue;
+    const base = houseLayout(world, h).base;
+    const door = near.find(n => nodeWall(h, n, base));
+    if (door) out.push({ house: h.id, node: door.id, seed: h.seed, size: h.volumes.reduce((s, v) => s + v.floors, 0) >= 3 ? 2 : 1 });
+  }
+  return out;
 }
 
 export function houseLayout(world: World, h: House): Layout {
