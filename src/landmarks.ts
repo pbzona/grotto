@@ -47,7 +47,7 @@ export function landmarkClash(w: World, p: Prop): string | null {
 /** Terrain score for a site; -Infinity when the ground can't take it. */
 function siteScore(w: World, p: Prop): { s: number; why?: string } {
   const c = Math.cos(p.rot), sn = Math.sin(p.rot);
-  const G = (lx: number, lz: number) => H(w, p.x + lx * c - lz * sn, p.z + lx * sn + lz * c);
+  const G = (lx: number, lz: number) => w.height(clampN(p.x + lx * c - lz * sn), clampN(p.z + lx * sn + lz * c), p.type === "grotto");
   if (p.type === "grotto") {
     const { R, D } = grottoDims(p);
     // the mouth must open onto water and the vault must run back into a cliff
@@ -106,21 +106,7 @@ export function fitLandmark(w: World, type: PropType, hx: number, hz: number, se
 }
 
 // ---------------- sea grotto ----------------
-/** The cells a grotto lowers and the level each is capped at: a flooded channel under the vault, a lowered lip at the mouth. */
-export function grottoCells(p: Prop): { i: number; j: number; cap: number; under: boolean }[] {
-  const { R, D, T } = grottoDims(p);
-  const c = Math.cos(p.rot), s = Math.sin(p.rot), out: { i: number; j: number; cap: number; under: boolean }[] = [];
-  const lip = Math.round((R * 0.95 - 0.8 + T + 0.2 - levelY(0)) / 0.5);
-  for (let j = Math.floor(p.z - D - 5); j <= Math.ceil(p.z + D + 5); j++) for (let i = Math.floor(p.x - D - 5); i <= Math.ceil(p.x + D + 5); i++) {
-    if (i < 0 || j < 0 || i >= N || j >= N) continue;
-    const dx = i + 0.5 - p.x, dz = j + 0.5 - p.z;
-    const lx = dx * c + dz * s, lz = -dx * s + dz * c, ax = Math.abs(lx);
-    if (lz > 5 || lz < -D - 0.6) continue;
-    if (ax < R * 1.2 + Math.min(Math.max(0, lz), 2.5) * 0.4) out.push({ i, j, cap: 3, under: lz < -0.3 });
-    else if (ax < R + T + 0.9 && lz > -0.9 && lz < 0.7) out.push({ i, j, cap: lip, under: false });
-  }
-  return out;
-}
+export { grottoCells } from "./world";
 
 export function buildGrotto(mb: MeshBuilder, w: World, p: Prop, L: Light[]) {
   const r = rng(p.seed);
@@ -159,15 +145,12 @@ export function buildGrotto(mb: MeshBuilder, w: World, p: Prop, L: Light[]) {
   const c = Math.cos(p.rot), s = Math.sin(p.rot);
   const vaultTop = R * sy - 0.8 + T + WATER_Y;
   if (p.carved?.length) {
-    const orig = Object.create(World.prototype) as World;
-    orig.heights = w.heights.slice();
-    for (const [i, j, l] of p.carved) orig.heights[j * N + i] = l;
     const step = 0.25, X = R * sx + T + 1.6, Z0 = -D - 1.5;
     const nx = Math.ceil((2 * X) / step), nz = Math.ceil(-Z0 / step);
     const vx: number[][] = [], vo: number[][] = [], vc: number[][] = [];
     for (let k = 0; k <= nz; k++) { vx.push([]); vo.push([]); vc.push([]); for (let i = 0; i <= nx; i++) {
       const lx = -X + i * step, lz = Z0 + k * step, wx = clampN(p.x + lx * c - lz * s), wz = clampN(p.z + lx * s + lz * c);
-      vo[k].push(orig.height(wx, wz)); vc[k].push(w.height(wx, wz));
+      vo[k].push(w.height(wx, wz, true)); vc[k].push(w.height(wx, wz));
     } }
     const on = (i: number, k: number) => {
       if (i < 0 || k < 0 || i >= nx || k >= nz) return false;

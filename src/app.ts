@@ -6,9 +6,10 @@ import type { Materials } from "./materials";
 import { LightMap } from "./lighting";
 import { MeshBuilder, Part, mergeParts } from "./mesh";
 import { buildHouse, makeHouse, HouseBuild, Light } from "./houses";
-import { grottoCells, fitLandmark } from "./landmarks";
+import { fitLandmark } from "./landmarks";
 import { buildWalks, defaultDeckY, WALK_W } from "./walks";
 import { buildProps, buildBoat, updateBoat, Boat, stringLights, PROP_INFO, buildScatter } from "./props";
+import { Edits } from "./edits";
 
 const SAVE_KEY = "grotto.cove.v1";
 
@@ -30,10 +31,14 @@ export class App {
   dirty = { terrain: true, paint: true, structures: true };
   onChange: (() => void) | null = null;
   private saveTimer = 0;
-  private history: string[] = [];
-  private future: string[] = [];
+  private recoverySave: string | null = null;
+  readonly edits: Edits;
+  private gesture = false;
+  saveError: string | null = null;
+  onSaveError: ((message: string) => void) | null = null;
 
   constructor(public d: AppDeps) {
+    this.edits = new Edits(d.world);
     this.structures = new THREE.Mesh(new THREE.BufferGeometry(), d.mats.building);
     this.structures.castShadow = this.structures.receiveShadow = true;
     d.scene.add(this.structures, this.boatGroup);
@@ -43,36 +48,56 @@ export class App {
 
   // ---------- persistence ----------
   restore() {
+    let raw: string | null = null;
     try {
-      const s = localStorage.getItem(SAVE_KEY);
-      if (!s) return false;
-      const o = JSON.parse(s);
-      this.world.load(o.world);
-      if (typeof o.hour === "number") this.hour = o.hour;
+      raw = localStorage.getItem(SAVE_KEY);
+      if (!raw) return false;
+      const o = JSON.parse(raw);
+      this.loadFile(o);
       this.settleWalks();
       return true;
-    } catch { return false; }
+    } catch {
+      this.recoverySave = raw;
+      try { if (raw !== null) { localStorage.setItem(SAVE_KEY + ".recovery", raw); this.recoverySave = null; } } catch { /* Keep it pending; never replace the original before backing it up. */ }
+      this.saveError = this.recoverySave === null ? "Saved cove could not be loaded. A recovery copy is kept in browser storage." : "Saved cove could not be loaded or backed up. Export your new work; the original save is protected.";
+      return false;
+    }
   }
-  save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify({ world: this.world.save(), hour: this.hour })); } catch { /* quota */ } }
+  loadFile(input: unknown) {
+    if (!input || typeof input !== "object") throw new Error("Invalid cove file");
+    const o = input as { world?: unknown; hour?: unknown };
+    if (o.hour !== undefined && (typeof o.hour !== "number" || !Number.isFinite(o.hour) || o.hour < 0 || o.hour >= 24)) throw new Error("Invalid time");
+    this.world.load(o.world);
+    if (typeof o.hour === "number") this.hour = o.hour;
+  }
+  importFile(input: unknown) {
+    this.begin(true);
+    try { this.loadFile(input); this.markAll(); this.commit(); }
+    catch (error) { this.cancel(); throw error; }
+  }
+  save() {
+    if (this.edits.active) return false;
+    try {
+      if (this.recoverySave !== null) { localStorage.setItem(SAVE_KEY + ".recovery", this.recoverySave); this.recoverySave = null; }
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ world: this.world.save(), hour: this.hour })); this.saveError = null; return true;
+    }
+    catch { const message = "Cove could not be saved. Export a copy to keep your work."; if (this.saveError !== message) this.onSaveError?.(message); this.saveError = message; return false; }
+  }
   scheduleSave() { clearTimeout(this.saveTimer); this.saveTimer = window.setTimeout(() => this.save(), 600); }
 
   // ---------- undo ----------
-  /** Call before a change: snapshots the current state. */
-  begin() {
-    this.history.push(JSON.stringify(this.world.save()));
-    if (this.history.length > 80) this.history.shift();
-    this.future.length = 0;
-  }
-  /** Drop the last snapshot (the change didn't happen). */
-  cancel() { this.history.pop(); }
-  undo() { const s = this.history.pop(); if (!s) return false; this.future.push(JSON.stringify(this.world.save())); this.world.load(JSON.parse(s)); this.markAll(); return true; }
-  redo() { const s = this.future.pop(); if (!s) return false; this.history.push(JSON.stringify(this.world.save())); this.world.load(JSON.parse(s)); this.markAll(); return true; }
+  begin(gesture = false) { this.commit(); this.edits.begin(); this.gesture = gesture; }
+  commit() { const changed = this.edits.commit(); this.gesture = false; this.endInteraction(); if (changed) this.scheduleSave(); return changed; }
+  cancel() { const changed = this.edits.cancel(); this.gesture = false; this.endInteraction(); if (changed) this.markAll(); }
+  undo() { this.cancel(); if (!this.edits.undo()) return false; this.markAll(); return true; }
+  redo() { this.cancel(); if (!this.edits.redo()) return false; this.markAll(); return true; }
 
-  markAll() { this.dirty = { terrain: true, paint: true, structures: true }; this.world.version++; this.scheduleSave(); this.onChange?.(); }
+  markAll() { this.world.rebuildCarving(); this.dirty = { terrain: true, paint: true, structures: true }; this.world.version++; if (!this.gesture) { this.commit(); this.scheduleSave(); } this.onChange?.(); }
   changed(d: Partial<App["dirty"]>) {
-    Object.assign(this.dirty, d);
-    if (d.terrain) this.dirty.structures = true;
-    this.world.version++; this.scheduleSave(); this.onChange?.();
+    if (d.terrain || d.structures) this.world.rebuildCarving();
+    for (const key of ["terrain", "paint", "structures"] as const) if (d[key]) this.dirty[key] = true;
+    if (d.terrain || d.paint) this.dirty.structures = true;
+    this.world.version++; if (!this.gesture) { this.commit(); this.scheduleSave(); } this.onChange?.();
   }
 
   rebuildAll() { this.dirty = { terrain: true, paint: true, structures: true }; this.rebuild(); }
@@ -90,6 +115,7 @@ export class App {
   private houseCache = new Map<string, { key: string; part: Part; b: Omit<HouseBuild, "mb"> }>();
   private restCache: { key: string; part: Part; b: Omit<HouseBuild, "mb"> } | null = null;
   private scatterCache: { key: string; part: Part } | null = null;
+  private boatCache = new Map<string, { key: string; boat: Boat }>();
   lastBuildMs = 0;
 
   buildStructures() {
@@ -142,11 +168,19 @@ export class App {
     this.structures.userData.triOwner = m.triOwner;
     const mb = { lights: out.lights, anchors: out.anchors, foam: out.foam };
     // boats
-    for (const b of this.boats) { b.mesh.geometry.dispose(); this.boatGroup.remove(b.mesh); }
+    const boatIds = new Set([...w.props.values()].filter(p => PROP_INFO[p.type]?.water).map(p => p.id));
+    for (const [id, entry] of this.boatCache) if (!boatIds.has(id)) { entry.boat.mesh.geometry.dispose(); this.boatGroup.remove(entry.boat.mesh); this.boatCache.delete(id); }
     this.boats = [];
     for (const p of w.props.values()) if (PROP_INFO[p.type]?.water) {
-      const b = buildBoat(p, this.d.mats.building);
-      this.boats.push(b); this.boatGroup.add(b.mesh);
+      const key = JSON.stringify(p);
+      let entry = this.boatCache.get(p.id);
+      if (!entry || entry.key !== key) {
+        if (entry) { entry.boat.mesh.geometry.dispose(); this.boatGroup.remove(entry.boat.mesh); }
+        entry = { key, boat: buildBoat(p, this.d.mats.building) };
+        this.boatCache.set(p.id, entry); this.boatGroup.add(entry.boat.mesh);
+      }
+      const b = entry.boat;
+      this.boats.push(b);
       updateBoat(b, this.time); b.mesh.updateMatrixWorld(true);
       const c = Math.cos(p.rot), s = Math.sin(p.rot), L = p.type === "sloop" ? 1.8 : 0.9;
       for (let k = -1; k <= 1; k++) out.foam.push({ x: p.x - s * L * k * 0.7, z: p.z + c * L * k * 0.7, r: p.type === "sloop" ? 0.4 : 0.22 });
@@ -219,9 +253,7 @@ export class App {
       if (worst < 0.06) return;
       const x = A.x + (B.x - A.x) * wt, z = A.z + (B.z - A.z) * wt;
       const m = this.addNode(Math.round(x * 4) / 4, Math.round(z * 4) / 4, Math.round((wg + 0.18) * 20) / 20);
-      w.edges.delete(e.id);
-      const e1 = this.addEdge(A, m, e.style, e.width), e2 = this.addEdge(m, B, e.style, e.width);
-      e1.rail = e2.rail = e.rail;
+      const [e1, e2] = w.splitEdge(e.id, m);
       changed = true;
       settle(e1, depth + 1); settle(e2, depth + 1);
     };
@@ -229,20 +261,7 @@ export class App {
     return changed;
   }
 
-  /** A sea grotto cuts a flooded channel into the cliff it faces, under its rock vault; the original levels are kept so it can be undone. */
-  carveGrotto(p: Prop) {
-    const w = this.world;
-    this.uncarve(p);
-    const carved: [number, number, number][] = [];
-    for (const c of grottoCells(p)) { const l = w.level(c.i, c.j); if (l > c.cap) { carved.push([c.i, c.j, l]); w.setLevel(c.i, c.j, c.cap); } }
-    p.carved = carved;
-  }
-  /** Put back whatever a grotto cut away. */
-  uncarve(p: Prop) {
-    if (!p.carved) return;
-    for (const [i, j, l] of p.carved) this.world.setLevel(i, j, l);
-    p.carved = undefined;
-  }
+  carveGrotto(_p: Prop) { this.world.rebuildCarving(); }
   paintDisc(type: PaintType | "erase", x: number, z: number, r: number, strength = 1) {
     const w = this.world;
     for (let j = Math.floor(z - r - 1); j <= Math.ceil(z + r); j++) for (let i = Math.floor(x - r - 1); i <= Math.ceil(x + r); i++) {

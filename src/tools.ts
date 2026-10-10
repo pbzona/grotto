@@ -129,6 +129,7 @@ export class Tools {
   get world(): World { return this.app.world; }
 
   setTool(t: ToolId) {
+    if (this.drag) this.cancelDrag();
     if (this.tool === "walk" && t !== "walk") this.endChain();
     this.tool = t;
     if (t !== "select") this.select(null);
@@ -219,7 +220,7 @@ export class Tools {
         if (s2 && (s2.kind === "prop" || s2.kind === "node") && p) {
           this.select(s2);
           const g = this.surface() ?? p.point;
-          app.begin();
+          app.begin(true);
           if (s2.kind === "prop") { const pr = this.world.props.get(s2.id)!; this.drag = { t: "propMove", id: s2.id, start: g.clone(), ox: pr.x, oz: pr.z, changed: false }; }
           else { const n = this.world.nodes.get(s2.id)!; this.drag = { t: "nodeMove", id: s2.id, start: g.clone(), ox: n.x, oz: n.z, changed: false }; }
           this.dom.setPointerCapture(e.pointerId);
@@ -227,7 +228,7 @@ export class Tools {
         }
         if (s && (s.kind === "prop" || s.kind === "node") && this.sel && this.sel.kind === s.kind && this.sel.id === s.id) {
           const g = this.surface() ?? p!.point;
-          app.begin();
+          app.begin(true);
           if (s.kind === "prop") { const pr = this.world.props.get(s.id)!; this.drag = { t: "propMove", id: s.id, start: g.clone(), ox: pr.x, oz: pr.z, changed: false }; }
           else { const n = this.world.nodes.get(s.id)!; this.drag = { t: "nodeMove", id: s.id, start: g.clone(), ox: n.x, oz: n.z, changed: false }; }
           this.dom.setPointerCapture(e.pointerId);
@@ -245,8 +246,8 @@ export class Tools {
       }
       case "terrain": case "paint": {
         const g = this.ground(); if (!g) return;
-        app.begin();
-        this.drag = { t: "stroke", last: 0, changed: false, flat: this.world.level(Math.floor(g.x), Math.floor(g.z)) };
+        app.begin(true);
+        this.drag = { t: "stroke", last: 0, changed: false, flat: this.world.baseLevel(Math.floor(g.x), Math.floor(g.z)) };
         this.applyStroke(g, true);
         this.dom.setPointerCapture(e.pointerId);
         break;
@@ -300,14 +301,13 @@ export class Tools {
         } else {
           const p = this.world.props.get(d.id); if (!p) break;
           if (isLandmark(p.type)) {
-            if (p.carved) { this.app.uncarve(p); this.app.changed({ terrain: true }); }
             const f = fitLandmark(this.world, p.type, x, z, p.seed, p.opts, false, p.id);
             if (!f.ok) break;
             p.x = f.x; p.z = f.z;
             if (p.type !== "lighthouse") p.rot = f.rot + (p.type === "hull" && Math.cos(f.rot - p.rot) < 0 ? Math.PI : 0);
           } else { p.x = Math.round(x * 10) / 10; p.z = Math.round(z * 10) / 10; }
         }
-        d.changed = true; this.app.changed({ structures: true }); this.refreshHandles();
+        d.changed = true; this.app.changed({ structures: true, terrain: d.t === "propMove" && this.world.props.get(d.id)?.type === "grotto" }); this.refreshHandles();
         break;
       }
     }
@@ -329,13 +329,16 @@ export class Tools {
         const g = this.surface() ?? d.down;
         if (moved && d.down.distanceTo(g) > 0.5) {
           // press-drag-release: a whole segment
-          if (!this.chain) this.chain = this.walkPoint(d.down, null).node;
+          if (!this.chain) { this.app.begin(true); this.chain = this.walkPoint(d.down, null).node; }
           this.walkTo(g);
         } else if (!this.chain) {
+          this.app.begin(true);
           const r = this.walkPoint(d.down, null);
           this.chain = r.node;
-          if (r.created) this.world.nodes.delete(r.node.id); // don't keep a lone point until a segment exists
-          this.chainTemp = r.created ? r.node : null;
+          const lone = r.created && !this.world.edgesOf(r.node.id).length;
+          if (lone) this.world.nodes.delete(r.node.id);
+          this.chainTemp = lone ? r.node : null;
+          this.app.changed({ structures: true });
           this.toast("Click to lay walkway · double-click or right-click to finish · [ ] to raise the next post");
         } else this.walkTo(g);
         this.updateGhost();
@@ -357,16 +360,24 @@ export class Tools {
         this.refreshHandles(); this.onChange?.();
         break;
       case "nodeY": case "nodeMove": case "propMove":
-        if (d.t === "propMove") { const pr = this.world.props.get(d.id); if (pr?.type === "grotto" && !pr.carved) { this.app.carveGrotto(pr); this.app.changed({ terrain: true }); } }
         if (!d.changed) this.app.cancel(); else if (d.t !== "propMove") { this.world.pruneNodes(); if (this.app.settleWalks(new Set([d.id]))) this.app.changed({ structures: true }); }
         this.onChange?.();
         break;
     }
+    if (d.t !== "walk") this.app.commit();
   }
   private chainTemp: WalkNode | null = null;
   snapped = false;
   private housesChanged = false;
-  private cancelDrag() { if (this.drag && (this.drag.t === "stroke")) { /* keep */ } this.drag = null; }
+  cancelDrag() {
+    if (!this.drag) return;
+    if (this.drag.t === "walk") { this.chain = null; this.chainTemp = null; this.walkLift = 0; }
+    this.drag = null; this.housesChanged = false;
+    try { this.dom.releasePointerCapture(this.pointerId); } catch { /* not captured */ }
+    this.app.cancel(); this.pointerId = -1;
+    if (this.sel?.kind === "house") { const h = this.world.houses.get(this.sel.id); if (h && this.sel.vi >= h.volumes.length) this.sel.vi = 0; }
+    this.refreshHandles(); this.refreshHighlight(); this.updateGhost(); this.onChange?.();
+  }
 
   private wheel(e: WheelEvent) {
     if (this.tool === "prop" && e.shiftKey) { e.preventDefault(); this.propRot += Math.sign(e.deltaY) * Math.PI / 12; this.updateGhost(); }
@@ -399,17 +410,17 @@ export class Tools {
     else if (s.kind === "edge") { this.world.edges.delete(s.id); this.world.pruneNodes(); this.select(null); }
     else if (s.kind === "prop") {
       const pr = this.world.props.get(s.id);
-      if (pr?.carved) { this.app.uncarve(pr); this.app.changed({ terrain: true }); }
       this.world.props.delete(s.id); this.select(null);
+      if (pr?.type === "grotto") this.app.changed({ terrain: true });
     }
     this.app.changed({ structures: true });
   }
   escape() {
+    if (this.drag) { this.cancelDrag(); return; }
     if (this.chain) { this.endChain(); return; }
-    if (this.drag) { this.drag = null; this.updateGhost(); return; }
     if (this.sel) this.select(null); else if (this.tool !== "select") this.setTool("select");
   }
-  endChain() { this.chain = null; this.chainTemp = null; this.walkLift = 0; this.world.pruneNodes(); this.updateGhost(); this.onChange?.(); }
+  endChain() { this.app.cancel(); this.chain = null; this.chainTemp = null; this.walkLift = 0; this.updateGhost(); this.onChange?.(); }
 
   // ---------- houses ----------
   private rectFrom(a: THREE.Vector3, b: THREE.Vector3, moved: boolean) {
@@ -470,9 +481,7 @@ export class Tools {
     const h = this.world.houses.get(s.id); if (!h) return;
     const v = h.volumes[s.vi] ?? h.volumes[0];
     const live = op === "pitch" || op === "curve" || op === "overhang";
-    const now = performance.now();
-    if (!(live && this.lastLive.op === op && now - this.lastLive.t < 1500)) this.app.begin();
-    this.lastLive = live ? { op, t: now } : { op: "", t: 0 };
+    if (!this.app.edits.active) this.app.begin();
     switch (op) {
       case "roof": v.roof = val; break;
       case "pitch": v.pitch = val; break;
@@ -493,7 +502,6 @@ export class Tools {
     this.refreshHandles();
     if (!live) this.onChange?.();
   }
-  private lastLive = { op: "", t: 0 };
   private addWing(h: House, kind: "room" | "tower" | "lookout" | "shed") {
     const main = h.volumes[this.sel?.kind === "house" ? this.sel.vi : 0] ?? h.volumes[0];
     const size = kind === "shed" ? [2, 1.5] : kind === "room" ? [2.5, 2] : [2, 2];
@@ -620,7 +628,7 @@ export class Tools {
   private startHandle(o: THREE.Object3D, e: PointerEvent) {
     const d = o.userData.handle as { t: string; side?: number };
     const s = this.sel!;
-    this.app.begin();
+    this.app.begin(true);
     this.housesChanged = false;
     const hd = o.userData.handle as { t: string; id?: string; side?: number; a?: number; b?: number; alongX?: boolean };
     if (hd.t === "nodeXZ") {
@@ -864,8 +872,7 @@ export class Tools {
     if (sn?.kind === "node") return { node: sn.node, created: false };
     if (sn?.kind === "edge") {
       const n = this.app.addNode(sn.x, sn.z, sn.y);
-      w.edges.delete(sn.edge.id);
-      this.app.addEdge(sn.a, n, sn.edge.style, sn.edge.width); this.app.addEdge(n, sn.b, sn.edge.style, sn.edge.width);
+      w.splitEdge(sn.edge.id, n);
       return { node: n, created: true };
     }
     // dock against a house wall, at the storey nearest the walkway's height
@@ -945,8 +952,7 @@ export class Tools {
       if (L < 2.4) return j;
       const tt = Math.min(1.9, L * 0.45) / L;
       const m = this.app.addNode(j.x + (bo.x - j.x) * tt, j.z + (bo.z - j.z) * tt, j.y + (bo.y - j.y) * tt);
-      this.world.edges.delete(best.id);
-      this.app.addEdge(j, m, best.style, best.width); this.app.addEdge(m, bo, best.style, best.width);
+      this.world.splitEdge(best.id, m);
       return m;
     };
     const crowded = (j: WalkNode, far: WalkNode) => this.world.edgesOf(j.id).length >= 3 && this.tightest(j, far.x - j.x, far.z - j.z, far).angle < Tools.MIN_JOIN;
@@ -966,16 +972,20 @@ export class Tools {
   }
   private walkTo(p: THREE.Vector3) {
     if (!this.chain) return;
-    this.app.begin();
+    if (!this.app.edits.active) this.app.begin(true);
     if (this.chainTemp && !this.world.nodes.has(this.chainTemp.id)) this.world.nodes.set(this.chainTemp.id, this.chainTemp);
     const r = this.walkPoint(p, this.chain);
-    if (r.node === this.chain) { if (r.created) this.world.nodes.delete(r.node.id); this.app.cancel(); return; }
-    if (Math.hypot(r.node.x - this.chain.x, r.node.z - this.chain.z) > 14) { if (r.created) this.world.nodes.delete(r.node.id); this.app.cancel(); this.toast("That's a long way — add a post in between"); return; }
+    if (r.node === this.chain || Math.hypot(r.node.x - this.chain.x, r.node.z - this.chain.z) > 14) {
+      const long = r.node !== this.chain;
+      this.app.cancel(); this.chain = null; this.chainTemp = null;
+      if (long) this.toast("That's a long way — add a post in between"); return;
+    }
     const dup = this.world.edgesOf(this.chain.id).some(e => e.a === r.node.id || e.b === r.node.id);
     if (!dup) this.joinWalk(this.chain, r.node);
     this.chain = r.node; this.chainTemp = null;
     this.walkLift = 0;
     this.app.changed({ structures: true });
+    this.app.commit();
     this.onChange?.();
   }
 
@@ -992,14 +1002,14 @@ export class Tools {
         if (i < 0 || j < 0 || i >= N || j >= N) continue;
         if (Math.hypot(i + 0.5 - p.x, j + 0.5 - p.z) <= r) cells.push([i, j]);
       }
-      const orig = cells.map(([i, j]) => w.level(i, j));
+      const orig = cells.map(([i, j]) => w.baseLevel(i, j));
       cells.forEach(([i, j], k) => {
         const l = orig[k];
         let nl = l;
         if (this.terrainOp === "raise") nl = l + 1;
         else if (this.terrainOp === "lower") nl = l - 1;
         else if (this.terrainOp === "flatten") nl = l + Math.sign((d.flat ?? l) - l);
-        else { let s = 0, c = 0; for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) { s += w.level(i + di, j + dj); c++; } nl = Math.round(s / c); }
+        else { let s = 0, c = 0; for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) { s += w.baseLevel(i + di, j + dj); c++; } nl = Math.round(s / c); }
         nl = Math.max(0, Math.min(MAX_LEVEL, nl));
         if (nl !== l) { w.setLevel(i, j, nl); d.changed = true; }
       });

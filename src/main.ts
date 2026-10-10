@@ -149,6 +149,11 @@ async function boot() {
   }
   const tools = new Tools(app, renderer.domElement);
   const ui = new UI(app, tools, cam);
+  app.onSaveError = message => ui.toast(message);
+  if (app.saveError) ui.toast(app.saveError);
+  const flushSave = () => { tools.cancelDrag(); tools.endChain(); app.commit(); app.save(); };
+  window.addEventListener("pagehide", flushSave);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) flushSave(); });
   if (params.has("clean")) document.querySelectorAll<HTMLElement>(".ui").forEach(e => (e.style.display = "none"));
 
   // ---------- frugal render loop: capped fps, idle throttle, pause when hidden ----------

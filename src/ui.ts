@@ -3,7 +3,8 @@ import { Tools, ToolId, HOUSE_PRESETS } from "./tools";
 import { PALETTES } from "./houses";
 import { PROP_INFO, isGreenery } from "./props";
 import { formatHour } from "./lighting";
-import { type PropType, type Prop, propOpt, HULL_OPTS, GROTTO_OPTS } from "./world";
+import { type PropType, type Prop, propOpt, HULL_OPTS, GROTTO_OPTS, isLandmark } from "./world";
+import { fitLandmark } from "./landmarks";
 
 const ICON: Record<string, string> = {
   select: '<path d="M5 3l14 8-6 1.5L10 19z"/>',
@@ -197,8 +198,8 @@ export class UI {
     clearTimeout(this.toastT); this.toastT = window.setTimeout(() => this.toastEl.classList.remove("on"), 2600);
   }
   toggleHelp() { this.help.classList.toggle("on"); }
-  undo() { if (this.app.undo()) { this.tools.select(null); this.toast("Undone"); } }
-  redo() { if (this.app.redo()) { this.tools.select(null); this.toast("Redone"); } }
+  undo() { this.tools.cancelDrag(); this.tools.endChain(); if (this.app.undo()) { this.tools.select(null); this.toast("Undone"); } }
+  redo() { this.tools.cancelDrag(); this.tools.endChain(); if (this.app.redo()) { this.tools.select(null); this.toast("Redone"); } }
   private refreshTimer = 0;
   private refreshSoon() { clearTimeout(this.refreshTimer); this.refreshTimer = window.setTimeout(() => this.refreshPanelValues(), 120); }
   refreshTime() {
@@ -251,7 +252,7 @@ export class UI {
     const i = document.createElement("input"); i.type = "file"; i.accept = ".json,application/json";
     i.onchange = async () => {
       const f = i.files?.[0]; if (!f) return;
-      try { const o = JSON.parse(await f.text()); this.app.begin(); this.app.world.load(o.world); this.app.markAll(); this.tools.select(null); this.toast("Cove loaded"); }
+      try { if (f.size > 5_000_000) throw new Error("File too large"); const o = JSON.parse(await f.text()); this.tools.cancelDrag(); this.tools.endChain(); this.app.importFile(o); this.tools.select(null); this.refreshTime(); this.toast("Cove loaded"); }
       catch { this.toast("That file isn't a Grotto cove"); }
     };
     i.click();
@@ -263,7 +264,7 @@ export class UI {
     this.buildPanel();
     this.hint.innerHTML = this.hintText();
   }
-  private refreshPanelValues() { if (this.tools.sel) this.buildPanel(); }
+  private refreshPanelValues() { if (this.tools.sel && !this.app.edits.active) this.buildPanel(); }
   private hintText() {
     const t = this.tools;
     const k = (x: string) => `<kbd>${x}</kbd>`;
@@ -296,7 +297,12 @@ export class UI {
     const seg = (host: HTMLElement, opts: [string, string, string?][], cur: string, fn: (v: string) => void) => { for (const [v, l, tip] of opts) chip(host, l, v === cur, () => fn(v), tip); };
     const slider = (host: HTMLElement, min: number, max: number, step: number, val: number, fn: (v: number) => void) => {
       const i = document.createElement("input"); i.type = "range"; i.min = String(min); i.max = String(max); i.step = String(step); i.value = String(val);
-      i.oninput = () => fn(+i.value); host.appendChild(i);
+      const editing = t.tool === "select" && !!t.sel;
+      i.oninput = () => { if (editing && !app.edits.active) app.begin(true); fn(+i.value); };
+      i.onchange = () => { if (editing) { app.commit(); this.refresh(); } };
+      i.onpointercancel = () => { if (editing) { app.cancel(); this.refresh(); } };
+      i.onkeydown = e => { if (editing && e.key === "Escape") { e.stopPropagation(); app.cancel(); this.refresh(); } };
+      host.appendChild(i);
     };
     const stepper = (host: HTMLElement, val: string, dec: () => void, inc: () => void) => {
       chip(host, "−", false, dec, "", "sq"); const v = document.createElement("span"); v.className = "val"; v.textContent = val; host.appendChild(v); chip(host, "+", false, inc, "", "sq");
@@ -380,12 +386,19 @@ export class UI {
       } else if (s.kind === "prop") {
         const pr = app.world.props.get(s.id); if (!pr) return;
         title(PROP_INFO[pr.type].label);
-        const regrow = () => { if (pr.type === "grotto") app.carveGrotto(pr); app.changed({ structures: true, terrain: pr.type === "grotto" }); this.refresh(); };
+        const regrow = () => {
+          if (isLandmark(pr.type)) {
+            const f = fitLandmark(app.world, pr.type, pr.x, pr.z, pr.seed, pr.opts, false, pr.id);
+            if (!f.ok) { app.cancel(); this.toast(f.why ?? "That variant won't fit here"); this.refresh(); return; }
+            pr.x = f.x; pr.z = f.z;
+            if (pr.type !== "lighthouse") pr.rot = f.rot + (pr.type === "hull" && Math.cos(f.rot - pr.rot) < 0 ? Math.PI : 0);
+          }
+          app.changed({ structures: true, terrain: pr.type === "grotto" }); this.refresh();
+        };
         variantRows(pr, (k, v) => { app.begin(); pr.opts = { ...pr.opts, [k]: v }; regrow(); });
         if (isGreenery(pr.type)) {
           // live sliders: one undo step per gesture
-          let lastT = 0;
-          const live = (fn: () => void) => { const now = performance.now(); if (now - lastT > 1200) app.begin(); lastT = now; fn(); app.changed({ structures: true }); };
+          const live = (fn: () => void) => { fn(); app.changed({ structures: true }); };
           slider(row("Turn"), 0, 360, 5, ((pr.rot * 180 / Math.PI) % 360 + 360) % 360, v => live(() => { pr.rot = v * Math.PI / 180; }));
           slider(row("Size"), 0.6, 1.6, 0.05, pr.scale ?? 1, v => live(() => { pr.scale = v; }));
           if (pr.type === "palm") {
@@ -441,13 +454,15 @@ export class UI {
   private nodeEdit(id: string, op: "y" | "pad", v: number) {
     const n = this.app.world.nodes.get(id); if (!n) return;
     this.app.begin();
-    if (op === "y") n.y = Math.max(Math.max(this.app.world.height(n.x, n.z), 0.2) + 0.2, n.y + v); else n.pad = v;
+    if (op === "y") n.y = Math.max(Math.max(this.app.world.height(n.x, n.z), 0.2) + 0.2, Math.min(20, n.y + v)); else n.pad = v;
+    this.app.settleWalks(new Set([id]));
     this.app.changed({ structures: true }); this.tools.refreshHandles(); this.refresh();
   }
   private edgeEdit(id: string, op: string, v: any) {
     const e = this.app.world.edges.get(id); if (!e) return;
-    this.app.begin();
+    if (!this.app.edits.active) this.app.begin();
     (e as any)[op] = v;
-    this.app.changed({ structures: true }); this.refresh();
+    this.app.settleWalks(new Set([e.a, e.b]));
+    this.app.changed({ structures: true }); if (!this.app.edits.active) this.refresh();
   }
 }
