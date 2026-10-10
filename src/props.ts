@@ -207,6 +207,29 @@ export function hullMask(len: number, wid: number, dep: number, y: number): THRE
   m.renderOrder = 1; m.castShadow = false; m.receiveShadow = false;
   return m;
 }
+/** Inner half-width of the lofted hull at station z and height y (same section as `hull`, 0 outside it). */
+export function hullHalfWidth(len: number, wid: number, dep: number, z: number, y: number) {
+  const t = Math.max(-1, Math.min(1, z / (len / 2)));
+  const hwid = wid / 2 * Math.pow(Math.max(0, 1 - (t > 0 ? t * t : t * t * 0.55)), 0.55);
+  const d = dep * (1 - 0.25 * t * t);
+  const sN = (0.12 * t * t * dep / 0.35 - y) / d;
+  return hwid * Math.sqrt(Math.max(0, 1 - sN * sN));
+}
+/** A plank slab from y0 to y1 between stations z0..z1, its outline following the inside of the hull (optionally capped at maxHw). */
+export function hullDeck(mb: MeshBuilder, len: number, wid: number, dep: number, y0: number, y1: number, z0: number, z1: number, maxHw = Infinity, inset = 0.04) {
+  const n = Math.max(4, Math.ceil((z1 - z0) / 0.4));
+  const st = Array.from({ length: n + 1 }, (_, i) => {
+    const z = z0 + (i / n) * (z1 - z0);
+    return [z, Math.max(0, Math.min(maxHw, hullHalfWidth(len, wid, dep, z, y0) - inset, hullHalfWidth(len, wid, dep, z, y1) - inset))] as const;
+  });
+  for (let i = 0; i < n; i++) {
+    const [za, wa] = st[i], [zb, wb] = st[i + 1];
+    mb.quad([[-wa, y1, za], [wa, y1, za], [wb, y1, zb], [-wb, y1, zb]], [0, 1, 0]);
+    mb.quad([[-wa, y0, za], [wa, y0, za], [wb, y0, zb], [-wb, y0, zb]], [0, -1, 0]);
+    for (const sg of [-1, 1]) mb.quad([[sg * wa, y0, za], [sg * wb, y0, zb], [sg * wb, y1, zb], [sg * wa, y1, za]], [sg, 0, 0]);
+  }
+  for (const [[z, w], sg] of [[st[0], -1], [st[n], 1]] as const) if (w > 0) mb.quad([[-w, y0, z], [w, y0, z], [w, y1, z], [-w, y1, z]], [0, 0, sg]);
+}
 export function hull(mb: MeshBuilder, len: number, wid: number, dep: number, paint: V3, inner: V3, stripe?: V3) {
   const NL = 12, NA = 7;
   const ring = (i: number): V3[] => {

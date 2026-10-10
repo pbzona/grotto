@@ -2,7 +2,7 @@ import { World, Prop, PropType, WATER_Y, N, levelY, propOpt, HULL_OPTS, GROTTO_O
 import { MeshBuilder, V3, M, hexRGB, rng, lerp3, add } from "./mesh";
 import type { Light } from "./houses";
 import { PALETTES } from "./houses";
-import { hull, barrel, isGreenery } from "./props";
+import { hull, hullDeck, barrel, isGreenery } from "./props";
 
 /**
  * Landmarks (hull tavern, sea grotto, lighthouse) are big enough that they have to be sited, not dropped:
@@ -276,7 +276,7 @@ export function buildHullTavern(mb: MeshBuilder, w: World, p: Prop, L: Light[]) 
   mb.xf = toWorld;
   hull(mb, len, wid, dep, hullC, hexRGB("#6b4a33"), stripeC);
   mb.paint(hexRGB("#9c7b58"), M.plank);
-  mb.box([-wid * 0.46, 0.05, -len * 0.42], [wid * 0.46, 0.13, len * 0.38]);
+  hullDeck(mb, len, wid, dep, 0.05, 0.13, -len * 0.42, len * 0.38);
   // portholes along the hull (the side toward the door gets them all)
   const nPort = Math.max(3, Math.round(len / 2));
   for (let i = 0; i < nPort; i++) {
@@ -295,7 +295,7 @@ export function buildHullTavern(mb: MeshBuilder, w: World, p: Prop, L: Light[]) 
   const Lv = (q: V3, rr: number, i: number) => { const t = level(q); L.push({ x: t[0], y: t[1], z: t[2], r: rr, i }); };
   mb.xf = level;
   mb.paint(wallC, r() < 0.5 ? M.plank : M.plaster); mb.box([-cw, base - 0.9, cz0], [cw, ry, cz1], "-y");
-  mb.paint(hexRGB("#9c7b58"), M.plank); mb.box([-cw - 0.25, base - 0.06, cz0 - 0.25], [cw + 0.25, base, cz1 + 0.25]); // a level floor apron round the cabin
+  mb.paint(hexRGB("#9c7b58"), M.plank); hullDeck(mb, len, wid, dep, base - 0.06, base, cz0 - 0.25, cz1 + 0.25, cw + 0.25, 0.1); // a level floor apron round the cabin, clipped to the hull
   if (cabin === "tall") { mb.paint(hexRGB("#7a5438"), M.plank); mb.box([-cw - 0.05, base + 1.1, cz0 - 0.05], [cw + 0.05, base + 1.2, cz1 + 0.05]); }
   // windows on both sides, both storeys
   const rows = cabin === "tall" ? [0.45, 1.55] : [0.42];
