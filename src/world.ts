@@ -313,8 +313,44 @@ function decodeWorldData(s: RecordData) {
   return { heights, paint, houses, nodes, edges, props };
 }
 
+// ---------- cove presets ----------
+export type CoveKind = "classic" | "fjord" | "islets" | "estuary";
+export const COVES: { kind: CoveKind; name: string; blurb: string }[] = [
+  { kind: "classic", name: "Classic cove", blurb: "Sandstone cliffs wrap a lagoon open to the south" },
+  { kind: "fjord", name: "Fjord", blurb: "A narrow inlet between sheer walls, a beach at its head" },
+  { kind: "islets", name: "Islets", blurb: "A scatter of small islands in open water" },
+  { kind: "estuary", name: "Estuary", blurb: "A slow river winds through low banks to the sea" },
+];
+type Noise = (x: number, z: number) => number;
+/** fbm shifted by a seed; seed 0 is the original field so the classic cove never changes. */
+function seededFbm(seed: number): Noise {
+  if (!seed) return fbm;
+  const ox = 37 + hash2(seed * 3.17, 7.7) * 400, oz = 53 + hash2(11.3, seed * 5.31) * 400;
+  return (x, z) => fbm(x + ox, z + oz);
+}
+function seededRng(seed: number) {
+  let s = (Math.floor(seed * 2654435761) >>> 0) ^ 0x9e3779b9;
+  return () => { s = (s + 0x6d2b79f5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+const clampL = (l: number) => Math.max(0, Math.min(MAX_LEVEL, Math.round(l)));
+
 /** The sheltered cove: sandstone cliffs wrap a lagoon that opens to the sea on the south. */
-export function carveCove(w: World) {
+export function carveCove(w: World, kind: CoveKind = "classic", seed = 0) {
+  const f = seededFbm(seed), rnd = seededRng(seed + 0.5);
+  if (kind === "fjord") carveFjord(w, f, rnd);
+  else if (kind === "islets") carveIslets(w, f, rnd);
+  else if (kind === "estuary") carveEstuary(w, f, rnd);
+  else carveClassic(w, f, seed ? rnd : null);
+  // natural sand paint on the beach band
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) if (w.level(i, j) === 6) w.paint[(j * N + i) * 4 + 3] = 200;
+  w.version++;
+}
+
+function seaStack(w: World, x: number, z: number, l: number) {
+  for (let dz = -1; dz < 3; dz++) for (let dx = -1; dx < 3; dx++) { const edge = dx < 0 || dz < 0 || dx > 1 || dz > 1; w.setLevel(x + dx, z + dz, edge ? Math.max(w.level(x + dx, z + dz), l - 6) : l - (dx + dz) % 2); }
+}
+
+function carveClassic(w: World, fbm: Noise, rnd: (() => number) | null) {
   for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
     const u = (i + 0.5) / N - 0.5, v = (j + 0.5) / N;
     const n = fbm(i * 0.13, j * 0.13), n2 = fbm(i * 0.31 + 11, j * 0.31 + 5);
@@ -333,11 +369,86 @@ export function carveCove(w: World) {
     else L = 15 + Math.round(n * 5 + n2 * 2);                  // cliff tops
     // headlands drop into the open sea at the southern edge
     if (v > 0.9 && !mouth) { const t = (v - 0.9) / 0.1; L = Math.round(L * (1 - t * 0.35)); }
-    w.setLevel(i, j, Math.max(0, Math.min(MAX_LEVEL, L)));
+    w.setLevel(i, j, clampL(L));
   }
   // a pair of sea stacks guarding the mouth
-  for (const [x, z, l] of [[16, 43, 13], [31, 42, 11]] as const) for (let dz = -1; dz < 3; dz++) for (let dx = -1; dx < 3; dx++) { const edge = dx < 0 || dz < 0 || dx > 1 || dz > 1; w.setLevel(x + dx, z + dz, edge ? Math.max(w.level(x + dx, z + dz), l - 6) : l - (dx + dz) % 2); }
-  // natural sand paint on the beach band
-  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) if (w.level(i, j) === 6) w.paint[(j * N + i) * 4 + 3] = 200;
-  w.version++;
+  const stacks: [number, number, number][] = rnd ? [[14 + Math.floor(rnd() * 4), 41 + Math.floor(rnd() * 3), 11 + Math.floor(rnd() * 4)], [30 + Math.floor(rnd() * 4), 41 + Math.floor(rnd() * 3), 10 + Math.floor(rnd() * 4)]] : [[16, 43, 13], [31, 42, 11]];
+  for (const [x, z, l] of stacks) seaStack(w, x, z, l);
+}
+
+/** A long glacial inlet: deep water between sheer walls, a beach and shelf at its head. */
+function carveFjord(w: World, fbm: Noise, rnd: () => number) {
+  const phase = rnd() * Math.PI * 2, bend = 0.08 + rnd() * 0.08, head = 0.16 + rnd() * 0.1;
+  const shelfSide = rnd() < 0.5 ? -1 : 1, shelfV = 0.45 + rnd() * 0.2;
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const u = (i + 0.5) / N - 0.5, v = (j + 0.5) / N;
+    const n = fbm(i * 0.13, j * 0.13), n2 = fbm(i * 0.31 + 11, j * 0.31 + 5);
+    const cx = Math.sin(v * 4.2 + phase) * bend * Math.min(1, v * 2) + (n - 0.5) * 0.05;
+    const hw = 0.055 + v * 0.11 + (n2 - 0.5) * 0.03;
+    const side = u - cx;
+    // a side shelf: one wall steps back to make room for a hamlet
+    const shelf = Math.sign(side) === shelfSide ? 1.1 * sstep(0.14, 0.04, Math.abs(v - shelfV)) : 0;
+    const dd = Math.hypot(Math.abs(side) / hw, Math.max(0, head - v) / 0.07);
+    let L: number;
+    if (dd < 0.85) L = 5 - Math.round(Math.min(1, (1 - dd / 0.85) * 1.4 + v * 0.4) * 4.6 + n2 * 0.6);
+    else if (dd < 1.05) L = v < head + 0.12 ? 6 : 7 + Math.round(n2);         // head beach, rocky foot elsewhere
+    else if (dd < 1.6 + shelf) L = 8 + Math.round(n2 * 2 + (dd > 1.35 ? 1 : 0));
+    else L = 14 + Math.min(6, (dd - 1.6 - shelf) * 3) + Math.round(n * 4);  // the walls
+    if (v > 0.94 && dd >= 0.85) L = Math.round(L * (1 - (v - 0.94) / 0.06 * 0.3));
+    w.setLevel(i, j, clampL(L));
+  }
+  // a lone skerry near the mouth
+  seaStack(w, 20 + Math.floor(rnd() * 8), 41 + Math.floor(rnd() * 3), 9 + Math.floor(rnd() * 3));
+}
+
+/** Open water with a handful of islands, one big enough for a village. */
+function carveIslets(w: World, fbm: Noise, rnd: () => number) {
+  const isles: { x: number; z: number; r: number; h: number }[] = [{ x: 0.42 + rnd() * 0.16, z: 0.38 + rnd() * 0.18, r: 0.21 + rnd() * 0.04, h: 1 }];
+  const count = 4 + Math.floor(rnd() * 3);
+  for (let tries = 0; isles.length < count + 1 && tries < 200; tries++) {
+    const c = { x: 0.1 + rnd() * 0.8, z: 0.1 + rnd() * 0.8, r: 0.06 + rnd() * 0.07, h: 0.5 + rnd() * 0.6 };
+    if (isles.every(o => Math.hypot(o.x - c.x, o.z - c.z) > o.r + c.r + 0.07)) isles.push(c);
+  }
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const x = (i + 0.5) / N, z = (j + 0.5) / N;
+    const n = fbm(i * 0.13, j * 0.13), n2 = fbm(i * 0.31 + 11, j * 0.31 + 5);
+    let s = -Infinity, h = 0;
+    for (const o of isles) { const k = 1 - Math.hypot(x - o.x, z - o.z) / o.r + (n - 0.5) * 0.5; if (k > s) { s = k; h = o.h; } }
+    let L: number;
+    if (s < -0.6) L = 1 + Math.round(n2 * 1.5);
+    else if (s < 0) L = 5 - Math.round((-s / 0.6) * 3.6 + n2 * 0.5);
+    else if (s < 0.16) L = 6;
+    else if (s < 0.42) L = 7 + Math.round(n2 * 1.4);
+    else if (s < 0.6) L = 9 + Math.round((n * 2 + 1) * h);
+    else L = 9 + Math.round((5 + n * 5 + n2 * 2) * h);
+    w.setLevel(i, j, clampL(L));
+  }
+}
+
+/** Low banks and a meandering river that widens through sandbars into the sea. */
+function carveEstuary(w: World, fbm: Noise, rnd: () => number) {
+  const phase = rnd() * Math.PI * 2, amp = 0.12 + rnd() * 0.08, bluff = rnd() < 0.5 ? -1 : 1;
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const u = (i + 0.5) / N - 0.5, v = (j + 0.5) / N;
+    const n = fbm(i * 0.13, j * 0.13), n2 = fbm(i * 0.31 + 11, j * 0.31 + 5);
+    const cx = Math.sin(v * 6.2 + phase) * amp * (1 - v * 0.6) + (n - 0.5) * 0.04;
+    const hw = 0.05 + (n2 - 0.5) * 0.02 + Math.pow(Math.max(0, v - 0.45), 2) * 1.6;
+    const dd = Math.abs(u - cx) / hw;
+    const shore = 0.86 + (n - 0.5) * 0.1, coast = v > shore;                    // the open sea along the south edge
+    let L: number;
+    if (dd < 1 || coast) {
+      const depth = coast ? Math.max(1 - dd, Math.min(1, (v - shore) / 0.1)) : 1 - dd;
+      L = 5 - Math.round(Math.min(1, depth * (0.5 + v)) * 3.2 + n2 * 0.4);
+      // sandbars in the widening mouth
+      if (v > 0.62 && v < 0.92 && n2 > 0.64 && dd > 0.25) L = n2 > 0.72 ? 7 : 6;
+    } else if (dd < 1.3 || v > shore - 0.04) L = 6;                                     // muddy banks
+    else {
+      L = 7 + Math.round(n * 2 + Math.min(2, (dd - 1.3) * 0.25));    // water meadows
+      const edge = Math.max(0, (u * bluff) - 0.28);                  // a bluff on one side for a lighthouse
+      L += Math.round(edge * 45 + (edge > 0 ? n2 * 2 : 0));
+    }
+    w.setLevel(i, j, clampL(L));
+  }
+  // marsh greenery on the low meadows
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const l = w.level(i, j); if (l === 7 || l === 8) w.paint[(j * N + i) * 4 + 2] = Math.round(70 + fbm(i * 0.4 + 3, j * 0.4) * 110); }
 }

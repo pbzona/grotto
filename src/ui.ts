@@ -3,7 +3,7 @@ import { Tools, ToolId, HOUSE_PRESETS } from "./tools";
 import { PALETTES } from "./houses";
 import { PROP_INFO, isGreenery } from "./props";
 import { formatHour } from "./lighting";
-import { type PropType, type Prop, propOpt, HULL_OPTS, GROTTO_OPTS, isLandmark } from "./world";
+import { type PropType, type Prop, type CoveKind, COVES, propOpt, HULL_OPTS, GROTTO_OPTS, isLandmark } from "./world";
 import { fitLandmark } from "./landmarks";
 
 const ICON: Record<string, string> = {
@@ -110,6 +110,8 @@ export function injectStyles() {
   #menu { top: 62px; right: 16px; padding: 8px; display: none; flex-direction: column; gap: 4px; min-width: 190px; z-index: 20; }
   #menu.on { display: flex; }
   #menu .btn { text-align: left; }
+  #menu .mh { font-size: 11px; opacity: .6; text-transform: uppercase; letter-spacing: .06em; padding: 6px 4px 2px; }
+  #menu .sep { height: 1px; background: currentColor; opacity: .12; margin: 4px 0; }
   @media (max-width: 760px) {
     #toolbar { top: auto; bottom: 12px; left: 50%; transform: translateX(-50%); flex-direction: row; }
     .tb .tip { display: none; }
@@ -153,7 +155,18 @@ export class UI {
     tbtn("menu", "Cove menu", () => this.menu.classList.toggle("on"));
     this.menu = el(`<div id="menu" class="ui card"></div>`);
     const mbtn = (label: string, fn: () => void) => { const b = document.createElement("button"); b.className = "btn"; b.textContent = label; b.onclick = () => { this.menu.classList.remove("on"); fn(); }; this.menu.appendChild(b); };
-    mbtn("Restore the starter village", () => { app.begin(); app.starter(); app.markAll(); tools.select(null); this.toast("Starter village restored"); });
+    const mhead = (t: string) => { const d = document.createElement("div"); d.className = "mh"; d.textContent = t; this.menu.appendChild(d); };
+    const fresh = (kind: CoveKind, seed: number) => {
+      app.begin(); app.newCove(kind, seed); app.markAll(); tools.select(null);
+      const name = COVES.find(c => c.kind === kind)!.name;
+      this.toast(kind === "classic" && seed === 0 ? "Starter village restored" : `${name} · seed ${seed}`);
+    };
+    const newSeed = () => 1 + Math.floor(Math.random() * 99999);
+    mhead("New cove");
+    for (const c of COVES) { mbtn(c.name, () => fresh(c.kind, c.kind === "classic" ? 0 : newSeed())); this.menu.lastElementChild!.setAttribute("title", c.kind === "classic" ? `${c.blurb}, with the starter village` : c.blurb); }
+    mbtn("Reroll this land", () => fresh(app.cove.kind, newSeed()));
+    this.menu.lastElementChild!.setAttribute("title", "Same preset, new seed. Replaces everything you've built (undo brings it back).");
+    this.menu.appendChild(Object.assign(document.createElement("div"), { className: "sep" }));
     mbtn("Empty cove (keep the land)", () => { app.begin(); const h = app.world.heights.slice(); app.world.clear(); app.world.heights.set(h); app.markAll(); tools.select(null); this.toast("An empty cove"); });
     mbtn("Save to a file…", () => this.exportFile());
     mbtn("Open a file…", () => this.importFile());
@@ -244,7 +257,7 @@ export class UI {
   }
 
   private exportFile() {
-    const blob = new Blob([JSON.stringify({ grotto: 1, world: this.app.world.save(), hour: this.app.hour })], { type: "application/json" });
+    const blob = new Blob([JSON.stringify({ grotto: 1, world: this.app.world.save(), hour: this.app.hour, cove: this.app.cove })], { type: "application/json" });
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "my-cove.grotto.json"; a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
