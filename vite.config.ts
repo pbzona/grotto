@@ -20,4 +20,4 @@ function b64Assets(): Plugin {
   };
 }
 
-export default defineConfig({ plugins: [b64Assets()], build: { target: "es2022", chunkSizeWarningLimit: 4000 } });
+export default defineConfig({ plugins: [b64Assets()], build: { target: "es2022", sourcemap: false, chunkSizeWarningLimit: 4000 } });
