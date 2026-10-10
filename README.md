@@ -11,8 +11,9 @@ warm lanterns against a teal night.
 
 ## Run
 
-    npm install
+    npm ci             # Node.js 24+ (native TypeScript model tests)
     npm run dev        # http://localhost:5173
+    npm run check      # typecheck, model regressions, production build
     npm run build      # static site in dist/
 
 URL flags: `?webgl` forces the WebGL backend, `?dpr=1` caps the pixel ratio, `?fresh` ignores the
@@ -31,6 +32,25 @@ saved cove and loads the starter village.
 Camera: right-drag to orbit, scroll to zoom, WASD or the arrow keys to pan, Q/E to turn, F to reset.
 N plays the day, and `,` `.` step the hour. Press `?` in the app for every shortcut.
 
+## Model and editing
+
+`src/world.ts` owns plain world data and terrain queries. `src/edits.ts` owns provisional
+edits, cancellation, undo and redo. Tools and panel controls begin an edit, preview changes,
+and commit once at the end of the gesture. Escape and pointer cancellation restore the
+pre-edit world; no-op edits preserve redo. `src/app.ts` connects those edits to saving and
+generated geometry. Dirty flags accumulate until a rebuild; painting also invalidates scatter.
+
+The height array stores editable **base terrain**. Grotto caps are derived from the current
+props: `level()` and `height()` return the carved surface, while `baseLevel()` and
+`height(x, z, true)` read the underlying terrain. Terraforming edits the base, including beneath
+a grotto. Moving or removing a grotto reveals those edits.
+
+JSON saves use version 2 and store base terrain, with no carved-cell backups. Version 1 saves
+migrate their saved original levels on load. Loading validates the complete payload before
+changing the live world. Imports restore the saved hour as well. Autosave skips provisional
+gestures and flushes on page hide; storage failures show an export reminder. An unreadable
+stored save is copied to `grotto.cove.v1.recovery` before the original can be replaced.
+
 ## Performance
 
 The renderer is built to stay light, since the cove gets shared with people on all kinds of hardware:
@@ -40,11 +60,21 @@ from a CPU-baked light map rather than dynamic lights.
 
 ## Tests
 
-Visual and interaction checks drive the dev server with
-[agent-browser](https://github.com/vercel-labs/agent-browser): `test/ab-shot.sh` renders an
-on-demand frame (`?test`) and screenshots it, and `test/ab-lib.sh` has helpers for projecting
-world points to the screen and sending real mouse input. `test/sweep.js` is a tool regression sweep and `test/landmarks.js` checks landmark siting, carving and restore, `test/features.js` checks pier-end dragging, extending, wall-segment wings and part lifts;
-(terrain, paint, props, boats, erase, walkways, house edits, undo/redo, autosave, shortcuts): open
-`/?webgl&test&fresh` and run it with `agent-browser eval --stdin < test/sweep.js`.
+`npm test` runs model regressions without Three.js or a browser: atomic loading, edit history,
+edge splitting, grotto modifiers, legacy migration and terrain edits through undo/redo.
+
+For browser checks, install [agent-browser](https://github.com/vercel-labs/agent-browser) and
+its browser, then run `npm run test:browser`. The runner starts Vite on port 5175, runs the
+interaction suites on fresh worlds with forced WebGL and automatic backend selection, and
+renders an on-demand frame after each suite. Any failed assertion exits nonzero. The output
+names the actual backend (automatic selection can fall back to WebGL) and reports warmed
+structure-rebuild timings. These timings are diagnostics, not a hardware-independent budget.
+
+`test/regressions.js` covers cancellation, abandoned walkway splits, paint invalidation,
+grotto terrain preservation, import failures, storage errors, autosave and page reload.
+The older suites cover house handles, placement, erase and shortcuts. They project world points
+and dispatch pointer events; `test/ab-lib.sh` also provides real mouse-input helpers.
+`test/ab-shot.sh` renders an on-demand frame (`?test`) and screenshots it. Set
+`AGENT_BROWSER_EXECUTABLE_PATH` when you need a specific browser executable.
 
 MIT licensed.
