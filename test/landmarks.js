@@ -15,7 +15,7 @@
   const f = t.fitAt('grotto', 9.5, 38);
   click(scr(9.5, 0.2, 38)); a.update(0);
   const gr = [...w.props.values()].at(-1);
-  ok('grotto sited', f.ok ? (w.props.size === n + 1 && gr.type === 'grotto' && gr.carved?.length > 0) : true, f.ok ? `${gr.x},${gr.z} carved ${gr.carved?.length}` : 'no site: ' + f.why);
+  ok('grotto sited', f.ok && w.props.size === n + 1 && gr.type === 'grotto' && gr.carved?.length > 0, f.ok ? `${gr.x},${gr.z} carved ${gr.carved?.length}` : 'no site: ' + f.why);
   // refuse a grotto in open water
   const bad = t.fitAt('grotto', 24, 30);
   ok('grotto refused in open water', !bad.ok, bad.why);

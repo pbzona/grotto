@@ -9,7 +9,10 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -p ."
+    "typecheck": "tsc -p .",
+    "test": "node --test test/*.test.ts",
+    "test:browser": "node test/browser.mjs",
+    "check": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
     "three": "^0.186.1"

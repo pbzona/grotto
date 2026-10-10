@@ -32,7 +32,7 @@
   t.houseEdit('wing', 'tower'); ok('add tower wing', h.volumes.length >= 2);
   key('Delete'); ok('delete wing', w.houses.has(h.id));
   // save/restore round trip
-  flush(); a.save(); const saved = JSON.parse(localStorage.getItem('grotto.cove.v1')); ok('autosave', saved.world.houses.length === w.houses.size);
+  flush(); a.save(); const saved = JSON.parse(localStorage.getItem('grotto.cove.v1')); ok('explicit save', saved.world.houses.length === w.houses.size);
   // help overlay
   key('?'); ok('help opens', g.ui.help.classList.contains('on')); key('Escape'); ok('help closes', !g.ui.help.classList.contains('on'));
   // time
