@@ -61,6 +61,20 @@
   btn('Sound').click();
   const m = g.ambienceMix(w, { x: 24, z: 26, dist: 12, night: 0, people: g.villagers.people });
   ok('the starter village has surf, gulls and creaking decks', m.surf > 0.2 && m.gulls > 0.1 && m.creaks > 0.1);
+  // the night trade in the starter village: signal at dusk, a boat to the pier, crates carried home
+  a.starter(); a.update(0); g.updateVillagers(1);
+  const sm = g.smuggling, plan = sm.plan;
+  ok('starter lookouts call a boat to a connected landing', plan.signal === 'run' && plan.home && plan.landing.kind === 'pier');
+  const under = [...w.edges.values()].some(e => { const p = w.nodes.get(e.a), q = w.nodes.get(e.b); const dx = q.x - p.x, dz = q.z - p.z, t = Math.max(0, Math.min(1, ((plan.landing.x - p.x) * dx + (plan.landing.z - p.z) * dz) / (dx * dx + dz * dz))); return Math.hypot(plan.landing.x - p.x - dx * t, plan.landing.z - p.z - dz * t) < e.width / 2 + 0.3; });
+  ok('the smuggler berths in open water, not under a deck', !under);
+  const at = h => { a.hour = h; g.updateVillagers(0); return sm.state; };
+  ok('the lantern signals at dusk', at(19.5).signal > 0.5 && at(13).signal === 0);
+  const mid = at(23.2);
+  ok('by night the boat is in and carriers are working', mid.boat && mid.boat.vis > 0.9 && mid.carriers.length > 0);
+  ok('crates wait by the door at dawn and are gone by afternoon', at(5).stack?.scales.every(s => s > 0.9) && !at(14).boat && !at(14).stack);
+  a.begin(); a.clearBuildings(); a.commit(); g.updateVillagers(1);
+  ok('no lookout, no run', sm.plan.signal === null && !at(23.2).boat);
+  a.undo(); a.hour = 16.4;
   btn('Cove').click(); a.update(0);
   ok('cove restores the starter village', a.cove.kind === 'classic' && a.cove.seed === 0 && w.houses.size > 5 && JSON.stringify(w.save()).length > 1000);
   while (a.undo()) {}

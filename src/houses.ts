@@ -98,6 +98,21 @@ export function villagerHomes(world: World): Home[] {
   return out;
 }
 
+/** The hanging lantern of every lookout, in world space: where the smugglers' signal shows. */
+export function lookoutLanterns(world: World): { house: string; x: number; y: number; z: number }[] {
+  const out: { house: string; x: number; y: number; z: number }[] = [];
+  for (const h of world.houses.values()) {
+    let base: number | null = null;
+    for (const v of h.volumes) {
+      if (vkind(v) !== "lookout") continue;
+      base ??= houseLayout(world, h).base;
+      const y = base + Math.max(1, v.floors - 1) * FLOOR_H + FLOOR_H * 1.1 - 0.35;
+      out.push({ house: h.id, x: (v.x0 + v.x1) / 2, y, z: (v.z0 + v.z1) / 2 });
+    }
+  }
+  return out.sort((a, b) => (a.house < b.house ? -1 : 1));
+}
+
 export function houseLayout(world: World, h: House): Layout {
   const { gmin, gmax, over } = houseGround(world, h);
   let base: number, stilts = false, plinth = false, rock = false;

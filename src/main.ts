@@ -9,7 +9,8 @@ import { skyAt, LightMap } from "./lighting";
 import { App } from "./app";
 import { Gulls, People } from "./life";
 import { Villagers, CROWDS } from "./villagers";
-import { villagerHomes } from "./houses";
+import { villagerHomes, lookoutLanterns } from "./houses";
+import { Contraband } from "./contraband";
 import { Tools } from "./tools";
 import { UI, injectStyles } from "./ui";
 import { Ambience } from "./sound";
@@ -145,14 +146,22 @@ async function boot() {
   // villagers follow the world: resync (throttled) whenever it changes
   const villagers = new Villagers(), people = new People();
   scene.add(people.group);
+  // the night trade: replanned with the villagers, posed from the hour dial
+  const smuggling = new Contraband(mats.building);
+  scene.add(smuggling.group);
   let seenVersion = -1, sinceSync = 1;
   function updateVillagers(dt: number) {
     sinceSync += dt;
     const density = CROWDS[app.settings.crowd].density;
     if (density !== villagers.density) { villagers.density = density; seenVersion = -1; sinceSync = 1; }
-    if (world.version !== seenVersion && sinceSync > 0.3) { seenVersion = world.version; sinceSync = 0; villagers.sync(world, villagerHomes(world)); }
+    if (world.version !== seenVersion && sinceSync > 0.3) { seenVersion = world.version; sinceSync = 0;
+      const homes = villagerHomes(world);
+      villagers.sync(world, homes);
+      smuggling.replan(world, lookoutLanterns(world), homes);
+    }
     villagers.update(world, dt);
     people.update(villagers.people, app.time);
+    smuggling.update(app.hour, app.time);
   }
   /** Never let the camera sink into the land or the water; ease the target up with it so orbiting stays smooth. */
   const _cp = new THREE.Vector3();
@@ -191,7 +200,7 @@ async function boot() {
     camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
-  (window as any).__grotto = { app, world, camera, controls, renderer, scene, applySky, tools, ui, villagers, updateVillagers, sound, ambienceMix };
+  (window as any).__grotto = { app, world, camera, controls, renderer, scene, applySky, tools, ui, villagers, updateVillagers, smuggling, sound, ambienceMix };
   const fpsCap = () => (document.hidden ? 0 : !document.hasFocus() || performance.now() - lastInput > 6000 ? Math.min(30, app.settings.fps) : app.settings.fps);
   function frame() {
     const now = performance.now();

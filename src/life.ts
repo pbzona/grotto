@@ -10,6 +10,9 @@ const PANTS = [0x4a4038, 0x3b4656, 0x6b5a45, 0x2e2e33];
  * Villagers drawn as tiny low-poly figures: three instanced meshes (body, head, legs) for everyone,
  * so the cost is a few draw calls however many there are. Appearing and leaving is a quick scale.
  */
+/** What a figure needs to be drawn: villagers and the night's carriers both fit. */
+export type Figure = Pick<Villager, "vis" | "seed" | "phase" | "stride" | "x" | "y" | "z" | "heading"> & { loaded?: boolean };
+
 export class People {
   group = new THREE.Group();
   private body: THREE.InstancedMesh;
@@ -22,14 +25,14 @@ export class People {
   private s = new THREE.Vector3();
   private c = new THREE.Color();
   private leg = new THREE.Matrix4();
-  constructor() {
+  constructor(private cap = MAX_VILLAGERS, private dress?: { shirt: number; pants: number }) {
     const mat = () => new THREE.MeshStandardNodeMaterial({ roughness: 0.85 });
     const bodyG = new THREE.CylinderGeometry(0.095, 0.13, 0.44, 7); bodyG.translate(0, 0.6, 0);
     const headG = new THREE.IcosahedronGeometry(0.085, 1); headG.translate(0, 0.91, 0);
     const legG = new THREE.BoxGeometry(0.075, 0.4, 0.08); legG.translate(0, -0.2, 0);
-    this.body = new THREE.InstancedMesh(bodyG, mat(), MAX_VILLAGERS);
-    this.head = new THREE.InstancedMesh(headG, mat(), MAX_VILLAGERS);
-    this.legs = new THREE.InstancedMesh(legG, mat(), MAX_VILLAGERS * 2);
+    this.body = new THREE.InstancedMesh(bodyG, mat(), cap);
+    this.head = new THREE.InstancedMesh(headG, mat(), cap);
+    this.legs = new THREE.InstancedMesh(legG, mat(), cap * 2);
     for (const im of [this.body, this.head, this.legs]) {
       im.count = 0; im.castShadow = true; im.frustumCulled = false;
       im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -37,14 +40,14 @@ export class People {
       this.group.add(im);
     }
   }
-  update(people: Villager[], t: number) {
+  update(people: Figure[], t: number) {
     let n = 0;
     for (const v of people) {
-      if (v.vis <= 0.001 || n >= MAX_VILLAGERS) continue;
+      if (v.vis <= 0.001 || n >= this.cap) continue;
       const k = Math.floor(v.seed * 1e4);
       const ease = v.vis * v.vis * (3 - 2 * v.vis);
       const walking = v.phase === "walk";
-      const swing = walking ? Math.sin(v.stride * 9) * 0.5 : 0;
+      const swing = walking ? Math.sin(v.stride * 9) * (v.loaded ? 0.3 : 0.5) : 0;
       const bob = walking ? Math.abs(Math.cos(v.stride * 9)) * 0.025 : Math.sin(t * 1.3 + k) * 0.004;
       const sway = v.phase === "idle" ? Math.sin(t * 0.7 + k) * 0.25 : 0;
       this.p.set(v.x, v.y + bob, v.z);
@@ -52,13 +55,13 @@ export class People {
       const sc = 0.92 + (k % 7) * 0.025;
       this.s.set(sc * (0.6 + 0.4 * ease), sc * ease, sc * (0.6 + 0.4 * ease));
       this.m.compose(this.p, this.q, this.s);
-      this.body.setMatrixAt(n, this.m); this.body.setColorAt(n, this.c.set(SHIRTS[k % SHIRTS.length]));
+      this.body.setMatrixAt(n, this.m); this.body.setColorAt(n, this.c.set(this.dress?.shirt ?? SHIRTS[k % SHIRTS.length]));
       this.head.setMatrixAt(n, this.m); this.head.setColorAt(n, this.c.set(SKIN[(k >> 3) % SKIN.length]));
       for (let side = 0; side < 2; side++) {
         // hip pivot: offset sideways, swing about local x
         this.leg.makeRotationX(side ? swing : -swing).setPosition((side ? 1 : -1) * 0.05, 0.4, 0);
         this.legs.setMatrixAt(n * 2 + side, this.leg.premultiply(this.m));
-        this.legs.setColorAt(n * 2 + side, this.c.set(PANTS[(k >> 5) % PANTS.length]));
+        this.legs.setColorAt(n * 2 + side, this.c.set(this.dress?.pants ?? PANTS[(k >> 5) % PANTS.length]));
       }
       n++;
     }
