@@ -37,17 +37,54 @@ export interface Villager {
 export const MAX_VILLAGERS = 14;
 const SPEED = 0.55, FADE = 1.6;
 
-/** One person per house, a second for larger houses when there's room. */
-export function headcount(homes: Home[]) {
+/** How busy the walkways get: people per unit of walkway length. */
+export const CROWDS = [
+  { name: "Quiet", density: 0.12 },
+  { name: "Lively", density: 0.22 },
+  { name: "Bustling", density: 0.36 },
+] as const;
+export const DEFAULT_CROWD = 1;
+/** localStorage key for the chosen crowd level. */
+export const CROWD_KEY = "grotto.crowd";
+
+const byId = (a: Home, b: Home) => (a.house < b.house ? -1 : a.house > b.house ? 1 : 0);
+
+/**
+ * One person per house, a second for larger houses when there's room. Each connected
+ * stretch of walkway holds at most `density` people per unit of its length (at least one),
+ * and the whole town at most MAX_VILLAGERS. Earliest house ids win, so counts stay stable.
+ */
+export function headcount(homes: Home[], world?: World, density = Infinity) {
   const out = new Map<string, number>();
-  for (const h of homes) out.set(h.house, 1);
-  let total = homes.length;
-  for (const h of [...homes].sort((a, b) => b.size - a.size || (a.house < b.house ? -1 : 1))) {
-    if (total >= MAX_VILLAGERS) break;
-    if (h.size >= 2) { out.set(h.house, 2); total++; }
+  const groups = new Map<string, { room: number; homes: Home[] }>();
+  if (world && Number.isFinite(density)) {
+    const adj = adjacency(world), compOf = new Map<string, string>();
+    for (const h of homes) {
+      let key = compOf.get(h.node);
+      if (!key) {
+        const seen = new Set([h.node]), q = [h.node];
+        while (q.length) for (const n of adj.get(q.pop()!) ?? []) if (!seen.has(n)) { seen.add(n); q.push(n); }
+        let len = 0;
+        for (const e of world.edges.values()) if (seen.has(e.a) && seen.has(e.b)) {
+          const a = world.nodes.get(e.a)!, b = world.nodes.get(e.b)!;
+          len += Math.hypot(b.x - a.x, b.z - a.z);
+        }
+        key = h.node;
+        for (const n of seen) compOf.set(n, key);
+        groups.set(key, { room: Math.max(1, Math.floor(len * density)), homes: [] });
+      }
+      groups.get(key)!.homes.push(h);
+    }
+  } else groups.set("", { room: Infinity, homes: [...homes] });
+  let total = 0;
+  for (const g of groups.values()) {
+    g.homes.sort(byId);
+    for (const h of g.homes) if (g.room > 0 && total < MAX_VILLAGERS) { out.set(h.house, 1); g.room--; total++; }
   }
-  // too many houses: the cap wins, keeping the earliest ids stable
-  if (homes.length > MAX_VILLAGERS) for (const h of [...homes].sort((a, b) => (a.house < b.house ? -1 : 1)).slice(MAX_VILLAGERS)) out.delete(h.house);
+  for (const g of groups.values()) for (const h of [...g.homes].sort((a, b) => b.size - a.size || byId(a, b))) {
+    if (h.size < 2 || !out.has(h.house) || g.room <= 0 || total >= MAX_VILLAGERS) continue;
+    out.set(h.house, 2); g.room--; total++;
+  }
   return out;
 }
 
@@ -60,11 +97,13 @@ export class Villagers {
   people: Villager[] = [];
   private homes = new Map<string, Home>();
   private r = rand(7);
+  /** People per unit of walkway; see CROWDS. */
+  density: number = CROWDS[DEFAULT_CROWD].density;
 
   /** Reconcile with the world: new houses send someone out, removed ones fade, broken paths reset. */
   sync(world: World, homes: Home[]) {
     this.homes = new Map(homes.map(h => [h.house, h]));
-    const want = headcount(homes);
+    const want = headcount(homes, world, this.density);
     const have = new Map<string, number>();
     for (const v of this.people) {
       if (v.gone) continue;

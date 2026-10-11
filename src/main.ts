@@ -8,7 +8,7 @@ import { createMaterials, U } from "./materials";
 import { skyAt, LightMap } from "./lighting";
 import { App } from "./app";
 import { Gulls, People } from "./life";
-import { Villagers } from "./villagers";
+import { Villagers, CROWDS } from "./villagers";
 import { villagerHomes } from "./houses";
 import { Tools } from "./tools";
 import { UI, injectStyles } from "./ui";
@@ -146,6 +146,8 @@ async function boot() {
   let seenVersion = -1, sinceSync = 1;
   function updateVillagers(dt: number) {
     sinceSync += dt;
+    const density = CROWDS[app.settings.crowd].density;
+    if (density !== villagers.density) { villagers.density = density; seenVersion = -1; sinceSync = 1; }
     if (world.version !== seenVersion && sinceSync > 0.3) { seenVersion = world.version; sinceSync = 0; villagers.sync(world, villagerHomes(world)); }
     villagers.update(world, dt);
     people.update(villagers.people, app.time);

@@ -11,8 +11,13 @@ import { fitLandmark } from "./landmarks";
 import { buildWalks, defaultDeckY, WALK_W } from "./walks";
 import { buildProps, buildBoat, updateBoat, Boat, stringLights, PROP_INFO, buildScatter, isGreenery } from "./props";
 import { Edits } from "./edits";
+import { CROWDS, CROWD_KEY, DEFAULT_CROWD } from "./villagers";
 
 const SAVE_KEY = "grotto.cove.v1";
+function readCrowd() {
+  try { const n = Number(localStorage.getItem(CROWD_KEY)); if (Number.isInteger(n) && n >= 0 && n < CROWDS.length && localStorage.getItem(CROWD_KEY) !== null) return n; } catch { /* no storage */ }
+  return DEFAULT_CROWD;
+}
 
 export interface AppDeps {
   renderer: THREE.WebGPURenderer; scene: THREE.Scene; camera: THREE.PerspectiveCamera; controls: OrbitControls;
@@ -24,7 +29,7 @@ export class App {
   hour = 16.4;
   playing = false;
   speed = 1;
-  settings = { fps: 60 };
+  settings = { fps: 60, crowd: readCrowd() };
   time = 0;
   structures: THREE.Mesh;
   boats: Boat[] = [];

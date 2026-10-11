@@ -23,6 +23,19 @@ test("headcount: one each, a second for big houses, capped", () => {
   assert.equal([...c.values()].reduce((s, n) => s + n, 0), MAX_VILLAGERS);
 });
 
+test("headcount: each walkway holds people by its length", () => {
+  const w = new World(); line(w, ["a", "b", "c"]); line(w, ["x", "y"]); w.nodes.get("x")!.z = 30; w.nodes.get("y")!.z = 30;
+  // a: 4 units of walkway, x: 2 units
+  const homes: Home[] = ["h1", "h2", "h3", "h4"].map((house, i) => ({ house, node: "a", seed: i, size: 2 }));
+  homes.push({ house: "k1", node: "x", seed: 9, size: 2 }, { house: "k2", node: "x", seed: 10, size: 1 });
+  const sum = (m: Map<string, number>) => [...m.values()].reduce((s, n) => s + n, 0);
+  const c = headcount(homes, w, 0.5);
+  assert.deepEqual([...c].sort(), [["h1", 1], ["h2", 1], ["k1", 1]]);
+  assert.equal(sum(headcount(homes, w, 0.01)), 2, "every walkway keeps at least one");
+  assert.equal(sum(headcount(homes, w, 10)), 11, "plenty of room: everyone, seconds for big houses");
+  assert.ok(sum(headcount(homes, w, 0.5)) < sum(headcount(homes, w, 1)));
+});
+
 test("route follows the graph and fails across a gap", () => {
   const w = new World(); line(w, ["a", "b", "c", "d"]);
   assert.deepEqual(route(w, "a", "d"), ["b", "c", "d"]);
@@ -32,7 +45,7 @@ test("route follows the graph and fails across a gap", () => {
 
 test("villagers appear at the door, stay on the walkways and their component", () => {
   const w = new World(); line(w, ["a", "b", "c", "d"]); line(w, ["x", "y"]); w.nodes.get("x")!.z = 30; w.nodes.get("y")!.z = 30;
-  const v = new Villagers();
+  const v = new Villagers(); v.density = 1;
   v.sync(w, [{ house: "h", node: "a", seed: 3, size: 2 }]);
   assert.equal(v.people.length, 2);
   assert.ok(v.people.every(p => p.x === 10 && p.z === 10 && p.vis === 0));

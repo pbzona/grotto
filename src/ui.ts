@@ -5,6 +5,7 @@ import { PROP_INFO, isGreenery } from "./props";
 import { formatHour } from "./lighting";
 import { type PropType, type Prop, type CoveKind, COVES, propOpt, HULL_OPTS, GROTTO_OPTS, isLandmark } from "./world";
 import { fitLandmark } from "./landmarks";
+import { CROWDS, CROWD_KEY } from "./villagers";
 
 // Hand-inked chart glyphs: slightly uneven strokes, drawn to sit on paper.
 const ICON: Record<string, string> = {
@@ -225,6 +226,14 @@ export class UI {
     this.menu.lastElementChild!.classList.add("warn");
     mbtn("Save to a file…", () => this.exportFile());
     mbtn("Open a file…", () => this.importFile());
+    const crowdLabel = () => `Townsfolk: ${CROWDS[app.settings.crowd].name}`;
+    mbtn(crowdLabel(), () => {
+      app.settings.crowd = (app.settings.crowd + 1) % CROWDS.length;
+      try { localStorage.setItem(CROWD_KEY, String(app.settings.crowd)); } catch { /* no storage */ }
+      crowdBtn.textContent = crowdLabel(); this.toast(`${CROWDS[app.settings.crowd].name} walkways`);
+    });
+    const crowdBtn = this.menu.lastElementChild as HTMLElement;
+    crowdBtn.setAttribute("title", "How many villagers the walkways hold, by their length");
     mbtn("Toggle 30 / 60 fps cap", () => { app.settings.fps = app.settings.fps === 60 ? 30 : 60; this.toast(`Frame cap: ${app.settings.fps} fps`); });
 
     this.panel = el(`<div id="panel" class="ui card"></div>`);

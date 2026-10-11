@@ -38,6 +38,13 @@
   ok('confirming clears buildings and keeps land and greenery', w.houses.size === 0 && w.edges.size === 0 && w.nodes.size === 0 && greenery() === green && heights() === land);
   a.undo(); a.update(0);
   ok('clearing undoes in one step', w.houses.size === houses);
+  const crowd = a.settings.crowd, count = () => g.villagers.people.filter(p => !p.gone).length;
+  g.updateVillagers(1); const lively = count();
+  while (a.settings.crowd !== 0) btn('Townsfolk').click();
+  g.updateVillagers(1);
+  ok('quiet townsfolk thins the walkways', g.villagers.density < 0.2 && count() <= lively && btn('Townsfolk').textContent === 'Townsfolk: Quiet' && localStorage.getItem('grotto.crowd') === '0');
+  while (a.settings.crowd !== crowd) btn('Townsfolk').click();
+  g.updateVillagers(1);
   btn('Cove').click(); a.update(0);
   ok('cove restores the starter village', a.cove.kind === 'classic' && a.cove.seed === 0 && w.houses.size > 5 && JSON.stringify(w.save()).length > 1000);
   while (a.undo()) {}
