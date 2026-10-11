@@ -9,7 +9,7 @@ import { buildHouse, makeHouse, houseLayout, HouseBuild, Light } from "./houses"
 import { seedCove } from "./seed";
 import { fitLandmark } from "./landmarks";
 import { buildWalks, defaultDeckY, WALK_W } from "./walks";
-import { buildProps, buildBoat, updateBoat, Boat, stringLights, PROP_INFO, buildScatter } from "./props";
+import { buildProps, buildBoat, updateBoat, Boat, stringLights, PROP_INFO, buildScatter, isGreenery } from "./props";
 import { Edits } from "./edits";
 
 const SAVE_KEY = "grotto.cove.v1";
@@ -295,6 +295,16 @@ export class App {
     carveCove(w, kind, seed);
     this.cove = { kind, seed };
     seedCove(this, seed);
+    w.version++;
+  }
+
+  /** Everything built goes (houses, walkways, boats, clutter, landmarks); land, paint and greenery stay. */
+  clearBuildings() {
+    const w = this.world;
+    const grotto = [...w.props.values()].some(p => p.type === "grotto");
+    w.houses.clear(); w.nodes.clear(); w.edges.clear();
+    for (const p of [...w.props.values()]) if (!isGreenery(p.type)) w.props.delete(p.id);
+    if (grotto) w.rebuildCarving();
     w.version++;
   }
 

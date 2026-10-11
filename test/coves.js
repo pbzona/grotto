@@ -26,6 +26,18 @@
     ok(`${label} renders`, image.startsWith('data:image/png') && image.length > 1000);
   }
   ok('cove survives save', a.save() && JSON.parse(localStorage.getItem('grotto.cove.v1') ?? '{}').cove?.kind === a.cove.kind);
+  const tick = () => new Promise(r => setTimeout(r, 0));
+  const greenery = () => [...w.props.values()].filter(p => ['palm', 'bougainvillea', 'scrub'].includes(p.type)).length;
+  const houses = w.houses.size, green = greenery(), land = heights();
+  btn('Clear all buildings').click(); await tick();
+  ok('clearing asks first', !!document.querySelector('#ask.on'));
+  document.querySelector('#ask .no').click(); await tick();
+  ok('declining keeps the buildings', !document.querySelector('#ask.on') && w.houses.size === houses);
+  btn('Clear all buildings').click(); await tick();
+  document.querySelector('#ask .yes').click(); await tick(); a.update(0);
+  ok('confirming clears buildings and keeps land and greenery', w.houses.size === 0 && w.edges.size === 0 && w.nodes.size === 0 && greenery() === green && heights() === land);
+  a.undo(); a.update(0);
+  ok('clearing undoes in one step', w.houses.size === houses);
   btn('Cove').click(); a.update(0);
   ok('cove restores the starter village', a.cove.kind === 'classic' && a.cove.seed === 0 && w.houses.size > 5 && JSON.stringify(w.save()).length > 1000);
   while (a.undo()) {}

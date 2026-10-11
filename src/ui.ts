@@ -137,6 +137,12 @@ export function injectStyles() {
   body.noui .ui:not(#toast) { display: none !important; }
   #help { inset: 0; display: none; place-items: center; background: rgba(12,26,32,.5); z-index: 30; }
   #help.on { display: grid; }
+  #ask { inset: 0; display: grid; place-items: center; background: rgba(12,26,32,.5); z-index: 40; }
+  #ask .card { width: min(400px, 90vw); padding: 18px 22px 16px; transform: rotate(-.4deg); }
+  #ask h2 { margin: 0 0 6px; font: 400 26px var(--display); }
+  #ask p { margin: 0 0 14px; color: var(--dim); font: italic 15.5px/1.4 var(--display); }
+  #ask .row { display: flex; justify-content: flex-end; gap: 8px; }
+  #ask .btn { border-color: var(--rule); }
   #help .card { width: min(660px, 92vw); padding: 22px 26px; max-height: 86vh; overflow: auto; transform: rotate(-.4deg); }
   #help h2 { margin: 0 0 10px; font: 400 30px var(--display); }
   #help table { width: 100%; border-collapse: collapse; font-size: 14.5px; line-height: 1.4; }
@@ -212,7 +218,11 @@ export class UI {
     mbtn("Reroll this land", () => fresh(app.cove.kind, newSeed()));
     this.menu.lastElementChild!.setAttribute("title", "Same preset, new seed. Replaces everything you've built (undo brings it back).");
     this.menu.appendChild(Object.assign(document.createElement("div"), { className: "sep" }));
-    mbtn("Empty cove (keep the land)", () => { app.begin(); const h = app.world.heights.slice(); app.world.clear(); app.world.heights.set(h); app.markAll(); tools.select(null); this.toast("An empty cove"); });
+    mbtn("Clear all buildings…", async () => {
+      if (!await this.ask("Clear all buildings?", "Every house, walkway, boat and landmark goes. The land, paint and greenery stay. Undo brings it all back.", "Clear them")) return;
+      app.begin(); app.clearBuildings(); app.markAll(); tools.select(null); this.toast("Buildings cleared");
+    });
+    this.menu.lastElementChild!.classList.add("warn");
     mbtn("Save to a file…", () => this.exportFile());
     mbtn("Open a file…", () => this.importFile());
     mbtn("Toggle 30 / 60 fps cap", () => { app.settings.fps = app.settings.fps === 60 ? 30 : 60; this.toast(`Frame cap: ${app.settings.fps} fps`); });
@@ -279,6 +289,24 @@ export class UI {
     clearTimeout(this.toastT); this.toastT = window.setTimeout(() => this.toastEl.classList.remove("on"), 2600);
   }
   toggleHelp() { this.help.classList.toggle("on"); }
+  private asking: ((ok: boolean) => void) | null = null;
+  /** A paper dialog asking to confirm something destructive. Escape or a click outside says no. */
+  ask(title: string, body: string, yes: string): Promise<boolean> {
+    this.asking?.(false);
+    const wrap = document.createElement("div");
+    wrap.id = "ask"; wrap.className = "ui on";
+    wrap.innerHTML = `<div class="card" role="alertdialog" aria-modal="true" aria-labelledby="ask-t"><h2 id="ask-t"></h2><p></p><div class="row"><button class="btn no">Keep them</button><button class="btn warn yes"></button></div></div>`;
+    wrap.querySelector("h2")!.textContent = title; wrap.querySelector("p")!.textContent = body; wrap.querySelector(".yes")!.textContent = yes;
+    document.body.appendChild(wrap);
+    return new Promise(res => {
+      const done = (ok: boolean) => { this.asking = null; wrap.remove(); res(ok); };
+      this.asking = done;
+      wrap.onclick = e => { if (e.target === wrap) done(false); };
+      (wrap.querySelector(".no") as HTMLButtonElement).onclick = () => done(false);
+      (wrap.querySelector(".yes") as HTMLButtonElement).onclick = () => done(true);
+      (wrap.querySelector(".no") as HTMLButtonElement).focus();
+    });
+  }
   undo() { this.tools.cancelDrag(); this.tools.endChain(); if (this.app.undo()) { this.tools.select(null); this.toast("Undone"); } }
   redo() { this.tools.cancelDrag(); this.tools.endChain(); if (this.app.redo()) { this.tools.select(null); this.toast("Redone"); } }
   private refreshTimer = 0;
@@ -296,6 +324,7 @@ export class UI {
 
   private key(e: KeyboardEvent) {
     if ((e.target as HTMLElement)?.tagName === "INPUT" && (e.target as HTMLInputElement).type !== "range") return;
+    if (this.asking) { if (e.key === "Escape") this.asking(false); return; }
     const k = e.key, t = this.tools, mod = e.ctrlKey || e.metaKey;
     if (mod && k.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? this.redo() : this.undo(); return; }
     if (mod && k.toLowerCase() === "y") { e.preventDefault(); this.redo(); return; }
