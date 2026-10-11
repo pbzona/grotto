@@ -1,5 +1,5 @@
 import * as THREE from "three/webgpu";
-import { N } from "./world";
+import { N, WATER_Y, type World } from "./world";
 import { MAX_VILLAGERS, type Villager } from "./villagers";
 
 const SHIRTS = [0xe8dcc4, 0x3f6f8f, 0xb5523b, 0x6d8a5a, 0xd9a441, 0x2f3d55, 0xf2efe8, 0x8c5a7a];
@@ -116,5 +116,76 @@ export class Gulls {
       const flap = Math.sin(t * 9 + b.ph) * 0.55 * burst + 0.12;
       b.l.rotation.z = flap; b.r.rotation.z = -flap;
     }
+  }
+}
+
+/** A school of fish circling over a seagrass meadow. */
+export interface School { x: number; z: number; rad: number; sp: number; ph: number; n: number }
+
+/** Pick a few meadows far apart and fit a circle that stays in water deep enough to swim. */
+export function planSchools(world: World, cells: [number, number][], max = 6): School[] {
+  const out: School[] = [];
+  const order = cells.map((c, k) => ({ c, h: frac(Math.sin(c[0] * 12.9898 + c[1] * 78.233) * 43758.5453) + k * 0 })).sort((a, b) => a.h - b.h);
+  for (const { c: [x, z], h } of order) {
+    if (out.length >= max) break;
+    if (out.some(s => Math.hypot(s.x - x, s.z - z) < 6)) continue;
+    let rad = 1.8;
+    const ok = (r: number) => { for (let k = 0; k < 10; k++) { const a = (k / 10) * Math.PI * 2; if (WATER_Y - world.height(x + Math.cos(a) * r, z + Math.sin(a) * r * 0.8) < 0.22) return false; } return true; };
+    while (rad >= 0.6 && !ok(rad)) rad -= 0.3;
+    if (rad < 0.6) continue;
+    out.push({ x, z, rad, sp: (0.35 + h * 0.3) * (h < 0.5 ? 1 : -1), ph: h * 40, n: 4 + Math.floor(h * 3) });
+  }
+  return out;
+}
+const frac = (v: number) => v - Math.floor(v);
+
+/** Fish shadows: small dark darts just under the surface. Drawn opaque, so the water tints them. */
+export class Fish {
+  group = new THREE.Group();
+  private mesh: THREE.InstancedMesh;
+  private schools: School[] = [];
+  private m = new THREE.Matrix4();
+  private q = new THREE.Quaternion();
+  private e = new THREE.Euler();
+  private p = new THREE.Vector3();
+  private s = new THREE.Vector3();
+  constructor(cap = 40) {
+    const g = new THREE.BufferGeometry();
+    // flat dart pointing +z: nose, flanks, tail fork
+    g.setAttribute("position", new THREE.Float32BufferAttribute([
+      0, 0, 0.13, 0.04, 0, 0, -0.04, 0, 0,
+      0.04, 0, 0, 0, 0, -0.08, -0.04, 0, 0,
+      0, 0, -0.07, 0.045, 0, -0.14, -0.045, 0, -0.14,
+    ], 3));
+    g.setAttribute("normal", new THREE.Float32BufferAttribute(Array(27).fill(0).map((_, k) => (k % 3 === 1 ? 1 : 0)), 3));
+    const mat = new THREE.MeshBasicNodeMaterial({ color: 0x1c3a3c, side: THREE.DoubleSide });
+    this.mesh = new THREE.InstancedMesh(g, mat, cap);
+    this.mesh.count = 0; this.mesh.frustumCulled = false;
+    this.group.add(this.mesh);
+  }
+  get state() { return { schools: this.schools.length, fish: this.mesh.count }; }
+  plan(schools: School[]) { this.schools = schools; }
+  update(t: number, night: number) {
+    this.group.visible = night < 0.7;
+    let k = 0;
+    const cap = this.mesh.instanceMatrix.count;
+    for (const s of this.schools) {
+      // the school drifts round the meadow, now and then darting
+      const a0 = t * s.sp + s.ph + Math.max(0, Math.sin(t * 0.23 + s.ph)) ** 6 * 1.5;
+      for (let f = 0; f < s.n && k < cap; f++, k++) {
+        const a = a0 - f * 0.32 * Math.sign(s.sp);
+        const r = s.rad * (0.85 + 0.15 * Math.sin(f * 2.1 + t * 0.7));
+        const x = s.x + Math.cos(a) * r, z = s.z + Math.sin(a) * r * 0.8;
+        const dx = -Math.sin(a) * Math.sign(s.sp), dz = Math.cos(a) * 0.8 * Math.sign(s.sp);
+        this.p.set(x, WATER_Y - 0.12 - (f % 2) * 0.04, z);
+        this.e.set(0, Math.atan2(dx, dz) + Math.sin(t * 9 + f * 1.7) * 0.18, 0);
+        this.q.setFromEuler(this.e);
+        const sc = 1.1 + ((f * 37) % 5) * 0.08;
+        this.s.set(sc, 1, sc);
+        this.mesh.setMatrixAt(k, this.m.compose(this.p, this.q, this.s));
+      }
+    }
+    this.mesh.count = k;
+    this.mesh.instanceMatrix.needsUpdate = true;
   }
 }

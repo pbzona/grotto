@@ -654,4 +654,47 @@ export function buildScatter(world: World, mb: MeshBuilder) {
     }
     mb.xf = prev;
   }
+  seagrass(world, mb, blocked);
+}
+
+// ---------- seagrass: meadows that take root wherever the shallows are dug ----------
+const GRASS_MIN = 0.2, GRASS_MAX = 0.95;
+const meadow = (x: number, z: number) => fbm(x * 0.17 + 3.1, z * 0.17 + 9.4);
+/** Cells of shallow sea that grow seagrass: depth .2-.95 below the surface, patchy. */
+export function seagrassCells(world: World): [number, number][] {
+  const out: [number, number][] = [];
+  for (let j = 1; j < N - 1; j++) for (let i = 1; i < N - 1; i++) {
+    const x = i + 0.5, z = j + 0.5, d = WATER_Y - world.height(x, z);
+    if (d < GRASS_MIN || d > GRASS_MAX) continue;
+    if (meadow(x, z) < 0.5) continue;
+    out.push([x, z]);
+  }
+  return out;
+}
+function seagrass(world: World, mb: MeshBuilder, blocked: (x: number, z: number, r: number) => boolean) {
+  const cols = ["#4f6b3a", "#5d7840", "#46613a", "#6a7f45"];
+  for (const [cx, cz] of seagrassCells(world)) {
+    const i = Math.floor(cx), j = Math.floor(cz);
+    const tufts = 3 + Math.floor(hash2(i, j, 7) * 4);
+    for (let k = 0; k < tufts; k++) {
+      const x = i + 0.1 + hash2(i, j, 10 + k) * 0.8, z = j + 0.1 + hash2(i, j, 20 + k) * 0.8;
+      const y = world.height(x, z), d = WATER_Y - y;
+      if (d < GRASS_MIN || d > GRASS_MAX) continue;
+      if (blocked(x, z, -0.2)) continue;
+      const rr = rng(hash2(i, j, 30 + k) * 1000);
+      mb.paint(hexRGB(cols[Math.floor(rr() * 4)]), M.leaf);
+      const blades = 6 + Math.floor(rr() * 5);
+      for (let b = 0; b < blades; b++) {
+        const a = rr() * Math.PI * 2, r0 = rr() * 0.12;
+        const bx = x + Math.cos(a) * r0, bz = z + Math.sin(a) * r0;
+        const h = Math.min(d - 0.06, 0.25 + rr() * 0.4), w = 0.025 + rr() * 0.015;
+        const lean = (rr() - 0.5) * 0.25, la = rr() * Math.PI;
+        const px = -Math.sin(la) * w, pz = Math.cos(la) * w;
+        const tip: V3 = [bx + Math.cos(la) * lean, y + h, bz + Math.sin(la) * lean];
+        const p0: V3 = [bx - px, y - 0.02, bz - pz], p1: V3 = [bx + px, y - 0.02, bz + pz];
+        const n: V3 = [-pz, 0.3, px];
+        mb.tri([p0, p1, tip], n); mb.tri([p1, p0, tip], [pz, 0.3, -px]);
+      }
+    }
+  }
 }

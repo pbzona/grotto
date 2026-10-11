@@ -7,7 +7,8 @@ import { Terrain } from "./terrain";
 import { createMaterials, U } from "./materials";
 import { skyAt, LightMap } from "./lighting";
 import { App } from "./app";
-import { Gulls, People } from "./life";
+import { Gulls, People, Fish, planSchools } from "./life";
+import { seagrassCells } from "./props";
 import { Villagers, CROWDS } from "./villagers";
 import { villagerHomes, lookoutLanterns } from "./houses";
 import { Contraband } from "./contraband";
@@ -143,6 +144,8 @@ async function boot() {
   }
   const gulls = new Gulls();
   scene.add(gulls.group);
+  const fish = new Fish();
+  scene.add(fish.group);
   // villagers follow the world: resync (throttled) whenever it changes
   const villagers = new Villagers(), people = new People();
   scene.add(people.group);
@@ -158,6 +161,7 @@ async function boot() {
       const homes = villagerHomes(world);
       villagers.sync(world, homes);
       smuggling.replan(world, lookoutLanterns(world), homes);
+      fish.plan(planSchools(world, seagrassCells(world)));
     }
     villagers.update(world, dt);
     people.update(villagers.people, app.time);
@@ -200,7 +204,7 @@ async function boot() {
     camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
-  (window as any).__grotto = { app, world, camera, controls, renderer, scene, applySky, tools, ui, villagers, updateVillagers, smuggling, sound, ambienceMix };
+  (window as any).__grotto = { app, world, camera, controls, renderer, scene, applySky, tools, ui, villagers, updateVillagers, smuggling, fish, sound, ambienceMix };
   const fpsCap = () => (document.hidden ? 0 : !document.hasFocus() || performance.now() - lastInput > 6000 ? Math.min(30, app.settings.fps) : app.settings.fps);
   function frame() {
     const now = performance.now();
@@ -214,6 +218,7 @@ async function boot() {
     app.update(step);
     applySky(app.hour);
     gulls.update(app.time, U.night.value);
+    fish.update(app.time, U.night.value);
     updateVillagers(step);
     updateSound(step);
     controls.update();
@@ -223,7 +228,7 @@ async function boot() {
   if (params.has("test")) {
     (window as any).__grotto.snap = async (hour?: number) => {
       if (hour !== undefined) app.hour = hour;
-      app.update(0); applySky(app.hour); gulls.update(app.time + 3, U.night.value); updateVillagers(0); controls.update(); keepAboveGround();
+      app.update(0); applySky(app.hour); gulls.update(app.time + 3, U.night.value); updateVillagers(0); fish.update(app.time + 3, U.night.value); controls.update(); keepAboveGround();
       await renderer.compileAsync(scene, camera).catch(() => {});
       pipeline.render();
       return renderer.domElement.toDataURL("image/png");

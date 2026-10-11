@@ -72,6 +72,18 @@
   const mid = at(23.2);
   ok('by night the boat is in and carriers are working', mid.boat && mid.boat.vis > 0.9 && mid.carriers.length > 0);
   ok('crates wait by the door at dawn and are gone by afternoon', at(5).stack?.scales.every(s => s > 0.9) && !at(14).boat && !at(14).stack);
+  // little discoveries: dark empty houses, washing lines, climbing flowers, seagrass and fish
+  {
+    const H = await import('/src/houses.ts'), P = await import('/src/props.ts');
+    const homes = new Set(villagerHomes(w).map(h => h.house));
+    const lived = [...w.houses.values()].map(h => [homes.has(h.id), H.houseLayout(w, h).lived]);
+    ok('houses with no walkway stay dark', lived.some(([c]) => !c) && lived.every(([c, l]) => c === l));
+    const faces = H.buildHouses(w).faces ?? [];
+    ok('washing hangs between close neighbours', P.linePairs(w, faces).length >= 1);
+    ok('bougainvillea climbs a wall it grows beside', [...w.props.values()].some(p => p.type === 'bougainvillea' && P.climbWall(w, p)));
+    a.update(0); g.updateVillagers(1); g.fish.update(1, 0);
+    ok('seagrass grows in the shallows and fish circle it', P.seagrassCells(w).length > 10 && g.fish.state.schools > 0 && g.fish.state.fish > 0);
+  }
   a.begin(); a.clearBuildings(); a.commit(); g.updateVillagers(1);
   ok('no lookout, no run', sm.plan.signal === null && !at(23.2).boat);
   a.undo(); a.hour = 16.4;
