@@ -2,6 +2,7 @@ import * as THREE from "three/webgpu";
 import { World, Prop, WATER_Y, N, fbm, isLandmark, landmarkSamples } from "./world";
 import { MeshBuilder, V3, M, hexRGB, rng, hsh, add, scl, lerp3, norm, sub } from "./mesh";
 import type { Light, Anchor, Face } from "./houses";
+import { houseLayout, sideLine } from "./houses";
 import { FLOOR_H } from "./world";
 import { landingRadius, isStairs, lanternPost } from "./walks";
 import { buildHullTavern, buildGrotto, buildLighthouseBase } from "./landmarks";
@@ -120,7 +121,61 @@ export function buildOneProp(world: World, mb: MeshBuilder, p: Prop, out: PropBu
     else { if (p.type === "lighthouse") buildLighthouseBase(mb, world, p, y); propMesh(mb, p, L, out, y); }
     for (const l of L) { const w = mb.xf([l.x, l.y, l.z]); out.lights.push({ ...l, x: w[0], y: w[1], z: w[2] }); }
     mb.xf = null;
+    if (p.type === "bougainvillea") climb(world, mb, p, y);
   }
+}
+
+/** The wall a bougainvillea planted beside a house can climb: nearest outside face within reach, not one shared with another volume. */
+export function climbWall(world: World, p: Prop) {
+  let best: { a: [number, number]; n: [number, number]; t: number; len: number; d: number; y0: number; y1: number } | null = null;
+  for (const h of world.houses.values()) {
+    let L: ReturnType<typeof houseLayout> | null = null;
+    for (const v of h.volumes) {
+      if ((v.kind ?? "room") !== "room") continue;
+      for (let s = 0; s < 4; s++) {
+        const { a, b, n } = sideLine(v, s);
+        const len = Math.hypot(b[0] - a[0], b[1] - a[1]); if (len < 1) continue;
+        const ux = (b[0] - a[0]) / len, uz = (b[1] - a[1]) / len;
+        const d = (p.x - a[0]) * n[0] + (p.z - a[1]) * n[1];
+        if (d < 0.3 || d > 1.2 || (best && d >= best.d)) continue;
+        const t = (p.x - a[0]) * ux + (p.z - a[1]) * uz;
+        if (t < 0.2 || t > len - 0.2) continue;
+        const tc = Math.max(0.6, Math.min(len - 0.6, t));
+        const fx = a[0] + ux * tc + n[0] * 0.15, fz = a[1] + uz * tc + n[1] * 0.15;
+        if (world.houseAt(fx, fz, 0.05)) continue; // the face is against another room
+        L ??= houseLayout(world, h);
+        best = { a: [a[0] + ux * tc, a[1] + uz * tc], n, t: tc, len, d, y0: L.base, y1: L.base + Math.min(v.floors, 2) * FLOOR_H - 0.15 };
+      }
+    }
+  }
+  return best;
+}
+
+/** Stems run from the shrub to the wall and up it, leaves and flowers pressed flat against the boards. */
+function climb(world: World, mb: MeshBuilder, p: Prop, ground: number) {
+  const w = climbWall(world, p);
+  if (!w || w.y0 - ground > 1.2) return;
+  const r = rng(p.seed * 3.1 + 0.7);
+  const [nx, nz] = w.n, ux = -nz, uz = nx;
+  const at = (s: number, y: number, off = 0.07): V3 => [w.a[0] + ux * s + nx * off, y, w.a[1] + uz * s + nz * off];
+  const top = Math.max(w.y0 + 0.8, w.y1 - r() * 0.5);
+  const leaf = (c: V3, k: number): V3 => (nx ? [0.07, 0.17 * k, 0.2 * k] : [0.2 * k, 0.17 * k, 0.07]);
+  mb.paint(hexRGB("#5b4630"), M.plank);
+  for (let i = 0; i < 3; i++) {
+    const s0 = (i - 1) * 0.25 + (r() - 0.5) * 0.2, h = top - (i === 1 ? 0 : 0.2 + r() * 0.4);
+    const pts: V3[] = [[p.x + (r() - 0.5) * 0.2, ground + 0.25, p.z + (r() - 0.5) * 0.2], at(s0 * 0.6, Math.max(ground, w.y0) + 0.15)];
+    for (let k = 1; k <= 4; k++) pts.push(at(s0 + Math.sin(k * 1.7 + i) * 0.18, Math.max(ground, w.y0) + 0.15 + (h - Math.max(ground, w.y0)) * k / 4, 0.05));
+    mb.tube(pts, 0.025, 4);
+  }
+  const span = Math.max(0.2, Math.min(0.65, w.t - 0.15, w.len - w.t - 0.15)), y0 = Math.max(ground, w.y0) + 0.3;
+  const n = Math.round(6 + (top - y0) * 3);
+  for (let i = 0; i < n; i++) {
+    const y = y0 + (top - y0) * (i / n) + r() * 0.2, s = (r() - 0.5) * 2 * span * (0.5 + 0.5 * (y - y0) / (top - y0 + 1e-3));
+    mb.paint(hexRGB(i % 2 ? "#6c8743" : "#5d7a3c"), M.leaf); mb.blob(at(s, y, 0.1), leaf(at(s, y), 0.7 + r() * 0.4), r() * 99, 0);
+    if (r() < 0.7) { mb.paint(hexRGB(["#c9577a", "#d36f8f", "#b84a6a", "#e08aa0"][i % 4]), M.leaf); mb.blob(at(s + (r() - 0.5) * 0.25, y + 0.08, 0.16), leaf(at(0, 0), 0.42), r() * 99, 0); }
+  }
+  // a spill over the top of the climb
+  for (let i = 0; i < 3; i++) { const s = (r() - 0.5) * span * 1.6; mb.paint(hexRGB(["#c9577a", "#e08aa0", "#d36f8f"][i]), M.leaf); mb.blob(at(s, top + 0.05, 0.14), leaf(at(0, 0), 0.5), r() * 99, 0); }
 }
 
 let foot = (_lx: number, _lz: number) => 0;
