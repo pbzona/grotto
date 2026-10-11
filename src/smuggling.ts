@@ -63,6 +63,31 @@ const nodeAt = (world: World, x: number, z: number, r = 0.35) => {
   return null;
 };
 
+const segDist = (px: number, pz: number, ax: number, az: number, bx: number, bz: number) => {
+  const dx = bx - ax, dz = bz - az, t = Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / (dx * dx + dz * dz || 1)));
+  return Math.hypot(px - ax - dx * t, pz - az - dz * t);
+};
+/** Open water alongside a pier head: clear of every deck (never tucked underneath), of houses and of
+ *  moored boats; the deepest such spot around the pad. */
+function pierBerth(world: World, x: number, z: number, pad: number): Pt | null {
+  const r = pad * 0.71 + 0.75;
+  let best: Pt | null = null, deep = Infinity;
+  for (let k = 0; k < 8; k++) {
+    const a = (k / 8) * Math.PI * 2, bx = x + Math.cos(a) * r, bz = z + Math.sin(a) * r;
+    const h = world.height(bx, bz);
+    if (h > WATER_Y - 0.3 || world.houseAt(bx, bz, 0.4)) continue;
+    let ok = true;
+    for (const e of world.edges.values()) {
+      const A = world.nodes.get(e.a), B = world.nodes.get(e.b);
+      if (A && B && segDist(bx, bz, A.x, A.z, B.x, B.z) < e.width / 2 + 0.55) { ok = false; break; }
+    }
+    for (const n of world.nodes.values()) if (n.pad > 0 && Math.abs(bx - n.x) < n.pad / 2 + 0.55 && Math.abs(bz - n.z) < n.pad / 2 + 0.55) ok = false;
+    for (const p of world.props.values()) if ((p.type === "rowboat" || p.type === "sloop") && Math.hypot(p.x - bx, p.z - bz) < (p.type === "sloop" ? 2.4 : 1.7)) ok = false;
+    if (ok && h < deep) { deep = h; best = [bx, bz]; }
+  }
+  return best;
+}
+
 /** The way from a landing node to the nearest house door, as walkable segments (door first). */
 function walkHome(world: World, from: string, homes: Home[]) {
   let best: { home: Home; nodes: string[]; L: number } | null = null;
@@ -84,7 +109,7 @@ export function planRun(world: World, lookouts: Lookout[], homes: Home[]): RunPl
     travel: 0, arrive: 0, leave: 0, home: null, walk: [], walkLength: 0, speed: WALK_SPEED, crates: CRATES, carriers: [], stack: null,
   };
   if (!lookouts.length) return plan;
-  // landings: smugglers want a cave; a pier head will do when there isn't one they can reach
+  // landings: smugglers want a cave; a pier head will do when no cave has a way home
   const tries: { landing: Landing; path: Pt[] }[] = [];
   const grottos = [...world.props.values()].filter(p => p.type === "grotto").sort((a, b) => (a.id < b.id ? -1 : 1));
   for (const p of grottos) {
@@ -96,19 +121,23 @@ export function planRun(world: World, lookouts: Lookout[], homes: Home[]): RunPl
       if (path) tries.push({ landing: { kind: "grotto", id: p.id, node: nodeAt(world, tx, tz), x: berth[0], z: berth[1] }, path });
     }
   }
-  if (!tries.length) {
+  {
     const pads = [...world.nodes.values()].filter(n => n.pad > 0 && world.edgesOf(n.id).length && n.y < DECK_Y + 0.6).sort((a, b) => (a.id < b.id ? -1 : 1));
     for (const n of pads) {
       if (world.height(n.x, n.z) > WATER_Y - 0.4) continue;
-      const path = seaRoute(world, false, n.x, n.z, [], n.pad * 1.42 + 1.2, false);
-      if (path) { const e = path[path.length - 1]; tries.push({ landing: { kind: "pier", id: n.id, node: n.id, x: e[0], z: e[1] }, path }); }
+      const b = pierBerth(world, n.x, n.z, n.pad);
+      const path = b && seaRoute(world, false, b[0], b[1], [], 1.5);
+      if (path) tries.push({ landing: { kind: "pier", id: n.id, node: n.id, x: b![0], z: b![1] }, path });
     }
   }
-  // prefer a landing whose walkway reaches a house
+  // prefer a landing whose walkway reaches a house (a cave over a pier), else the boat comes to a
+  // cave anyway and waits there: the hint that its dock wants a walkway
   let pick: (typeof tries)[number] | null = null, walk: ReturnType<typeof walkHome> = null;
   for (const t of tries) {
     const w = t.landing.node ? walkHome(world, t.landing.node, homes) : null;
-    if (w && (!walk || w.L < walk.L)) { pick = t; walk = w; }
+    if (!w) continue;
+    const better = !walk || (t.landing.kind === "grotto" && pick!.landing.kind === "pier") || (t.landing.kind === pick!.landing.kind && w.L < walk.L);
+    if (better) { pick = t; walk = w; }
   }
   pick ??= tries[0] ?? null;
   if (!pick) return plan;

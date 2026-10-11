@@ -76,13 +76,16 @@ test("a landing with no way home: the boat waits and leaves still loaded", () =>
   for (let h = 0; h < 24; h += 0.1) { const s = runAt(plan, h); assert.equal(s.carriers.length, 0); assert.equal(s.stack, null); }
 });
 
-test("smugglers use a grotto over a pier, and its dock walkway carries the crates", () => {
+test("a connected pier beats an unconnected cave; a connected cave beats both", () => {
   const w = coast(), homes = pier(w);
   w.props.set("g", { id: "g", type: "grotto", x: 32, z: 30.4, rot: 0, seed: 0.3, opts: { size: 1, dock: "left" } });
   w.rebuildCarving();
   const loose = planRun(w, LOOK, homes);
-  assert.equal(loose.landing?.kind, "grotto", "the cave, even unconnected");
-  assert.equal(loose.home, null, "nothing walks from an unconnected dock");
+  assert.equal(loose.landing?.kind, "pier", "the pier has a way home, the cave doesn't");
+  assert.equal(loose.home, "h1");
+  const alone = planRun(w, LOOK, []);
+  assert.equal(alone.landing?.kind, "grotto", "with no way home anywhere the boat waits at the cave");
+  assert.equal(alone.home, null);
   const [tie] = grottoTies(w.props.get("g")!);
   node(w, "tie", tie.x, tie.z); node(w, "bend", tie.x, 28, DECK_Y + 0.3); edge(w, "t1", "tie", "bend"); edge(w, "t2", "bend", "door");
   const tied = planRun(w, LOOK, homes);
