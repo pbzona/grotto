@@ -1,9 +1,11 @@
 import * as THREE from "three/webgpu";
-import { N, World, WATER_Y, fbm, BASE_Y } from "./world";
+import { N, World, WATER_Y, fbm, BASE_Y, grottoDims, grottoDome, GrottoDims } from "./world";
 
 export const RES = 4;              // mesh subdivisions per cell
 export const GRID = N * RES + 1;   // vertices per side
 const SKIRT_BOTTOM = BASE_Y - 1.2;
+
+interface Vault { x: number; z: number; c: number; s: number; g: GrottoDims }
 
 /** Terrain mesh + the data textures the shaders read (paint weights, water depth / foam). */
 export class Terrain {
@@ -14,16 +16,13 @@ export class Terrain {
   waterTex: THREE.DataTexture;
   private waterData: Uint8Array;
   private geo = new THREE.BufferGeometry();
+  /** per vertex: 0 plain, 1 cut away over a grotto shell, 2 carved mouth, 3 restored ground over a vault */
+  private kind = new Uint8Array(GRID * GRID);
+  private vaults: Vault[] = [];
 
   constructor(private world: World, mat: THREE.Material, cliffMat: THREE.Material) {
     const pos = new Float32Array(GRID * GRID * 3);
-    const idx: number[] = [];
-    for (let j = 0; j < GRID - 1; j++) for (let i = 0; i < GRID - 1; i++) {
-      const a = j * GRID + i, b = a + 1, c = a + GRID, d = c + 1;
-      if ((i + j) % 2) idx.push(a, c, b, b, c, d); else idx.push(a, c, d, a, d, b);
-    }
     this.geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-    this.geo.setIndex(idx);
     this.mesh = new THREE.Mesh(this.geo, mat);
     this.mesh.receiveShadow = true; this.mesh.castShadow = true;
     this.skirt = new THREE.Mesh(new THREE.BufferGeometry(), cliffMat);
@@ -43,8 +42,24 @@ export class Terrain {
     const pos = this.geo.getAttribute("position") as THREE.BufferAttribute;
     const arr = pos.array as Float32Array;
     const e = 0.18;
+    this.vaults = [...w.props.values()].filter(p => p.type === "grotto").map(p => ({ x: p.x, z: p.z, c: Math.cos(p.rot), s: Math.sin(p.rot), g: grottoDims(p) }));
+    const kind = this.kind;
+    for (let j = 0; j < GRID; j++) for (let i = 0; i < GRID; i++) {
+      const x = i / RES, z = j / RES, k = j * GRID + i;
+      const sf = this.surface(x, z);
+      kind[k] = sf.kind;
+      if (sf.kind) { arr[k * 3] = x; arr[k * 3 + 1] = sf.y; arr[k * 3 + 2] = z; }
+    }
     for (let j = 0; j < GRID; j++) for (let i = 0; i < GRID; i++) {
       const x = i / RES, z = j / RES;
+      const k0 = j * GRID + i;
+      if (kind[k0]) {
+        // restored ground right behind the mouth lines up with the rock brow instead of sloping into the opening
+        if (kind[k0] === 3 && this.besideMouth(i, j)) this.toBrow(arr, k0, x, z);
+        const depth = Math.max(0, WATER_Y - w.height(x, z));
+        this.waterData[k0 * 4] = Math.min(255, Math.round(depth / 4 * 255)); this.waterData[k0 * 4 + 3] = 255;
+        continue;
+      }
       let y = w.height(x, z);
       // rocky faces: push steep vertices around with noise so cliffs read as weathered stone
       const gx = w.height(x + e, z) - w.height(x - e, z), gz = w.height(x, z + e) - w.height(x, z - e);
@@ -66,10 +81,61 @@ export class Terrain {
       this.waterData[k * 4 + 3] = 255;
     }
     pos.needsUpdate = true;
+    this.geo.setIndex(this.indices());
     this.geo.computeVertexNormals();
     this.geo.computeBoundingSphere(); this.geo.computeBoundingBox();
     this.waterTex.needsUpdate = true;
     this.buildSkirt();
+  }
+
+  /** What the ground looks like at (x,z): over a grotto the vault's cliff is shown uncarved, and cut where the shell rises out of it. */
+  surface(x: number, z: number): { y: number; kind: number } {
+    const w = this.world;
+    let y = w.height(x, z), kind = 0;
+    for (const v of this.vaults) {
+      const dx = x - v.x, dz = z - v.z, lx = dx * v.c + dz * v.s, lz = -dx * v.s + dz * v.c, { a, T, D } = v.g;
+      if (lz > 1 || lz < -D - 3 || Math.abs(lx) > a + T + 3) continue;
+      if (lz > -0.05) { if (Math.abs(lx) < a + 0.5 * T && !kind) kind = 2; continue; }
+      const o = w.height(x, z, true);
+      if (o <= y + 1e-3) continue;
+      if (lz >= -D - 0.2 && o - WATER_Y < grottoDome(v.g, lx, lz)) { if (kind !== 3) kind = 1; continue; }
+      kind = 3; y = Math.max(y, o);
+    }
+    return { y, kind };
+  }
+  /** Ground height a pointer should land on: the visible surface, or the carved floor where the terrain is cut away. */
+  private shown(x: number, z: number) { if (!this.vaults.length) return this.world.height(x, z); const s = this.surface(x, z); return s.kind === 1 ? this.world.height(x, z) : s.y; }
+  private besideMouth(i: number, j: number) {
+    for (let b = -1; b <= 1; b++) for (let a = -1; a <= 1; a++) {
+      const ii = i + a, jj = j + b;
+      if (ii >= 0 && jj >= 0 && ii < GRID && jj < GRID && this.kind[jj * GRID + ii] === 2) return true;
+    }
+    return false;
+  }
+  private toBrow(arr: Float32Array, k: number, x: number, z: number) {
+    for (const v of this.vaults) {
+      const dx = x - v.x, dz = z - v.z, lx = dx * v.c + dz * v.s, lz = -dx * v.s + dz * v.c;
+      if (lz > 0.5 || lz < -1 || Math.abs(lx) > v.g.a + v.g.T + 1) continue;
+      const bz = -0.08, wx = v.x + lx * v.c - bz * v.s, wz = v.z + lx * v.s + bz * v.c;
+      arr[k * 3] = wx; arr[k * 3 + 2] = wz; arr[k * 3 + 1] = Math.max(arr[k * 3 + 1], this.world.height(wx, wz, true));
+      return;
+    }
+  }
+  private indices() {
+    const kind = this.kind, idx: number[] = [];
+    const ok = (p: number, q: number, r: number) => {
+      const a = kind[p], b = kind[q], c = kind[r];
+      if (a === 1 || b === 1 || c === 1) return false;
+      const has2 = a === 2 || b === 2 || c === 2, has3 = a === 3 || b === 3 || c === 3;
+      return !(has2 && has3);
+    };
+    for (let j = 0; j < GRID - 1; j++) for (let i = 0; i < GRID - 1; i++) {
+      const a = j * GRID + i, b = a + 1, c = a + GRID, d = c + 1;
+      const t = (i + j) % 2 ? [a, c, b, b, c, d] : [a, c, d, a, d, b];
+      if (ok(t[0], t[1], t[2])) idx.push(t[0], t[1], t[2]);
+      if (ok(t[3], t[4], t[5])) idx.push(t[3], t[4], t[5]);
+    }
+    return idx;
   }
 
   updatePaint() { this.paintTex.needsUpdate = true; }
@@ -134,10 +200,10 @@ export class Terrain {
     for (; t < maxDist; t += dt) {
       ray.at(t, p);
       if (p.x < -2 || p.z < -2 || p.x > N + 2 || p.z > N + 2) { if (t > 0 && p.y < -3) break; prev = t; continue; }
-      const h = w.height(Math.min(N, Math.max(0, p.x)), Math.min(N, Math.max(0, p.z)));
+      const h = this.shown(Math.min(N, Math.max(0, p.x)), Math.min(N, Math.max(0, p.z)));
       if (p.y <= h) {
         let lo = prev, hi = t;
-        for (let k = 0; k < 18; k++) { const m = (lo + hi) / 2; ray.at(m, p); const hm = w.height(Math.min(N, Math.max(0, p.x)), Math.min(N, Math.max(0, p.z))); if (p.y <= hm) hi = m; else lo = m; }
+        for (let k = 0; k < 18; k++) { const m = (lo + hi) / 2; ray.at(m, p); const hm = this.shown(Math.min(N, Math.max(0, p.x)), Math.min(N, Math.max(0, p.z))); if (p.y <= hm) hi = m; else lo = m; }
         ray.at(hi, p);
         if (p.x < 0 || p.z < 0 || p.x > N || p.z > N) return null;
         return p;

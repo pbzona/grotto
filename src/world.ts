@@ -96,6 +96,30 @@ export function grottoDims(p: Pick<Prop, "seed" | "opts">): GrottoDims {
 export function grottoCeiling(g: GrottoDims, x: number) { const t = Math.abs(x) / g.a; return t >= 1 ? -GROTTO_SINK : g.b * Math.pow(1 - Math.pow(t, g.n), 1 / g.n) - GROTTO_SINK; }
 /** Lateral offset of the inner wall at height y over the water. */
 export function grottoWall(g: GrottoDims, y: number) { const t = (y + GROTTO_SINK) / g.b; return t >= 1 ? 0 : g.a * Math.pow(1 - Math.pow(Math.max(0, t), g.n), 1 / g.n); }
+/** How the vault swells mid-way and narrows toward the back, at depth fraction v (0 mouth, 1 back). */
+export function grottoProfile(v: number) { return (1 + 0.08 * Math.sin(v * Math.PI)) * (1 - 0.3 * sstep(0.72, 1, v)); }
+/**
+ * Height over the water of the middle of the rock shell at local (lx, lz): terrain above it covers the vault,
+ * terrain below it is cut away so the shell shows. -SINK outside the shell's reach.
+ */
+export function grottoDome(g: GrottoDims, lx: number, lz: number) {
+  const v = Math.min(1, Math.max(0, -lz / g.D)), k = grottoProfile(v);
+  const am = (1.03 * g.a + 0.3 * g.T) * k, bm = (1.03 * g.b + 0.3 * g.T) * k;
+  const t = Math.abs(lx) / am;
+  return t >= 1 ? -GROTTO_SINK : bm * Math.pow(1 - Math.pow(t, g.n), 1 / g.n) - GROTTO_SINK;
+}
+/** Local x of each dock's centre line, and where a walkway can tie on in front of the mouth. */
+export const GROTTO_TIE_Z = 1.0;
+export function grottoDocks(p: Pick<Prop, "seed" | "opts">): number[] {
+  const g = grottoDims(p), dock = propOpt(p, "dock", GROTTO_OPTS.dock);
+  const mid = (grottoWall(g, GROTTO_DECK) - 0.08 + g.chan) / 2;
+  return dock === "both" ? [-mid, mid] : dock === "left" ? [-mid] : [mid];
+}
+/** World positions where walkways meet the grotto's docks. */
+export function grottoTies(p: Prop): { x: number; z: number }[] {
+  const c = Math.cos(p.rot), s = Math.sin(p.rot);
+  return grottoDocks(p).map(lx => ({ x: p.x + lx * c - GROTTO_TIE_Z * s, z: p.z + lx * s + GROTTO_TIE_Z * c }));
+}
 /** Flooded channel and lowered lip; these caps never overwrite editable base terrain. */
 export function grottoCells(p: Prop): { i: number; j: number; cap: number; under: boolean }[] {
   const { a: R, H, D, T } = grottoDims(p);

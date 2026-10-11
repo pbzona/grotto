@@ -138,6 +138,24 @@
     ok('a climbable flight is laid', !!e && [...w.edges.values()].every(e => slopeOf(w.nodes.get(e.a), w.nodes.get(e.b)) <= MAX_STAIR + 1e-6));
     reset();
   }
+  {
+    // grotto: walkways tie on to the dock, and the cliff over the vault is drawn uncarved
+    const { grottoTies, grottoDims, DECK_Y } = await import('/src/world.ts');
+    const p = [...w.props.values()].find(p => p.type === 'grotto');
+    const c = Math.cos(p.rot), s = Math.sin(p.rot), W = (lx, lz) => [p.x + lx * c - lz * s, p.z + lx * s + lz * c];
+    const tie = grottoTies(p)[0], V = g.camera.position.constructor;
+    t.setTool('walk');
+    const lx = (tie.x - p.x) * c + (tie.z - p.z) * s, [ox, oz] = W(lx, 4.5);
+    const A = a.addNode(ox, oz, DECK_Y);
+    t.chain = A; t.walkLift = 0; t['walkTo'](new V(tie.x + 0.4, 0.2, tie.z - 0.3)); t.escape(); a.update(0);
+    ok('a walkway ties on to the grotto dock', [...w.nodes.values()].some(n => Math.hypot(n.x - tie.x, n.z - tie.z) < 1e-6 && Math.abs(n.y - DECK_Y) < 1e-6));
+    const { D } = grottoDims(p), terr = a.d.terrain;
+    const [bx, bz] = W(0, -D - 0.6), back = terr.surface(bx, bz);
+    ok('ground behind the vault keeps its height', Math.abs(back.y - w.height(bx, bz, true)) < 1e-6);
+    const [mx, mz] = W(0, -D / 2);
+    ok('ground over the vault is restored or opened for the shell', [1, 3].includes(terr.surface(mx, mz).kind));
+    reset();
+  }
   results.push(`PERF warmed unchanged structure rebuild median=${samples[4].toFixed(1)}ms max=${samples.at(-1).toFixed(1)}ms`);
   return results.join('\n');
 })()

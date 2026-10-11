@@ -1,6 +1,6 @@
 import * as THREE from "three/webgpu";
 import type { App } from "./app";
-import { World, N, snap, House, Volume, newVolume, uid, FLOOR_H, MAX_LEVEL, PaintType, PropType, WalkNode, WalkEdge, RoofType, WATER_Y, DECK_Y, Prop, isLandmark, hullDims, grottoDims, GROTTO_OPTS, propOpt } from "./world";
+import { World, N, snap, House, Volume, newVolume, uid, FLOOR_H, MAX_LEVEL, PaintType, PropType, WalkNode, WalkEdge, RoofType, WATER_Y, DECK_Y, Prop, isLandmark, hullDims, grottoDims, grottoTies, GROTTO_OPTS, propOpt } from "./world";
 import { MeshBuilder } from "./mesh";
 import { buildHouse, houseLayout, makeHouse, nodeWall, sideLine, HouseBuild, Bay } from "./houses";
 import { defaultDeckY, landingRadius, WALK_W, MAX_STAIR, slopeOf, clampStair } from "./walks";
@@ -875,6 +875,11 @@ export class Tools {
       const n = this.app.addNode(sn.x, sn.z, sn.y);
       w.splitEdge(sn.edge.id, n);
       return { node: n, created: true };
+    }
+    // tie on to a grotto's dock where its planks run out of the mouth
+    for (const g of w.props.values()) {
+      if (g.type !== "grotto") continue;
+      for (const t of grottoTies(g)) if (Math.hypot(p.x - t.x, p.z - t.z) < 1.1) return { node: this.app.addNode(t.x, t.z, DECK_Y), created: true };
     }
     // dock against a house wall, at the storey nearest the walkway's height
     let x = p.x, z = p.z;

@@ -1,4 +1,4 @@
-import { World, Prop, PropType, WATER_Y, N, levelY, propOpt, HULL_OPTS, GROTTO_OPTS, GROTTO_SINK, GROTTO_DECK, grottoWall, hullDims, grottoDims, landmarkSamples, isLandmark, fbm } from "./world";
+import { World, Prop, PropType, WATER_Y, N, levelY, propOpt, HULL_OPTS, GROTTO_OPTS, GROTTO_SINK, GROTTO_DECK, GROTTO_TIE_Z, grottoProfile, grottoWall, hullDims, grottoDims, landmarkSamples, isLandmark, fbm } from "./world";
 import { MeshBuilder, V3, M, hexRGB, rng, lerp3, add } from "./mesh";
 import type { Light } from "./houses";
 import { PALETTES } from "./houses";
@@ -116,14 +116,16 @@ export function buildGrotto(mb: MeshBuilder, w: World, p: Prop, L: Light[]) {
   const deckY = GROTTO_DECK;
   const NU = 28, NV = 12;
   const noise = (u: number, v: number, k: number) => fbm(u * 4.2 + k * 0.7 + p.seed * 13, v * 3.1 + k * 0.3) - 0.5;
-  /** vault point: grow 0 is the inner face, grow T the outer rock; the inner face only ever bulges outward */
-  const shell = (grow: number, u: number, v: number): V3 => {
+  /** vault point: f 0 is the inner face, f 1 the outer rock; the shell is never thinner than 3/4 of T */
+  const shell = (f: number, u: number, v: number): V3 => {
     const th = Math.PI * u, cs = Math.cos(th), sn = Math.sin(th);
-    const rough = grow > 0 ? 1 + noise(u, v, 3) * 0.3 : 1 + (noise(u, v, 0) + 0.5) * 0.1;
-    const k = (1 + 0.08 * Math.sin(v * Math.PI)) * rough * (1 - 0.3 * sstep(0.72, 1, v));
-    const ax = (g.a + grow) * k, by = (g.b + grow) * k;
+    const rin = 1 + (noise(u, v, 0) + 0.5) * 0.1, thick = T * (0.75 + (noise(u, v, 3) + 0.5) * 0.5) * f;
+    const k = grottoProfile(v);
+    const ax = (g.a * rin + thick) * k, by = (g.b * rin + thick) * k;
     return [Math.sign(cs) * Math.pow(Math.abs(cs), 2 / g.n) * ax, Math.pow(sn, 2 / g.n) * by - GROTTO_SINK, -D * v];
   };
+  // non-planar rough quads are split so each half is lit by its own facing
+  const face = (q: V3[], out: V3) => { mb.tri([q[0], q[1], q[2]], out); mb.tri([q[0], q[2], q[3]], out); };
   // nothing hangs into the space a person on the dock or a sloop's mast needs
   const floorAt = (x: number) => size === 2 && Math.abs(x) < chan + 0.3 ? 4.7 : deckY + 1.45;
   const prev = mb.xf!;
@@ -131,72 +133,49 @@ export function buildGrotto(mb: MeshBuilder, w: World, p: Prop, L: Light[]) {
   for (let i = 0; i < NU; i++) for (let j = 0; j < NV; j++) {
     const u0 = i / NU, u1 = (i + 1) / NU, v0 = j / NV, v1 = (j + 1) / NV;
     const inn = [shell(0, u0, v0), shell(0, u1, v0), shell(0, u1, v1), shell(0, u0, v1)];
-    const outr = [shell(T, u0, v0), shell(T, u1, v0), shell(T, u1, v1), shell(T, u0, v1)];
+    const outr = [shell(1, u0, v0), shell(1, u1, v0), shell(1, u1, v1), shell(1, u0, v1)];
     const cI = lerp3(inn[0], inn[2], 0.5), cO = lerp3(outr[0], outr[2], 0.5);
-    mb.quad(inn, [-cI[0], -cI[1] - GROTTO_SINK, 0]);
-    mb.quad(outr, [cO[0], cO[1] + GROTTO_SINK, 0]);
+    face(inn, [-cI[0], -cI[1] - GROTTO_SINK, 0]);
+    face(outr, [cO[0], cO[1] + GROTTO_SINK, 0]);
   }
   for (let i = 0; i < NU; i++) {
-    const a = shell(0, i / NU, 0), b = shell(0, (i + 1) / NU, 0), c = shell(T, (i + 1) / NU, 0), d = shell(T, i / NU, 0);
-    mb.quad([a, b, c, d], [0, 0, 1]);
+    const a = shell(0, i / NU, 0), b = shell(0, (i + 1) / NU, 0), c = shell(1, (i + 1) / NU, 0), d = shell(1, i / NU, 0);
+    face([a, b, c, d], [0, 0, 1]);
     const e = shell(0, i / NU, 1), f = shell(0, (i + 1) / NU, 1);
     mb.tri([[0, -GROTTO_SINK, -D * 0.95], e, f], [0, 0, 1]);
-    const gg = shell(T, i / NU, 1), hh = shell(T, (i + 1) / NU, 1);
-    mb.quad([e, f, hh, gg], [0, 0, -1]);
+    const gg = shell(1, i / NU, 1), hh = shell(1, (i + 1) / NU, 1);
+    face([e, f, hh, gg], [0, 0, -1]);
   }
-  // the cliff over the vault: rebuild the terrain surface the carve removed (same height function, original levels),
-  // so above the cave the cliff reads as continuous ground rather than a trench
+  // the cave floor (the terrain over the vault is drawn uncarved, so the seabed inside is our job)
+  mb.paint(hexRGB("#b98d5c"), M.rock);
+  for (let j = 0; j < NV; j++) {
+    const a = shell(0, 0, j / NV), b = shell(0, 1, j / NV), c = shell(0, 1, (j + 1) / NV), d = shell(0, 0, (j + 1) / NV);
+    const y = -GROTTO_SINK - 0.05;
+    mb.quad([[a[0], y, j ? a[2] : 0.15], [b[0], y, j ? b[2] : 0.15], [c[0], y, c[2]], [d[0], y, d[2]]], [0, 1, 0]);
+  }
+  // the rock brow: from the shell's outer rim up to the cliff it is set into
   const c = Math.cos(p.rot), s = Math.sin(p.rot);
-  const vaultTop = g.H + T + WATER_Y;
-  if (p.carved?.length) {
-    const step = 0.25, X = g.a + T + 1.6, Z0 = -D - 1.5;
-    const nx = Math.ceil((2 * X) / step), nz = Math.ceil(-Z0 / step);
-    const vx: number[][] = [], vo: number[][] = [], vc: number[][] = [];
-    for (let k = 0; k <= nz; k++) { vx.push([]); vo.push([]); vc.push([]); for (let i = 0; i <= nx; i++) {
-      const lx = -X + i * step, lz = Z0 + k * step, wx = clampN(p.x + lx * c - lz * s), wz = clampN(p.z + lx * s + lz * c);
-      vo[k].push(w.height(wx, wz, true)); vc[k].push(w.height(wx, wz));
-    } }
-    const on = (i: number, k: number) => {
-      if (i < 0 || k < 0 || i >= nx || k >= nz) return false;
-      let ok = true;
-      for (const [a2, b2] of [[0, 0], [1, 0], [0, 1], [1, 1]]) { const o = vo[k + b2][i + a2], cu = vc[k + b2][i + a2]; if (o - cu < 0.04 || o < vaultTop - 0.1) ok = false; }
-      return ok;
-    };
-    const P = (i: number, k: number, y: number): V3 => [-X + i * step, y - WATER_Y, Z0 + k * step];
-    for (let k = 0; k < nz; k++) for (let i = 0; i < nx; i++) {
-      if (!on(i, k)) continue;
-      const q: V3[] = [P(i, k, vo[k][i]), P(i + 1, k, vo[k][i + 1]), P(i + 1, k + 1, vo[k + 1][i + 1]), P(i, k + 1, vo[k + 1][i])];
-      const slope = Math.max(Math.abs(vo[k][i + 1] - vo[k][i]), Math.abs(vo[k + 1][i] - vo[k][i])) / step;
-      if (slope > 0.8) mb.paint(hexRGB("#dba46b"), M.rock); else mb.paint(hexRGB(slope > 0.45 ? "#9a9a5e" : "#8a955e"), M.leaf);
-      mb.quad(q, [0, 1, 0]);
-      // skirts where the cap meets the open channel or the mouth
-      const edges: [number, number, number, number, V3][] = [[i, k, i + 1, k, [0, 0, -1]], [i + 1, k + 1, i, k + 1, [0, 0, 1]], [i, k + 1, i, k, [-1, 0, 0]], [i + 1, k, i + 1, k + 1, [1, 0, 0]]];
-      const nb = [on(i, k - 1), on(i, k + 1), on(i - 1, k), on(i + 1, k)];
-      mb.paint(hexRGB("#dba46b"), M.rock);
-      edges.forEach(([i0, k0, i1, k1, n], e) => {
-        if (nb[e]) return;
-        const y0 = vo[k0][i0], y1 = vo[k1][i1], b0 = Math.max(vc[k0][i0], vaultTop - 1.2), b1 = Math.max(vc[k1][i1], vaultTop - 1.2);
-        if (y0 - b0 < 0.02 && y1 - b1 < 0.02) return;
-        mb.quad([P(i0, k0, y0), P(i1, k1, y1), P(i1, k1, b1), P(i0, k0, b0)], n);
-      });
-    }
-    // a few tufts on the cap
-    for (let t = 0; t < 6; t++) { const i = Math.floor(r() * nx), k = Math.floor(r() * nz); if (!on(i, k)) continue; mb.paint(hexRGB(r() < 0.5 ? "#7b8a4c" : "#8e9656"), M.leaf); mb.blob(P(i, k, vo[k][i] + 0.1), [0.35, 0.22, 0.35], r() * 99, 0); }
-  }
+  const ground = (lx: number, lz: number) => w.height(clampN(p.x + lx * c - lz * s), clampN(p.z + lx * s + lz * c), true) - WATER_Y;
   mb.paint(hexRGB("#dba46b"), M.rock);
-  // rubble at the feet and a brow of rock over the lip
+  const BZ = -0.08, BU = NU * 2;
+  for (let i = 0; i < BU; i++) {
+    const q0 = shell(1, i / BU, 0), q1 = shell(1, (i + 1) / BU, 0);
+    const t0 = ground(q0[0], BZ) + 0.05, t1 = ground(q1[0], BZ) + 0.05;
+    if (t0 <= q0[1] && t1 <= q1[1]) continue;
+    face([[q0[0], q0[1], BZ], [q1[0], q1[1], BZ], [q1[0], Math.max(q1[1], t1), BZ], [q0[0], Math.max(q0[1], t0), BZ]], [0, 0, 1]);
+  }
+  // rubble at the feet
   for (let i = 0; i < 6; i++) { const sg = i % 2 ? 1 : -1; mb.blob([sg * (g.W + 0.3 + r() * 0.8), -0.6, -r() * D * 0.8 + 0.3], [0.6, 0.5, 0.6], r() * 99, 1); }
-  for (let i = 0; i < 5; i++) mb.blob([(i / 4 - 0.5) * g.a * 1.6, vaultTop - WATER_Y - 0.35, -0.2 - r() * 0.4], [0.7, 0.45, 0.6], r() * 99, 1);
-  // hanging greenery at the mouth and a few stalactites, all kept clear of heads and masts
-  mb.paint(hexRGB("#6f8a45"), M.leaf);
+  // greenery trailing from the face of the arch and a few stalactites, all kept clear of heads and masts
   const vines = 3 + Math.floor(r() * 5);
   for (let i = 0; i < vines; i++) {
-    const u = 0.15 + r() * 0.7; const q = shell(T * 0.5, u, 0); const len = Math.min(0.3 + r() * 0.8, q[1] - floorAt(q[0]));
+    const u = 0.15 + r() * 0.7; const q = shell(0.35 + r() * 0.4, u, 0); const len = Math.min(0.3 + r() * 0.8, q[1] - floorAt(q[0]));
     if (len < 0.2) continue;
-    const pts: V3[] = []; for (let k = 0; k <= 5; k++) pts.push([q[0] + Math.sin(k * 1.7 + i) * 0.04, q[1] - (k / 5) * len, 0.22]);
+    const pts: V3[] = []; for (let k = 0; k <= 5; k++) pts.push([q[0] + Math.sin(k * 1.7 + i) * 0.04, q[1] + 0.05 - (k / 5) * len, 0.04 + k * 0.012]);
     mb.paint(hexRGB("#5d7a3c"), M.leaf); mb.tube(pts, 0.02, 3);
+    mb.paint(hexRGB("#6f8a45"), M.leaf); mb.blob([q[0], q[1] + 0.02, 0.05], [0.14, 0.09, 0.07], r() * 99, 0);
     mb.paint(hexRGB(r() < 0.3 ? "#c9577a" : "#6f8a45"), M.leaf);
-    for (let k = 0; k < 5; k++) { const t = k / 4; mb.blob([pts[0][0] + (r() - 0.5) * 0.12, q[1] - t * len, 0.24], [0.08, 0.07, 0.05], r() * 99, 0); }
+    for (let k = 1; k < 5; k++) { const t = k / 4; mb.blob([pts[0][0] + (r() - 0.5) * 0.12, q[1] - t * len, 0.06 + t * 0.06], [0.08, 0.07, 0.05], r() * 99, 0); }
   }
   mb.paint(hexRGB("#c99561"), M.rock);
   for (let i = 0; i < 8; i++) {
@@ -204,18 +183,25 @@ export function buildGrotto(mb: MeshBuilder, w: World, p: Prop, L: Light[]) {
     const len = Math.min(0.3 + r() * 0.35, q[1] - floorAt(q[0]));
     if (len > 0.12) mb.cyl(q[0] * 0.97, q[2], q[1] - len, q[1] + 0.1, 0.015, 0.1, 5);
   }
+  /** signed x of the inner wall at height y and depth fraction v on side sd */
+  const wallX = (sd: number, y: number, v: number) => {
+    let lo = 0, hi = 0.5; // u from the foot (0) up to the crown (0.5), mirrored for the left side
+    for (let k = 0; k < 24; k++) { const m = (lo + hi) / 2; if (shell(0, m, v)[1] < y) lo = m; else hi = m; }
+    const q = shell(0, sd > 0 ? lo : 1 - lo, v); return q[0];
+  };
   // the hidden dock runs from the channel edge to the wall
   const wallAtDeck = grottoWall(g, deckY) - 0.08;
-  const lampY = deckY + 1.35, lampX = grottoWall(g, lampY + 0.4);
+  const lampY = deckY + 1.35;
   const sides = dock === "both" ? [-1, 1] : dock === "left" ? [-1] : [1];
   for (const sd of sides) {
     const xa = sd * wallAtDeck, xb = sd * chan;
     const x0 = Math.min(xa, xb), x1 = Math.max(xa, xb), xin = sd < 0 ? x0 : x1, xout = sd < 0 ? x1 : x0;
     mb.paint(hexRGB("#9c7b58"), M.plank);
-    const nb = Math.floor((D * 0.85 + 0.4) / 0.24);
-    for (let k = 0; k < nb; k++) { const z = 0.4 - k * 0.24; mb.box([x0, deckY - 0.06, z - 0.1], [x1, deckY, z + 0.1]); }
+    // planks run out past the mouth to where a walkway can tie on
+    const z0 = GROTTO_TIE_Z + 0.2, nb = Math.floor((D * 0.85 + z0) / 0.24);
+    for (let k = 0; k < nb; k++) { const z = z0 - 0.1 - k * 0.24; const v = Math.max(0, -z / D), xw = sd * Math.min(Math.abs(xa), Math.abs(wallX(sd, deckY, v)) - 0.06); mb.box([Math.min(xw, xb), deckY - 0.06, z - 0.1], [Math.max(xw, xb), deckY, z + 0.1]); }
     mb.paint(hexRGB("#4c3b2e"), M.plank);
-    for (let k = 0; k < 4; k++) for (const x of [x0 + 0.1, x1 - 0.1]) mb.cyl(x, 0.3 - k * D * 0.28, -1.5, deckY - 0.05, 0.07, 0.07, 6);
+    for (let k = 0; k < 5; k++) for (const x of [x0 + 0.1, x1 - 0.1]) mb.cyl(x, GROTTO_TIE_Z - k * (GROTTO_TIE_Z + D * 0.84) / 4, -1.5, deckY - 0.05, 0.07, 0.07, 6);
     // bollards along the channel edge
     for (const z of [0.0, -D * 0.5]) mb.cyl(xout - sd * 0.12, z, deckY, deckY + 0.22, 0.06, 0.07, 6);
     const zb = -D * 0.72, xw = xin - sd * 0.1;
@@ -223,15 +209,13 @@ export function buildGrotto(mb: MeshBuilder, w: World, p: Prop, L: Light[]) {
     barrel(mb, xw - sd * 0.3, -D * 0.55, deckY, r);
     if (r() < 0.6) barrel(mb, xw - sd * 0.62, -D * 0.47, deckY, r);
     if (r() < 0.5) { const xc = xw - sd * 0.3; mb.paint(hexRGB("#8a5a2a"), M.plank); mb.box([xc - 0.21, deckY, -D * 0.3], [xc + 0.21, deckY + 0.28, -D * 0.3 + 0.3]); mb.paint(hexRGB("#ffd070"), M.lamp); mb.box([xc - 0.17, deckY + 0.28, -D * 0.3 + 0.04], [xc + 0.17, deckY + 0.31, -D * 0.3 + 0.26]); L.push({ x: xc, y: deckY + 0.4, z: -D * 0.3, r: 1.4, i: 0.4 }); }
-    for (const z of [0.1, -D * 0.4, -D * 0.75]) {
-      const xl = sd * lampX;
-      mb.paint(hexRGB("#3b332c"), M.metal); mb.beam([xl, lampY + 0.4, z], [xl - sd * 0.3, lampY + 0.4, z], [0, 0, 1], 0.02, 0.02);
+    for (const z of [-0.3, -D * 0.4, -D * 0.75]) {
+      const xl = wallX(sd, lampY + 0.4, -z / D);
+      mb.paint(hexRGB("#3b332c"), M.metal); mb.beam([xl + sd * 0.12, lampY + 0.4, z], [xl - sd * 0.3, lampY + 0.4, z], [0, 0, 1], 0.02, 0.02);
+      mb.box([xl - 0.03, lampY + 0.3, z - 0.06], [xl + 0.03, lampY + 0.5, z + 0.06]);
       mb.paint(hexRGB("#ffd08a"), M.lamp); mb.box([xl - sd * 0.36 - 0.06, lampY, z - 0.07], [xl - sd * 0.36 + 0.06, lampY + 0.23, z + 0.07]);
       L.push({ x: xl - sd * 0.36, y: lampY + 0.1, z, r: 3.1 + size * 0.5, i: 0.85 });
     }
-    // stair cut into the rock at the back of this dock
-    mb.paint(hexRGB("#c99561"), M.rock);
-    for (let k = 0; k < 7; k++) { const x = xout + sd * (0.1 + k * 0.22); mb.box([Math.min(x, x + 0.28 * sd), deckY + k * 0.25 - 0.25, -D * 0.82], [Math.max(x, x + 0.28 * sd), deckY + k * 0.25, -D * 0.82 + 0.8]); }
   }
   // a boat tied up alongside when there's room: a skiff, or in the big cave a sloop with her sails furled
   if (dock !== "both" && r() < (size === 2 ? 0.85 : 0.75)) {
