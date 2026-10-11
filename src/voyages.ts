@@ -216,6 +216,34 @@ export function planVoyages(world: World): Map<string, Voyage> {
   return out;
 }
 
+/**
+ * Shortest water route in from the open sea (any map edge) to a berth at (x, z), pulled taut.
+ * `extra` points are appended after the berth (e.g. into a grotto's vault). With `exact` false the
+ * route stops at the open water nearest the berth instead of at it (alongside a pier head).
+ */
+export function seaRoute(world: World, big: boolean, x: number, z: number, extra: Pt[] = [], reach = 2.5, exact = true): Pt[] | null {
+  const g = navGrid(world, big);
+  let start = -1, best = Infinity;
+  for (let j = Math.floor((z - reach) * RES); j <= Math.ceil((z + reach) * RES); j++) for (let i = Math.floor((x - reach) * RES); i <= Math.ceil((x + reach) * RES); i++) {
+    if (i < 0 || j < 0 || i >= G || j >= G || !g.free[j * G + i]) continue;
+    const d = Math.hypot(cx(i) - x, cx(j) - z);
+    if (d < best && d <= reach) { best = d; start = j * G + i; }
+  }
+  if (start < 0) return null;
+  const { dist, prev } = flood(g, start);
+  let exit = -1, far = Infinity;
+  for (let k = 0; k < G; k++) for (const c of [k, (G - 1) * G + k, k * G, k * G + G - 1]) if (dist[c] < far) { far = dist[c]; exit = c; }
+  if (exit < 0) return null;
+  const cells: Pt[] = [];
+  for (let c = exit; c >= 0; c = prev[c]) cells.push([cx(c % G), cx(Math.floor(c / G))]);
+  // start just past the map edge so the boat sails in rather than appearing on it
+  const e = cells[0], out: Pt = [e[0] < 1 ? -1.5 : e[0] > N - 1 ? N + 1.5 : e[0], e[1] < 1 ? -1.5 : e[1] > N - 1 ? N + 1.5 : e[1]];
+  const path = tidy(g, cells);
+  const end = path[path.length - 1];
+  const tail: Pt[] = exact && Math.hypot(end[0] - x, end[1] - z) > 0.05 ? [[x, z]] : [];
+  return [out, ...path, ...tail, ...extra];
+}
+
 export interface BoatPose { x: number; z: number; rot: number; moving: boolean; home: boolean }
 
 function at(v: Voyage, s: number): Pt {
