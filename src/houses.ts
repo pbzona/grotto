@@ -24,10 +24,11 @@ const WOOD = "#7a5438", TAR = "#4c3b2e", STONE = "#b9a78b";
 
 export interface Light { x: number; y: number; z: number; r: number; i: number }
 export interface Anchor { x: number; y: number; z: number; house: string }
+/** One outside wall of a volume: where neighbours can string things across a gap. */
 export interface HouseBuild { mb: MeshBuilder; lights: Light[]; anchors: Anchor[]; foam: { x: number; z: number; r: number }[] }
 
 export interface Bay { vi: number; side: number; floor: number; a: [number, number]; b: [number, number]; n: [number, number]; key: string; kind: "window" | "wall" | "door"; y0: number }
-export interface Layout { base: number; gmin: number; gmax: number; over: boolean; stilts: boolean; plinth: boolean; rock: boolean; bays: Bay[]; lean: [number, number]; top: number }
+export interface Layout { base: number; gmin: number; gmax: number; over: boolean; stilts: boolean; plinth: boolean; rock: boolean; bays: Bay[]; lean: [number, number]; top: number; lived: boolean }
 
 export const SIDES: [number, number][] = [[0, 1], [1, 0], [0, -1], [-1, 0]];
 export function sideLine(v: Volume, s: number): { a: [number, number]; b: [number, number]; n: [number, number] } {
@@ -204,7 +205,7 @@ export function houseLayout(world: World, h: House): Layout {
     const mid = list[Math.floor((list.length - 1) / 2)];
     if (!h.volumes[mid.vi].openings?.[mid.key]) mid.kind = "door";
   }
-  return { base, gmin, gmax, over, stilts, plinth, rock, bays, lean, top };
+  return { base, gmin, gmax, over, stilts, plinth, rock, bays, lean, top, lived: doors.size > 0 };
 }
 
 export function buildHouses(world: World): HouseBuild {
@@ -282,7 +283,7 @@ export function buildHouse(world: World, h: House, out: HouseBuild, ghost = fals
     const styleStone = h.style === "stone" && bay.floor === 0 || vkind(v) === "tower";
     const wm = styleStone ? M.stone : h.style === "plank" ? M.plank : M.plaster;
     const wc = styleStone ? stone : wall;
-    wallBay(mb, bay, wm, wc, trim, wood, h, r, out);
+    wallBay(mb, bay, wm, wc, trim, wood, h, r, out, lay.lived);
   }
   // corner posts, floor bands and eave beams (skip for stone)
   h.volumes.forEach((v, vi) => {
@@ -311,7 +312,8 @@ export function buildHouse(world: World, h: House, out: HouseBuild, ghost = fals
   void ghost; void cross; void sub;
 }
 
-function wallBay(mb: MeshBuilder, bay: Bay, wm: number, wc: V3, trim: V3, wood: V3, h: House, r: () => number, out: HouseBuild) {
+/** `lived`: a walkway reaches the house, so someone's home — its windows and door lamp light up at night. */
+function wallBay(mb: MeshBuilder, bay: Bay, wm: number, wc: V3, trim: V3, wood: V3, h: House, r: () => number, out: HouseBuild, lived: boolean) {
   const [ax, az] = bay.a, [bx, bz] = bay.b;
   const n: V3 = [bay.n[0], 0, bay.n[1]];
   const bw = Math.hypot(bx - ax, bz - az);
@@ -351,16 +353,16 @@ function wallBay(mb: MeshBuilder, bay: Bay, wm: number, wc: V3, trim: V3, wood: 
     // wall lantern
     const lp = P(s1 + 0.18, y0 + v1 - 0.05, 0.08);
     mb.paint(hexRGB("#2e2a26"), M.metal); mb.box([lp[0] - 0.06, lp[1] + 0.12, lp[2] - 0.06], [lp[0] + 0.06, lp[1] + 0.15, lp[2] + 0.06]);
-    mb.paint(hexRGB("#ffd08a"), M.lamp); mb.box([lp[0] - 0.045, lp[1] - 0.04, lp[2] - 0.045], [lp[0] + 0.045, lp[1] + 0.12, lp[2] + 0.045]);
-    out.lights.push({ x: lp[0], y: lp[1], z: lp[2], r: 2.4, i: 0.75 });
+    mb.paint(lived ? hexRGB("#ffd08a") : hexRGB("#6d6658"), lived ? M.lamp : M.unlit); mb.box([lp[0] - 0.045, lp[1] - 0.04, lp[2] - 0.045], [lp[0] + 0.045, lp[1] + 0.12, lp[2] + 0.045]);
+    if (lived) out.lights.push({ x: lp[0], y: lp[1], z: lp[2], r: 2.4, i: 0.75 });
   } else {
-    mb.paint([0.2, 0.3, 0.33], M.glass);
+    mb.paint([0.2, 0.3, 0.33], lived ? M.glass : M.unlit);
     mb.quad([P(s0, y0 + v0, dep), P(s1, y0 + v0, dep), P(s1, y0 + v1, dep), P(s0, y0 + v1, dep)], n);
     // mullion cross
     mb.paint(trim, M.plank);
     const mc = (s0 + s1) / 2;
     mb.quad([P(mc - 0.018, y0 + v0, dep + 0.01), P(mc + 0.018, y0 + v0, dep + 0.01), P(mc + 0.018, y0 + v1, dep + 0.01), P(mc - 0.018, y0 + v1, dep + 0.01)], n);
-    out.lights.push({ x: mid[0], y: mid[1], z: mid[2], r: 1.5, i: 0.28 });
+    if (lived) out.lights.push({ x: mid[0], y: mid[1], z: mid[2], r: 1.5, i: 0.28 });
     if (h.shutters && bw > 1.0) {
       const sw = ow * 0.5 - 0.01;
       for (const [a, b] of [[s0 - 0.04 - sw, s0 - 0.04], [s1 + 0.04, s1 + 0.04 + sw]]) {

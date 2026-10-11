@@ -209,12 +209,14 @@ export function createMaterials(tex: { paint: THREE.Texture; water: THREE.Textur
     c.assign(mix(c, rock, isM(11)));
     // glass: deep sea-blue by day
     c.assign(mix(c, mix(hex("#2b4a55"), hex("#3a2a1c"), U.night), isM(6)));
+    // 12 glass of a house nobody reaches: the same by day, just dark at night
+    c.assign(mix(c, mix(hex("#2b4a55"), hex("#14181b"), U.night), isM(12)));
     // weathering: bottoms of plaster/plank walls are a touch darker and greener near the water
     const damp = smoothstep(WATER_Y + 1.2, WATER_Y, p.y).mul(isM(1).add(isM(2)).clamp());
     c.assign(mix(c, c.mul(vec3(0.7, 0.75, 0.7)), damp.mul(0.6)));
     return c.mul(cloudShade(p));
   })();
-  building.roughnessNode = Fn(() => mix(float(0.88), float(0.25), isM(6)).sub(isM(9).mul(0.4)))();
+  building.roughnessNode = Fn(() => mix(float(0.88), float(0.25), isM(6).add(isM(12))).sub(isM(9).mul(0.4)))();
   building.metalnessNode = Fn(() => isM(9).mul(0.5))();
   building.emissiveNode = Fn(() => {
     const p = positionWorld;
@@ -222,13 +224,13 @@ export function createMaterials(tex: { paint: THREE.Texture; water: THREE.Textur
     const winVar = hash(floor(p.x.mul(1.3)).add(floor(p.y.mul(1.2)).mul(7.0)).add(floor(p.z.mul(1.3)).mul(19.0)));
     const win = isM(6).mul(U.night).mul(mix(0.35, 1.3, winVar)).mul(flick);
     const lamp = isM(7).mul(mix(float(0.25), float(3.2), U.night)).mul(flick);
-    const g = lightGlow(tex.light, p).pow(2).mul(U.night).mul(0.05).mul(float(1).sub(isM(6)));
+    const g = lightGlow(tex.light, p).pow(2).mul(U.night).mul(0.05).mul(float(1).sub(isM(6)).sub(isM(12)));
     // stylised rim: a soft sky-coloured edge light on buildings by day
     const view = normalize(cameraPosition.sub(p));
     const rim = pow(float(1).sub(max(dot(normalWorld, view), 0)), 3).mul(0.16).mul(float(1).sub(U.night));
     const hl = step(U.highlight.x, p.x).mul(step(p.x, U.highlight.z)).mul(step(U.highlight.y, p.z)).mul(step(p.z, U.highlight.w));
     const pulse = sin(time.mul(3.5)).mul(0.025).add(0.06);
-    return warmLamp.mul(win.add(lamp).add(g)).add(vec3(1.0, 0.9, 0.7).mul(hl.mul(pulse))).add(U.skyHorizon.mul(rim).mul(float(1).sub(isM(6))));
+    return warmLamp.mul(win.add(lamp).add(g)).add(vec3(1.0, 0.9, 0.7).mul(hl.mul(pulse))).add(U.skyHorizon.mul(rim).mul(float(1).sub(isM(6)).sub(isM(12))));
   })();
 
   // placement ghosts: the item's own colours, softly shaded and tinted (teal = fits, coral = won't), with a rim;

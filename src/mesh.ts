@@ -2,7 +2,7 @@ import * as THREE from "three/webgpu";
 
 export type V3 = [number, number, number];
 /** Pattern ids read by the building shader. */
-export const M = { plain: 0, plaster: 1, plank: 2, tile: 4, stone: 5, glass: 6, lamp: 7, cloth: 8, metal: 9, leaf: 10, rock: 11 } as const;
+export const M = { plain: 0, plaster: 1, plank: 2, tile: 4, stone: 5, glass: 6, lamp: 7, cloth: 8, metal: 9, leaf: 10, rock: 11, unlit: 12 } as const;
 
 export const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 export const add = (a: V3, b: V3): V3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
