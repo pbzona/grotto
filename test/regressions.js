@@ -156,6 +156,17 @@
     ok('ground over the vault is restored or opened for the shell', [1, 3].includes(terr.surface(mx, mz).kind));
     reset();
   }
+
+  // Boats are moored at night and out on the water at noon, never over land or houses.
+  {
+    reset(); const hour = a.hour, at = h => { a.hour = h; a.update(0.4); a.update(0.4); return a.boats.map(b => ({ b, p: w.props.get(b.id) })); };
+    const night = at(2);
+    ok('boats sit on their moorings at night', night.length > 0 && night.every(({ b, p }) => b.x === p.x && b.z === p.z && b.vis === 1));
+    const noon = at(12.5);
+    ok('boats are out at noon', noon.filter(({ b, p }) => Math.hypot(b.x - p.x, b.z - p.z) > 4).length >= noon.length - 1);
+    ok('boats out at noon float on open water', noon.every(({ b }) => w.isWater(b.x, b.z) && !w.houseAt(b.x, b.z, 0.2)));
+    at(hour); reset();
+  }
   results.push(`PERF warmed unchanged structure rebuild median=${samples[4].toFixed(1)}ms max=${samples.at(-1).toFixed(1)}ms`);
   return results.join('\n');
 })()

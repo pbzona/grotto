@@ -344,7 +344,8 @@ function lighthouse(mb: MeshBuilder, L: Light[]) {
 }
 
 // ---------- boats: separate bobbing meshes ----------
-export interface Boat { mesh: THREE.Mesh; phase: number; x: number; z: number; rot: number; big: boolean }
+/** x/z/rot is where the boat is shown (the voyage moves it); vis shrinks it away when it has to vanish. */
+export interface Boat { id: string; mesh: THREE.Mesh; phase: number; x: number; z: number; rot: number; big: boolean; vis: number; moving: boolean }
 /** Hulls are built with the gunwale at y≈0 and the keel below; lift them so about half the hull rides above the water. */
 export const boatFreeboard = (type: string) => type === "sloop" ? 0.32 : 0.17;
 export function buildBoat(p: Prop, mat: THREE.Material): Boat {
@@ -382,16 +383,21 @@ export function buildBoat(p: Prop, mat: THREE.Material): Boat {
   }
   const mesh = new THREE.Mesh(mb.toGeometry(), mat);
   mesh.castShadow = true; mesh.receiveShadow = true;
+  mesh.rotation.order = "YXZ";   // heading first, then pitch and heel about the hull's own axes
   mesh.userData.owners = mb.owners; mesh.userData.triOwner = mb.triOwner;
   // keep the sea out of the hull: a depth-only lid a little above the waterline
   const fb = boatFreeboard(p.type);
   mesh.add(big ? hullMask(3.8, 1.35, 0.6, -fb + 0.13) : hullMask(1.9, 0.78, 0.3, -fb + 0.1));
-  return { mesh, phase: r() * 10, x: p.x, z: p.z, rot: p.rot, big };
+  return { id: p.id, mesh, phase: r() * 10, x: p.x, z: p.z, rot: p.rot, big, vis: 1, moving: false };
 }
 export function updateBoat(b: Boat, t: number) {
   const s = b.big ? 0.6 : 1;
   b.mesh.position.set(b.x, WATER_Y + (b.big ? boatFreeboard("sloop") : boatFreeboard("rowboat")) + Math.sin(t * 1.3 + b.phase) * 0.035 * s, b.z);
-  b.mesh.rotation.set(Math.sin(t * 0.9 + b.phase) * 0.02 * s, -b.rot + Math.sin(t * 0.3 + b.phase) * 0.03, Math.sin(t * 1.1 + b.phase * 1.7) * 0.05 * s);
+  // under way: bow lifts a touch and a sloop heels to the breeze
+  const pitch = b.moving ? -0.03 : 0, heel = b.moving && b.big ? 0.09 : 0;
+  b.mesh.rotation.set(pitch + Math.sin(t * 0.9 + b.phase) * 0.02 * s, -b.rot + Math.sin(t * 0.3 + b.phase) * 0.03, heel + Math.sin(t * 1.1 + b.phase * 1.7) * 0.05 * s);
+  b.mesh.scale.setScalar(Math.max(0.001, b.vis));
+  b.mesh.visible = b.vis > 0.001;
 }
 
 // ---------- strings of lanterns between neighbouring houses ----------
