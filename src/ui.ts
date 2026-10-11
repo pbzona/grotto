@@ -40,7 +40,7 @@ function partOfDay(h: number) {
   return h < 5 ? "small hours" : h < 7 ? "dawn" : h < 11 ? "morning" : h < 13 ? "noon" : h < 17 ? "afternoon" : h < 19.5 ? "dusk" : "night";
 }
 
-const GRAIN = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .35 0 0 0 0 .26 0 0 0 0 .16 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E")`;
+const GRAIN = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.65' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .35 0 0 0 0 .26 0 0 0 0 .16 0 0 0 .2 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E")`;
 
 export function injectStyles() {
   const css = `
@@ -73,8 +73,6 @@ export function injectStyles() {
   /* the active tool is a tab pulled out past the edge of the sheet */
   #toolbar .tb.on { background: var(--acc); color: var(--acc-ink); transform: translateX(10px); box-shadow: 3px 3px 0 rgba(20,14,8,.32); border: 1.5px solid var(--ink); }
   #toolbar .tb.on .n, #toolbar .tb.on .k { color: var(--acc-ink); }
-  .tb .tip { position: absolute; left: 76px; top: 50%; transform: translateY(-50%); white-space: nowrap; background: var(--paper); border: 1.5px solid var(--ink); padding: 3px 9px; border-radius: 2px; font: italic 14px var(--display); color: var(--ink); opacity: 0; pointer-events: none; transition: opacity .12s; box-shadow: 3px 3px 0 rgba(20,14,8,.3); }
-  .tb:hover .tip { opacity: 1; }
   #panel { right: 16px; top: 68px; width: 248px; max-height: calc(100vh - 190px); overflow: auto; padding: 11px 14px 13px; }
   #panel .ph { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; padding-bottom: 5px; border-bottom: 1px solid var(--rule); }
   #panel h2 { margin: 0; font: 400 20px/1.1 var(--display); }
@@ -161,7 +159,6 @@ export function injectStyles() {
     #toolbar .tb { width: 46px; }
     #toolbar .tb.on { transform: translateY(-8px); }
     #toolbar .tb .k { display: none; }
-    .tb .tip { display: none; }
     #panel { top: auto; bottom: 84px; right: 8px; left: 8px; width: auto; max-height: 38vh; }
     #hint { display: none; }
     #time { bottom: auto; top: 12px; right: 104px; padding: 3px 8px 3px 4px; }
@@ -195,7 +192,7 @@ export class UI {
     const tb = el(`<div id="toolbar" class="ui card"></div>`);
     for (const t of TOOLS) {
       const b = document.createElement("button");
-      b.className = "tb"; b.setAttribute("aria-label", t.label); b.innerHTML = `${svg(t.id)}<span class="n">${t.tab}</span><span class="k">${t.key}</span><span class="tip">${t.label} <kbd>${t.key}</kbd></span>`;
+      b.className = "tb"; b.setAttribute("aria-label", t.label); b.innerHTML = `${svg(t.id)}<span class="n">${t.tab}</span><span class="k">${t.key}</span>`;
       b.onclick = () => tools.setTool(t.id);
       tb.appendChild(b); this.toolBtns.set(t.id, b);
     }
