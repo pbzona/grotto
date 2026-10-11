@@ -44,7 +44,7 @@ function palmShape(p: Prop) {
   return { h: h0 * +(p.opts?.height ?? 1), lean: p.opts?.lean !== undefined ? +p.opts.lean : lean0 };
 }
 /** Would this palm's leaning trunk pass through a walkway deck? */
-function palmPierces(world: World, p: Prop) {
+export function palmPierces(world: World, p: Prop) {
   const { h, lean } = palmShape(p), sc = p.scale ?? 1, c = Math.cos(p.rot), s = Math.sin(p.rot);
   const y0 = groundBase(world, p.x, p.z, 0.16 * sc);
   for (let i = 1; i <= 10; i++) {
@@ -123,6 +123,19 @@ export function buildOneProp(world: World, mb: MeshBuilder, p: Prop, out: PropBu
 }
 
 let foot = (_lx: number, _lz: number) => 0;
+/** A line strung between posts at ±h: a post that would hang far below the base (off the deck it stands on)
+ *  slides inward until it finds the deck, shortening the line. Returns the new centre and scale along x. */
+function lineSpan(h: number): [number, number] {
+  const DROP = -0.45, MIN = 0.5;
+  const slide = (from: number, to: number) => {
+    if (foot(from, 0) >= DROP) return from;
+    for (let i = 1; i <= 40; i++) { const x = from + (to - from) * i / 40; if (foot(x, 0) >= -0.1) return x; }
+    return from;
+  };
+  const a = slide(-h, h), b = slide(h, -h);
+  if (b - a < MIN) return [0, 1]; // too little deck to stand on: keep the long post
+  return [(a + b) / 2, (b - a) / (2 * h)];
+}
 function propMesh(mb: MeshBuilder, p: Prop, L: Light[], out: PropBuild, y: number) {
   const r = rng(p.seed);
   switch (p.type) {
@@ -145,29 +158,31 @@ function propMesh(mb: MeshBuilder, p: Prop, L: Light[], out: PropBuild, y: numbe
     }
     case "lantern": lanternPost(mb, 0, 0, 0, { lights: L }); break;
     case "nets": {
+      const [m, k] = lineSpan(0.85), X = (x: number) => m + x * k;
       mb.paint(hexRGB("#6b4a33"), M.plank);
-      for (const x of [-0.85, 0.85]) mb.cyl(x, 0, foot(x, 0) - 0.04, 1.3, 0.05, 0.045, 6);
-      mb.beam([-0.9, 1.25, 0], [0.9, 1.25, 0], [0, 0, 1], 0.035, 0.035);
-      for (let k = 0; k < 2; k++) {
-        const zz = k ? 0.06 : -0.06;
+      for (const x of [-0.85, 0.85]) mb.cyl(X(x), 0, foot(X(x), 0) - 0.04, 1.3, 0.05, 0.045, 6);
+      mb.beam([X(-0.9), 1.25, 0], [X(0.9), 1.25, 0], [0, 0, 1], 0.035, 0.035);
+      for (let j = 0; j < 2; j++) {
+        const zz = j ? 0.06 : -0.06;
         const pts: V3[] = [];
-        for (let i = 0; i <= 8; i++) { const t = i / 8; pts.push([-0.85 + 1.7 * t, 1.2 - 0.25 - Math.sin(Math.PI * t) * 0.25 - k * 0.1, zz]); }
-        mb.paint(hexRGB(k ? "#5f6e57" : "#7a6a4e"), M.cloth);
-        for (let i = 0; i < 8; i++) mb.quad([[pts[i][0], 1.22, zz], [pts[i + 1][0], 1.22, zz], pts[i + 1], pts[i]], [0, 0, k ? 1 : -1]);
-        for (let i = 0; i < 8; i++) mb.quad([[pts[i][0], 1.22, zz], [pts[i + 1][0], 1.22, zz], pts[i + 1], pts[i]], [0, 0, k ? -1 : 1]);
+        for (let i = 0; i <= 8; i++) { const t = i / 8; pts.push([X(-0.85 + 1.7 * t), 1.2 - 0.25 - Math.sin(Math.PI * t) * 0.25 - j * 0.1, zz]); }
+        mb.paint(hexRGB(j ? "#5f6e57" : "#7a6a4e"), M.cloth);
+        for (let i = 0; i < 8; i++) mb.quad([[pts[i][0], 1.22, zz], [pts[i + 1][0], 1.22, zz], pts[i + 1], pts[i]], [0, 0, j ? 1 : -1]);
+        for (let i = 0; i < 8; i++) mb.quad([[pts[i][0], 1.22, zz], [pts[i + 1][0], 1.22, zz], pts[i + 1], pts[i]], [0, 0, j ? -1 : 1]);
       }
-      for (let i = 0; i < 4; i++) { mb.paint(hexRGB(i % 2 ? "#e08a4a" : "#efe4cc"), M.plain); mb.blob([-0.6 + i * 0.4, 0.78 - Math.sin(Math.PI * (i + 1) / 5) * 0.2, 0.1], [0.07, 0.07, 0.07], i, 0); }
+      for (let i = 0; i < 4; i++) { mb.paint(hexRGB(i % 2 ? "#e08a4a" : "#efe4cc"), M.plain); mb.blob([X(-0.6 + i * 0.4), 0.78 - Math.sin(Math.PI * (i + 1) / 5) * 0.2, 0.1], [0.07, 0.07, 0.07], i, 0); }
       break;
     }
     case "laundry": {
+      const [m, k] = lineSpan(0.9), X = (x: number) => m + x * k;
       mb.paint(hexRGB("#6b4a33"), M.plank);
-      for (const x of [-0.9, 0.9]) mb.cyl(x, 0, foot(x, 0) - 0.04, 1.5, 0.04, 0.035, 6);
-      const rope: V3[] = []; for (let i = 0; i <= 10; i++) { const t = i / 10; rope.push([-0.9 + 1.8 * t, 1.42 - Math.sin(Math.PI * t) * 0.12, 0]); }
+      for (const x of [-0.9, 0.9]) mb.cyl(X(x), 0, foot(X(x), 0) - 0.04, 1.5, 0.04, 0.035, 6);
+      const rope: V3[] = []; for (let i = 0; i <= 10; i++) { const t = i / 10; rope.push([X(-0.9 + 1.8 * t), 1.42 - Math.sin(Math.PI * t) * 0.12, 0]); }
       mb.paint(hexRGB("#d8c8a8"), M.cloth); mb.tube(rope, 0.012, 4);
       const cloth = ["#e9dcbc", "#3f8783", "#c96b43", "#dca34e", "#9fb3c8", "#f1ead8"];
       for (let i = 0; i < 5; i++) {
-        const t = 0.12 + i * 0.19, x = -0.9 + 1.8 * t, yy = 1.42 - Math.sin(Math.PI * t) * 0.12;
-        const w = 0.14 + r() * 0.06, hh = 0.25 + r() * 0.2;
+        const t = 0.12 + i * 0.19, x = X(-0.9 + 1.8 * t), yy = 1.42 - Math.sin(Math.PI * t) * 0.12;
+        const w = (0.14 + r() * 0.06) * k, hh = 0.25 + r() * 0.2;
         mb.paint(hexRGB(cloth[Math.floor(r() * cloth.length)]), M.cloth);
         mb.quad([[x - w, yy, 0], [x + w, yy, 0], [x + w, yy - hh, 0.02], [x - w, yy - hh, 0.02]], [0, 0, 1]);
         mb.quad([[x - w, yy, 0], [x + w, yy, 0], [x + w, yy - hh, 0.02], [x - w, yy - hh, 0.02]], [0, 0, -1]);

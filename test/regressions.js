@@ -106,6 +106,15 @@
     ok('laundry steps up onto a deck under one post', Math.abs(propBase(w, L) - (gy + 1)) < 0.05);
     D1.y += 0.5; D2.y += 0.5;
     ok('laundry follows the deck when it is raised', Math.abs(propBase(w, L) - (gy + 1.5)) < 0.05);
+    const { buildOneProp } = await import('/src/props.ts'), { MeshBuilder } = await import('/src/mesh.ts');
+    const lowest = p => { const mb = new MeshBuilder(); buildOneProp(w, mb, p, { lights: [], foam: [] }); const g = mb.toGeometry(); g.computeBoundingBox(); return g.boundingBox.min.y; };
+    ok('the off-deck post slides onto the deck instead of a stilt', lowest(L) > gy + 1.5 - 0.1);
+    // a palm placed so it would lean through a deck is refused with a reason
+    t.setTool('prop'); t.propRot = Math.PI; t.propSeed = 0.5;
+    const pc = t.propCheck('palm', 12.65, 33);
+    t.propRot = 0; const pc2 = t.propCheck('palm', 12.65, 33);
+    ok('palm leaning into a raised deck is refused, turned away is fine', !pc.ok && /walkway/.test(pc.why) && pc2.ok);
+    t.setTool('select');
     // a palm leaning over the deck hides when its trunk would pass through the planks
     const P2 = a.addProp('palm', 12.9, 33, Math.PI, 0.5); P2.opts = { height: 1, lean: 1.4 };
     D1.y = D2.y = gy + 0.25;
