@@ -123,6 +123,21 @@
     ok('palm leaning through a raised deck is hidden', pierced);
     reset();
   }
+  {
+    // stairs: a flight steeper than MAX_STAIR is refused; a dragged post stops at the limit
+    const { MAX_STAIR, slopeOf } = await import('/src/walks.ts');
+    for (let j = 29; j <= 37; j++) for (let i = 8; i <= 15; i++) w.setLevel(i, j, 8);
+    a.changed({ terrain: true }); a.update(0);
+    const gy = w.height(11, 33), V = g.camera.position.constructor;
+    t.setTool('walk');
+    const A = a.addNode(11, 31, gy + 0.2), n0 = w.edges.size;
+    t.chain = A; t.walkLift = 3; t['walkTo'](new V(11, gy, 33)); t.escape(); a.update(0);
+    ok('a flight steeper than stairs go is refused', w.edges.size === n0);
+    t.chain = A; t.walkLift = 1; t['walkTo'](new V(11, gy, 33)); t.escape(); a.update(0);
+    const e = [...w.edges.values()].find(e => e.a === A.id || e.b === A.id);
+    ok('a climbable flight is laid', !!e && [...w.edges.values()].every(e => slopeOf(w.nodes.get(e.a), w.nodes.get(e.b)) <= MAX_STAIR + 1e-6));
+    reset();
+  }
   results.push(`PERF warmed unchanged structure rebuild median=${samples[4].toFixed(1)}ms max=${samples.at(-1).toFixed(1)}ms`);
   return results.join('\n');
 })()

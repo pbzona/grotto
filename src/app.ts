@@ -8,7 +8,7 @@ import { MeshBuilder, Part, mergeParts, rng } from "./mesh";
 import { buildHouse, makeHouse, houseLayout, HouseBuild, Light } from "./houses";
 import { seedCove } from "./seed";
 import { fitLandmark } from "./landmarks";
-import { buildWalks, defaultDeckY, WALK_W } from "./walks";
+import { buildWalks, defaultDeckY, WALK_W, MAX_STAIR, slopeOf } from "./walks";
 import { buildProps, buildBoat, updateBoat, Boat, stringLights, PROP_INFO, buildScatter, isGreenery } from "./props";
 import { Edits } from "./edits";
 import { CROWDS, CROWD_KEY, DEFAULT_CROWD } from "./villagers";
@@ -235,6 +235,7 @@ export class App {
   settleWalks(only?: Set<string>): boolean {
     const w = this.world;
     let changed = false;
+    const touched = new Set<string>();
     const Hc = (x: number, z: number) => w.height(Math.min(N - 0.01, Math.max(0.01, x)), Math.min(N - 0.01, Math.max(0.01, z)));
     const nearHouse = (n: WalkNode) => !!w.houseAt(n.x, n.z, 0.9);
     // posts: a deck sitting in a side slope comes up to clear the ground under its footprint
@@ -245,7 +246,7 @@ export class App {
       let g = -Infinity;
       for (let k = 0; k < 8; k++) g = Math.max(g, Hc(n.x + Math.cos(k * 0.785) * r, n.z + Math.sin(k * 0.785) * r));
       g = Math.max(g, Hc(n.x, n.z));
-      if (g + 0.1 > n.y) { n.y = Math.round((g + 0.16) * 20) / 20; changed = true; }
+      if (g + 0.1 > n.y) { n.y = Math.round((g + 0.16) * 20) / 20; changed = true; touched.add(n.id); }
     }
     const settle = (e: WalkEdge, depth: number) => {
       const A = w.nodes.get(e.a), B = w.nodes.get(e.b); if (!A || !B || e.style === "rope") return;
@@ -260,14 +261,42 @@ export class App {
         if (over > worst) { worst = over; wt = t; wg = g; }
       }
       if (worst < 0.06) return;
-      const x = A.x + (B.x - A.x) * wt, z = A.z + (B.z - A.z) * wt;
-      const m = this.addNode(Math.round(x * 4) / 4, Math.round(z * 4) / 4, Math.round((wg + 0.18) * 20) / 20);
+      // never right against an end: that makes stubby sawtooth steps (or a post on top of a post)
+      const t = Math.min(1 - 0.4 / L, Math.max(0.4 / L, wt));
+      const x = Math.round((A.x + (B.x - A.x) * t) * 4) / 4, z = Math.round((A.z + (B.z - A.z) * t) * 4) / 4;
+      if (Math.hypot(x - A.x, z - A.z) < 0.24 || Math.hypot(x - B.x, z - B.z) < 0.24) return;
+      let g = wg;
+      for (const o of [-hw, 0, hw]) g = Math.max(g, Hc(x - uz * o, z + ux * o));
+      const m = this.addNode(x, z, Math.round((g + 0.18) * 20) / 20);
       const [e1, e2] = w.splitEdge(e.id, m);
-      changed = true;
+      changed = true; touched.add(m.id);
       settle(e1, depth + 1); settle(e2, depth + 1);
     };
     for (const e of [...w.edges.values()]) if (!only || only.has(e.a) || only.has(e.b)) settle(e, 0);
+    if (changed) this.easeStairs(touched);
     return changed;
+  }
+  /**
+   * Where a stretch next to one of `from` climbs steeper than MAX_STAIR, lift its lower post until it doesn't,
+   * and carry on along the walkway from there. Dead ends at a house (doors) keep their height.
+   * With no `from`, every stretch is checked.
+   */
+  easeStairs(from?: Set<string>) {
+    const w = this.world;
+    const live = from ? new Set(from) : new Set(w.nodes.keys());
+    for (let pass = 0; pass < 40 && live.size; pass++) {
+      const next = new Set<string>();
+      for (const id of live) for (const e of w.edgesOf(id)) {
+        const A = w.nodes.get(e.a), B = w.nodes.get(e.b); if (!A || !B) continue;
+        const L = Math.hypot(B.x - A.x, B.z - A.z);
+        if (slopeOf(A, B) <= MAX_STAIR + 1e-6) continue;
+        const [lo, hi] = A.y < B.y ? [A, B] : [B, A];
+        if (w.edgesOf(lo.id).length === 1 && w.houseAt(lo.x, lo.z, 0.9)) continue; // a door: the floor sets it
+        lo.y = Math.ceil((hi.y - MAX_STAIR * L) * 20 - 1e-6) / 20;
+        next.add(lo.id);
+      }
+      live.clear(); for (const id of next) live.add(id);
+    }
   }
 
   carveGrotto(_p: Prop) { this.world.rebuildCarving(); }
@@ -324,7 +353,7 @@ export class App {
     };
     // --- the pier and its stilt houses ---
     // every stretch runs along an axis, on the quarter grid (so posts settleWalks adds stay in line)
-    const beach = this.addNode(25, 15.25);
+    const beach = this.addNode(25, 16.25);
     const n1 = this.addNode(25, 18.5, DECK_Y);
     const hub = this.addNode(25, 24, DECK_Y);
     const head = this.addNode(25, 29, DECK_Y, 1.5);
@@ -339,13 +368,13 @@ export class App {
     H("h", 0.377, [newVolume(19, 17, 22, 19.5, 1, "gable")], 4, { style: "plank" });
     const pierEast = this.addNode(29.5, 29, DECK_Y);
     this.addEdge(head, pierEast);
-    // --- beach boardwalk and the north terrace houses, each with steps up to its door ---
-    const bwW = this.addNode(21.25, 15.25), bwE = this.addNode(28, 15.25);
+    // --- a boardwalk along the waterline and the north terrace houses, with steps (no steeper than MAX_STAIR) up to each door ---
+    const bwW = this.addNode(21.25, 16.25), bwE = this.addNode(28, 16.25);
     this.addEdge(bwW, beach); this.addEdge(beach, bwE);
     const hW = H("h", 0.519, [newVolume(19.5, 11, 23, 13.5, 2, "gable"), newVolume(23, 11.5, 24.5, 13.5, 1, "shed")], 1);
     const hE = H("h", 0.638, [newVolume(26.5, 11.5, 29.5, 13.8, 1, "flat")], 5, { awning: true });
     const stepW = this.addNode(21.25, 14.25, houseLayout(w, hW).base);
-    const stepE = this.addNode(28, 14.5, houseLayout(w, hE).base);
+    const stepE = this.addNode(28, 14.25, houseLayout(w, hE).base);
     this.addEdge(bwW, stepW); this.addEdge(bwE, stepE);
     // --- west terraces: a cluster with a lookout on the cliff ---
     // a stepped house: one end lifted a storey, the rest a roof terrace with a door onto it
@@ -382,7 +411,7 @@ export class App {
     this.addProp("barrels", 26, 28.3, 0, 0.4);
     this.addProp("nets", 13.2, 17.8, 0.9, 0.5);
     this.addProp("laundry", 8, 29, 0, 0.7);
-    this.addProp("lantern", 23.5, 15.9, 0, 0.1);
+    this.addProp("lantern", 23.5, 16.7, 0, 0.1);
     this.addProp("crane", 26.1, 30.1, -0.6, 0.5);
     this.addProp("barrels", 10.5, 23.4, 0, 0.9);
     // --- paint: cobbles by the terrace houses, sandy paths ---
@@ -390,7 +419,7 @@ export class App {
     for (let z = 23; z <= 34; z += 1) this.paintDisc("path", 10.7, z, 0.6);
     for (let z = 18; z <= 23; z += 1) this.paintDisc("path", 10 + (z - 18) * 0.15, z, 0.5);
     this.paintDisc("greenery", 5, 28.5, 1.8); this.paintDisc("greenery", 25, 10.5, 1.6); this.paintDisc("greenery", 31.5, 11, 1.2);
-    this.settleWalks();
+    this.settleWalks(); this.easeStairs();
     // nothing small may end up inside a landmark
     for (const lm of [...w.props.values()].filter(p => isLandmark(p.type))) {
       const pts = landmarkSamples(lm);

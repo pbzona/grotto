@@ -3,6 +3,7 @@ import { N, DECK_Y, WATER_Y, newVolume, uid, isLandmark, landmarkSamples, type R
 import { houseLayout, makeHouse } from "./houses";
 import { fitLandmark } from "./landmarks";
 import { rng } from "./mesh";
+import { defaultDeckY, MAX_STAIR, slopeOf } from "./walks";
 
 /**
  * Seeds a freshly generated cove with a small village: a straight pier from a beach with stilt houses
@@ -13,8 +14,16 @@ export function seedCove(app: App, seed: number) {
   const r = rng(seed * 7.31 + 0.13);
   seedVillage(app, r);
   seedProps(app, r);
-  app.settleWalks();
+  app.settleWalks(); app.easeStairs();
   const w = app.world;
+  // a door the ground forced a too-steep flight onto: that house doesn't make the cut
+  for (const e of [...w.edges.values()]) {
+    const A = w.nodes.get(e.a), B = w.nodes.get(e.b); if (!A || !B || slopeOf(A, B) <= MAX_STAIR + 1e-6) continue;
+    for (const d of [A, B]) {
+      const h = w.edgesOf(d.id).length === 1 ? w.houseAt(d.x, d.z, 0.9) : null;
+      if (h) { w.houses.delete(h.id); w.edges.delete(e.id); break; }
+    }
+  }
   for (const lm of [...w.props.values()].filter(p => isLandmark(p.type))) {
     const pts = landmarkSamples(lm);
     for (const o of [...w.props.values()]) if (!isLandmark(o.type) && pts.some(([x, z]) => Math.hypot(x - o.x, z - o.z) < 0.7)) w.props.delete(o.id);
@@ -85,6 +94,7 @@ function buildVillage(app: App, site: Site, r: () => number, dress: boolean): nu
   const at = (k: number, s = 0): [number, number] => [ox + dx * k + px * s, oz + dz * k + pz * s];
   const node = (k: number, s: number, y?: number, pad = 0) => { const [x, z] = at(k, s); return app.addNode(x, z, y, pad); };
   const size = () => 2.5 + Math.round(r() * 2) * 0.5;
+  let lastHouse = "";
 
   /** a house whose wall sits just past (cx, cz), extending away along (ax, az); its floor height, or null if it won't sit */
   const house = (cx: number, cz: number, ax: number, az: number, width: number, depth: number, floors: number, over: boolean) => {
@@ -99,7 +109,7 @@ function buildVillage(app: App, site: Site, r: () => number, dress: boolean): nu
     const v = newVolume(x0, z0, x1, z1, floors, ROOFS[Math.floor(r() * ROOFS.length)]);
     v.ridgeX = tx > 0;
     const h = makeHouse(uid("h"), r(), [v]);
-    w.houses.set(h.id, h);
+    w.houses.set(h.id, h); lastHouse = h.id;
     const L = houseLayout(w, h);
     // stilt houses must meet the deck; shore houses must stand on land and not tower over their steps
     const ok = over ? L.base - DECK_Y < 0.6 : !L.over && L.base - L.gmin < 1.8;
@@ -148,11 +158,19 @@ function buildVillage(app: App, site: Site, r: () => number, dress: boolean): nu
       if (here >= 2 || reach - lastReach < 2.5 && here) continue;
       const [bx, bz] = at(0, s * reach), bi = Math.floor(bx), bj = Math.floor(bz);
       if (wet(bi, bj) || lv(bi, bj) > 10 || bi < 2 || bj < 2 || bi > N - 3 || bj > N - 3) break;
-      const [sx, sz] = at(-1.25, s * reach);
-      const base = fit(sx, sz, -dx, -dz, false);
-      if (base == null) continue;
+      // set the house further back until its steps are no steeper than MAX_STAIR
+      const bwY = defaultDeckY(w, bx, bz);
+      let door: [number, number, number] | null = null;
+      for (const back of [1.25, 2, 2.75, 3.5]) {
+        const [sx, sz] = at(-back, s * reach);
+        const base = fit(sx, sz, -dx, -dz, false);
+        if (base == null) continue;
+        if (Math.abs(base - bwY) <= MAX_STAIR * back) { door = [sx, sz, base]; break; }
+        w.houses.delete(lastHouse);
+      }
+      if (!door) continue;
       const bw = app.addNode(bx, bz);
-      app.addEdge(last, bw); app.addEdge(bw, app.addNode(sx, sz, base));
+      app.addEdge(last, bw); app.addEdge(bw, app.addNode(door[0], door[1], door[2]));
       if (dress) for (let t = lastReach; t <= reach; t += 1) { const [x, z] = at(0, s * t); app.paintDisc("path", x, z, 0.6, 0.7); }
       last = bw; lastReach = reach; here++; count++;
     }

@@ -8,7 +8,16 @@
     const p = w.nodes.get(e.a), q = w.nodes.get(e.b);
     return Math.abs(p.x - q.x) < 1e-6 || Math.abs(p.z - q.z) < 1e-6;
   });
+  const { MAX_STAIR, slopeOf } = await import('/src/walks.ts');
+  const gentle = () => [...w.edges.values()].every(e => slopeOf(w.nodes.get(e.a), w.nodes.get(e.b)) <= MAX_STAIR + 1e-6 && Math.hypot(w.nodes.get(e.a).x - w.nodes.get(e.b).x, w.nodes.get(e.a).z - w.nodes.get(e.b).z) >= 0.3);
+  for (const kind of ['classic', 'fjord', 'islets', 'estuary']) for (let s = 1; s <= 12; s++) {
+    a.newCove(kind, s);
+    if (!gentle() || villagerHomes(w).length !== w.houses.size || w.houses.size < 3) throw new Error(`${kind} ${s}: steep stairs or a stranded house`);
+  }
+  a.starter();
+  results.push('PASS every preset seed 1-12 has climbable stairs and connected houses');
   const start = JSON.stringify(w.save());
+  ok('starter stairs are climbable, with no stubby steps', gentle());
   ok('starter walkways run at right angles', square());
   ok('starter connects several houses', villagerHomes(w).length >= 5);
   for (const [label, kind] of [['Fjord', 'fjord'], ['Islets', 'islets'], ['Estuary', 'estuary']]) {
@@ -17,6 +26,7 @@
     ok(`${label} replaces the land`, a.cove.kind === kind && a.cove.seed > 0 && heights() !== before && !a.edits.active);
     ok(`${label} opens with a small connected village`, w.houses.size >= 3 && villagerHomes(w).length === w.houses.size && w.props.size >= 4);
     ok(`${label} walkways run at right angles`, square());
+    ok(`${label} stairs are climbable, with no stubby steps`, gentle());
     const seed = a.cove.seed, land = heights();
     btn('Reroll this land').click(); a.update(0);
     ok(`${label} reroll keeps the preset with a new seed`, a.cove.kind === kind && a.cove.seed !== seed && heights() !== land);

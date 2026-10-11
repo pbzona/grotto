@@ -3,7 +3,7 @@ import type { App } from "./app";
 import { World, N, snap, House, Volume, newVolume, uid, FLOOR_H, MAX_LEVEL, PaintType, PropType, WalkNode, WalkEdge, RoofType, WATER_Y, DECK_Y, Prop, isLandmark, hullDims, grottoDims, GROTTO_OPTS, propOpt } from "./world";
 import { MeshBuilder } from "./mesh";
 import { buildHouse, houseLayout, makeHouse, nodeWall, sideLine, HouseBuild, Bay } from "./houses";
-import { defaultDeckY, landingRadius, WALK_W } from "./walks";
+import { defaultDeckY, landingRadius, WALK_W, MAX_STAIR, slopeOf, clampStair } from "./walks";
 import { buildOneProp, buildBoat, PROP_INFO, boatFreeboard, isGreenery, palmPierces } from "./props";
 import { fitLandmark, Fit } from "./landmarks";
 import { U } from "./materials";
@@ -288,7 +288,7 @@ export class Tools {
         const dy = (d.oy - e.clientY) / 40 * 0.25;
         const y = Math.round((d.y0 + dy) / 0.25) * 0.25;
         const g = this.world.height(n.x, n.z);
-        const ny = Math.max(Math.max(g, WATER_Y) + 0.2, Math.min(12, y));
+        const ny = Math.max(Math.max(g, WATER_Y) + 0.2, clampStair(this.world, n, Math.min(12, y)));
         if (ny !== n.y) { n.y = ny; d.changed = true; this.app.changed({ structures: true }); this.refreshHandles(); }
         break;
       }
@@ -763,7 +763,8 @@ export class Tools {
     d.node.x = x; d.node.z = z;
     // follow the ground up and down gently; over water stay at deck height
     const want = defaultDeckY(this.world, x, z);
-    d.node.y = Math.abs(want - from.y) < 0.6 ? from.y : want;
+    const most = MAX_STAIR * Math.hypot(x - from.x, z - from.z);
+    d.node.y = Math.abs(want - from.y) < 0.6 ? from.y : from.y + Math.max(-most, Math.min(most, want - from.y));
     d.changed = true;
     this.app.changed({ structures: true });
   }
@@ -970,6 +971,15 @@ export class Tools {
     this.app.addEdge(a, b, style, width);
     this.app.settleWalks(new Set([a.id, b.id]));
   }
+  /** Does any walkway stretch added since `before` climb steeper than MAX_STAIR? */
+  private tooSteep(before: Set<string>) {
+    for (const e of this.world.edges.values()) {
+      if (before.has(e.id)) continue;
+      const a = this.world.nodes.get(e.a), b = this.world.nodes.get(e.b);
+      if (a && b && slopeOf(a, b) > MAX_STAIR + 1e-6) return true;
+    }
+    return false;
+  }
   private walkTo(p: THREE.Vector3) {
     if (!this.chain) return;
     if (!this.app.edits.active) this.app.begin(true);
@@ -981,7 +991,14 @@ export class Tools {
       if (long) this.toast("That's a long way — add a post in between"); return;
     }
     const dup = this.world.edgesOf(this.chain.id).some(e => e.a === r.node.id || e.b === r.node.id);
-    if (!dup) this.joinWalk(this.chain, r.node);
+    if (!dup) {
+      const before = new Set(this.world.edges.keys());
+      this.joinWalk(this.chain, r.node);
+      if (this.tooSteep(before)) {
+        this.app.cancel(); this.chain = null; this.chainTemp = null; this.walkLift = 0;
+        this.toast("Too steep for stairs — start them further out, or lift the post with [ ]"); return;
+      }
+    }
     this.chain = r.node; this.chainTemp = null;
     this.walkLift = 0;
     this.app.changed({ structures: true });

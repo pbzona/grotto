@@ -5,6 +5,7 @@ import { PROP_INFO, isGreenery } from "./props";
 import { formatHour } from "./lighting";
 import { type PropType, type Prop, type CoveKind, COVES, propOpt, HULL_OPTS, GROTTO_OPTS, isLandmark } from "./world";
 import { fitLandmark } from "./landmarks";
+import { clampStair } from "./walks";
 import { CROWDS, CROWD_KEY } from "./villagers";
 
 // Hand-inked chart glyphs: slightly uneven strokes, drawn to sit on paper.
@@ -575,7 +576,11 @@ export class UI {
   private nodeEdit(id: string, op: "y" | "pad", v: number) {
     const n = this.app.world.nodes.get(id); if (!n) return;
     this.app.begin();
-    if (op === "y") n.y = Math.max(Math.max(this.app.world.height(n.x, n.z), 0.2) + 0.2, Math.min(20, n.y + v)); else n.pad = v;
+    if (op === "y") {
+      const want = Math.min(20, n.y + v), y = clampStair(this.app.world, n, want);
+      if (Math.abs(y - want) > 1e-6) this.toast("That's as steep as stairs go");
+      n.y = Math.max(Math.max(this.app.world.height(n.x, n.z), 0.2) + 0.2, y);
+    } else n.pad = v;
     this.app.settleWalks(new Set([id]));
     this.app.changed({ structures: true }); this.tools.refreshHandles(); this.refresh();
   }
