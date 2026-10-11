@@ -5,7 +5,7 @@ import { Terrain } from "./terrain";
 import type { Materials } from "./materials";
 import { LightMap } from "./lighting";
 import { MeshBuilder, Part, mergeParts, rng } from "./mesh";
-import { buildHouse, makeHouse, HouseBuild, Light } from "./houses";
+import { buildHouse, makeHouse, houseLayout, HouseBuild, Light } from "./houses";
 import { fitLandmark } from "./landmarks";
 import { buildWalks, defaultDeckY, WALK_W } from "./walks";
 import { buildProps, buildBoat, updateBoat, Boat, stringLights, PROP_INFO, buildScatter } from "./props";
@@ -343,31 +343,30 @@ export class App {
       const h = { ...makeHouse(uid(id), seed, vols, pal), ...opts }; w.houses.set(h.id, h); return h;
     };
     // --- the pier and its stilt houses ---
-    const beach = this.addNode(25, 15.3);
-    const n1 = this.addNode(25, 19.2, DECK_Y);
+    // every stretch runs along an axis, on the quarter grid (so posts settleWalks adds stay in line)
+    const beach = this.addNode(25, 15.25);
+    const n1 = this.addNode(25, 18.5, DECK_Y);
     const hub = this.addNode(25, 24, DECK_Y);
     const head = this.addNode(25, 29, DECK_Y, 1.5);
     this.addEdge(beach, n1); this.addEdge(n1, hub); this.addEdge(hub, head);
-    const west = this.addNode(20.3, 24.6, DECK_Y);
-    const east = this.addNode(30.2, 24.0, DECK_Y);
+    const west = this.addNode(20.25, 24, DECK_Y);
+    const east = this.addNode(30.25, 24, DECK_Y);
     this.addEdge(hub, west); this.addEdge(hub, east);
     H("h", 0.113, [newVolume(16, 23, 19.5, 26.5, 2, "gable"), newVolume(16.5, 26.5, 18.5, 28.5, 1, "shed")], 0, { style: "plank" });
     H("h", 0.271, [newVolume(30.5, 22, 34, 25.5, 1, "hip"), newVolume(34, 22.5, 36, 24.5, 2, "flat")], 6);
-    const nw = this.addNode(22.6, 18.6, DECK_Y);
+    const nw = this.addNode(22.5, 18.5, DECK_Y);
     this.addEdge(n1, nw);
     H("h", 0.377, [newVolume(19, 17, 22, 19.5, 1, "gable")], 4, { style: "plank" });
     const pierEast = this.addNode(29.5, 29, DECK_Y);
     this.addEdge(head, pierEast);
-    // --- beach boardwalk and the north terrace houses ---
-    const bwW = this.addNode(19, 15.6), bwE = this.addNode(28.5, 15.2);
+    // --- beach boardwalk and the north terrace houses, each with steps up to its door ---
+    const bwW = this.addNode(21.25, 15.25), bwE = this.addNode(28, 15.25);
     this.addEdge(bwW, beach); this.addEdge(beach, bwE);
-    H("h", 0.519, [newVolume(19.5, 11, 23, 13.5, 2, "gable"), newVolume(23, 11.5, 24.5, 13.5, 1, "shed")], 1);
-    H("h", 0.638, [newVolume(26.5, 11.5, 29.5, 13.8, 1, "flat")], 5, { awning: true });
-    const stepW = this.addNode(21.2, 14.35, 1.7);
-    const bwMid = this.addNode(21.2, 15.5);
-    this.addEdge(bwW, bwMid); this.addEdge(bwMid, beach);
-    w.edges.forEach(e => { if ((e.a === bwW.id && e.b === beach.id)) w.edges.delete(e.id); });
-    this.addEdge(bwMid, stepW);
+    const hW = H("h", 0.519, [newVolume(19.5, 11, 23, 13.5, 2, "gable"), newVolume(23, 11.5, 24.5, 13.5, 1, "shed")], 1);
+    const hE = H("h", 0.638, [newVolume(26.5, 11.5, 29.5, 13.8, 1, "flat")], 5, { awning: true });
+    const stepW = this.addNode(21.25, 14.25, houseLayout(w, hW).base);
+    const stepE = this.addNode(28, 14.5, houseLayout(w, hE).base);
+    this.addEdge(bwW, stepW); this.addEdge(bwE, stepE);
     // --- west terraces: a cluster with a lookout on the cliff ---
     // a stepped house: one end lifted a storey, the rest a roof terrace with a door onto it
     { const lo = newVolume(8, 24.5, 9.5, 27.5, 1, "flat"), hi = newVolume(6.5, 24.5, 8, 27.5, 2, "gable"); hi.ridgeX = false;
