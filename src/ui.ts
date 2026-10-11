@@ -6,119 +6,162 @@ import { formatHour } from "./lighting";
 import { type PropType, type Prop, type CoveKind, COVES, propOpt, HULL_OPTS, GROTTO_OPTS, isLandmark } from "./world";
 import { fitLandmark } from "./landmarks";
 
+// Hand-inked chart glyphs: slightly uneven strokes, drawn to sit on paper.
 const ICON: Record<string, string> = {
-  select: '<path d="M5 3l14 8-6 1.5L10 19z"/>',
-  house: '<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-5h4v5"/>',
-  walk: '<path d="M2 14h20"/><path d="M4 14v6M10 14v6M16 14v6M20 14v6"/><path d="M2 11h20"/>',
-  terrain: '<path d="M2 20l6-10 4 6 3-4 7 8z"/>',
-  paint: '<path d="M4 20c3 0 4-2 4-4l9-9-3-3-9 9c-2 0-4 1-4 4"/><path d="M13 6l3 3"/>',
-  prop: '<path d="M12 3c-2 3-6 4-6 9a6 6 0 0 0 12 0c0-5-4-6-6-9z"/><path d="M12 21v-6"/>',
-  erase: '<path d="M4 16l8-8 6 6-5 5H8z"/><path d="M13 19h7"/>',
-  undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
-  redo: '<path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/>',
-  help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 1-1 1.7"/><path d="M12 17h.01"/>',
-  menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
-  play: '<path d="M7 5l12 7-12 7z"/>', pause: '<path d="M8 5v14M16 5v14"/>',
+  select: '<path d="M6 3.5l12.5 8.2-5.6 1.1-2.9 5.7z"/><path d="M12.9 12.8l4 5.4"/>',
+  house: '<path d="M3.5 11.6L12 4.8l8.6 6.9"/><path d="M5.6 10.2v9.6h12.9v-9.7"/><path d="M10.2 19.8v-4.6h3.7v4.6"/><path d="M15.8 7.9V4.6h2v4.9"/>',
+  walk: '<path d="M2.5 11.2h19"/><path d="M2.5 13.6h19"/><path d="M5 13.6v6.6M11.9 13.6v6.2M18.8 13.6v6.6"/><path d="M2.6 20.8c2 .9 3.6-.8 5.6 0s3.8.9 5.8 0 3.7-.8 7.4.2" stroke-width="1.2"/>',
+  terrain: '<path d="M2.5 19.5l6.4-11.3 3.6 5.4 2.6-3.4 6.6 9.3z"/><path d="M6.6 15.6c1.3-.6 2.7-.4 4 .5M14.4 15.2c1-.4 1.9-.4 2.8.2" stroke-width="1.2"/>',
+  paint: '<path d="M14.7 4.2l5 5-7.6 7.6-5-5z"/><path d="M7.1 11.8c-2.5.4-3.4 2.4-3.6 4.8-.1 1.6-.9 2.7-1.9 3.3 3.5.6 6.7-.2 7.9-2.8.5-1.1.6-2 .6-2.3"/>',
+  prop: '<path d="M12.4 21V10.8c-.2-2.2.4-4 1.2-5.5"/><path d="M13.4 6.4c-2.5-2.2-5.8-2.4-8.6-.8 3 .3 5.3 1.1 7 3"/><path d="M13.6 6.2c2.6-1.6 5.6-1.4 7.6.6-2.8-.2-5 .4-6.7 1.8"/><path d="M13.3 6.6c-.8 2.8-2.6 4.7-5 5.8M13.8 6.6c1.8 1.7 2.6 3.8 2.4 6.2"/>',
+  erase: '<path d="M5.2 5.4l13.4 13.2M18.8 5.2L5.4 18.8"/>',
+  undo: '<path d="M8.8 14.6L4.2 9.8l4.8-4.6"/><path d="M4.4 9.8h9.4c3.6 0 6 2.4 6 5.4s-2.4 5.3-6 5.3h-3.2"/>',
+  redo: '<path d="M15.2 14.6l4.6-4.8-4.8-4.6"/><path d="M19.6 9.8h-9.4c-3.6 0-6 2.4-6 5.4s2.4 5.3 6 5.3h3.2"/>',
+  help: '<path d="M9 8.6c.3-2 1.6-3.2 3.3-3.2 2 0 3.4 1.3 3.4 3 0 2.6-3.4 2.7-3.6 5.6"/><circle cx="12.1" cy="18.4" r=".6" fill="currentColor"/>',
+  menu: '<path d="M4.4 7.2c5-.4 10.1.3 15.2-.2M4.2 12.1c5.2.3 10.4-.3 15.6 0M4.5 17c5 .2 10-.3 15 .1"/>',
+  play: '<path d="M7.6 5.2l11 6.8-11 6.8z"/>', pause: '<path d="M8.6 5.4v13.2M15.4 5.6v13"/>',
 };
-const svg = (k: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICON[k]}</svg>`;
+const svg = (k: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${ICON[k]}</svg>`;
 
-const TOOLS: { id: ToolId; label: string; key: string }[] = [
-  { id: "select", label: "Select & edit", key: "1" },
-  { id: "house", label: "Houses", key: "2" },
-  { id: "walk", label: "Docks & walkways", key: "3" },
-  { id: "terrain", label: "Shape terrain", key: "4" },
-  { id: "paint", label: "Paint ground", key: "5" },
-  { id: "prop", label: "Props & boats", key: "6" },
-  { id: "erase", label: "Remove", key: "7" },
+const TOOLS: { id: ToolId; label: string; tab: string; key: string }[] = [
+  { id: "select", label: "Select & edit", tab: "Select", key: "1" },
+  { id: "house", label: "Houses", tab: "Houses", key: "2" },
+  { id: "walk", label: "Docks & walkways", tab: "Docks", key: "3" },
+  { id: "terrain", label: "Shape terrain", tab: "Land", key: "4" },
+  { id: "paint", label: "Paint ground", tab: "Paint", key: "5" },
+  { id: "prop", label: "Props & boats", tab: "Props", key: "6" },
+  { id: "erase", label: "Remove", tab: "Remove", key: "7" },
 ];
+
+/** A few words for the hour, shown under the clock. */
+function partOfDay(h: number) {
+  h = ((h % 24) + 24) % 24;
+  return h < 5 ? "small hours" : h < 7 ? "dawn" : h < 11 ? "morning" : h < 13 ? "noon" : h < 17 ? "afternoon" : h < 19.5 ? "dusk" : "night";
+}
+
+const GRAIN = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .35 0 0 0 0 .26 0 0 0 0 .16 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E")`;
 
 export function injectStyles() {
   const css = `
-  :root { --bg: rgba(33,27,23,.86); --bg2: rgba(52,43,36,.9); --line: rgba(239,228,204,.12); --ink: #efe4cc; --dim: #b9aa90; --acc: #e6a676; --teal: #6fcfbd; }
+  :root {
+    --paper: #ece0c4; --paper2: #e2d3b1; --paper3: #d6c39b; --ink: #2d2219; --dim: #6f5c45; --rule: rgba(45,34,25,.55); --hair: rgba(45,34,25,.22);
+    --acc: #b4532f; --acc-ink: #f6ead0; --sea: #2f5e6c;
+    --display: "IM Fell English", "Iowan Old Style", Georgia, serif; --sc: "IM Fell English SC", Georgia, serif;
+    --body: "Alegreya Sans", "Gill Sans", "Trebuchet MS", sans-serif; --small: "Alegreya Sans SC", "Gill Sans", sans-serif;
+  }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b2a36; font-family: Inter, system-ui, sans-serif; color: var(--ink); -webkit-user-select: none; user-select: none; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b2a36; font-family: var(--body); color: var(--ink); -webkit-user-select: none; user-select: none; }
   canvas { display: block; touch-action: none; }
-  #loading, #fallback { position: fixed; inset: 0; display: grid; place-items: center; font: 500 18px Fraunces, Georgia, serif; color: var(--ink); background: radial-gradient(#1c4552, #0b2a36); z-index: 50; text-align: center; }
-  #fallback p { max-width: 420px; color: var(--dim); font: 14px/1.5 Inter, sans-serif; }
+  #loading, #fallback { position: fixed; inset: 0; display: grid; place-items: center; font: italic 22px var(--display); color: var(--ink); background: ${GRAIN}, radial-gradient(#f1e7cf, #d9c69f); z-index: 50; text-align: center; }
+  #fallback p { max-width: 420px; color: var(--dim); font: 15px/1.5 var(--body); }
   .ui { position: fixed; z-index: 10; }
-  .card { background: var(--bg); border: 1px solid var(--line); border-radius: 14px; backdrop-filter: blur(10px); box-shadow: 0 10px 30px rgba(0,0,0,.25); }
-  #brand { top: 14px; left: 16px; padding: 8px 14px 9px; }
-  #brand h1 { margin: 0; font: 650 22px/1 Fraunces, Georgia, serif; letter-spacing: .01em; }
-  #brand span { display: block; margin-top: 3px; font-size: 11px; color: var(--dim); letter-spacing: .06em; text-transform: uppercase; }
-  #toolbar { left: 16px; top: 50%; transform: translateY(-50%); padding: 6px; display: flex; flex-direction: column; gap: 4px; }
-  .tb { position: relative; width: 44px; height: 44px; border: 0; border-radius: 10px; background: transparent; color: var(--ink); display: grid; place-items: center; cursor: pointer; }
+  /* a scrap of chart paper: grain, an inked neatline, a hard drop shadow */
+  .card { background: ${GRAIN}, linear-gradient(170deg, #f1e6cc, var(--paper) 55%, #e6d7b6); border: 1.5px solid var(--ink); border-radius: 3px; box-shadow: 0 0 0 3px var(--paper) inset, 0 0 0 3.8px var(--hair) inset, 4px 5px 0 rgba(20,14,8,.32); }
+  #brand { top: 14px; left: 16px; padding: 9px 16px 9px; }
+  #brand h1 { margin: 0; font: 400 28px/1 var(--display); letter-spacing: .01em; display: flex; align-items: center; gap: 8px; }
+  #brand h1 svg { width: 20px; height: 20px; color: var(--acc); }
+  #brand span { display: block; margin-top: 2px; font: 14px/1.1 var(--sc); color: var(--dim); letter-spacing: .03em; }
+  #toolbar { left: 16px; top: 50%; transform: translateY(-50%); padding: 7px 0; display: flex; flex-direction: column; gap: 1px; }
+  .tb { position: relative; width: 44px; height: 44px; border: 0; border-radius: 2px; background: transparent; color: var(--ink); display: grid; place-items: center; cursor: pointer; padding: 0; }
   .tb svg { width: 22px; height: 22px; }
-  .tb:hover { background: var(--bg2); }
-  .tb.on { background: var(--acc); color: #2a1f18; }
-  .tb .k { position: absolute; right: 4px; bottom: 2px; font-size: 9px; opacity: .6; }
-  .tb .tip { position: absolute; left: 54px; top: 50%; transform: translateY(-50%); white-space: nowrap; background: var(--bg); border: 1px solid var(--line); padding: 5px 9px; border-radius: 8px; font-size: 12px; opacity: 0; pointer-events: none; transition: opacity .12s; }
+  .tb:hover { background: rgba(45,34,25,.08); }
+  .tb:focus-visible, .chip:focus-visible, .btn:focus-visible, .dial:focus-visible { outline: 2px dashed var(--acc); outline-offset: 1px; }
+  #toolbar .tb { width: 62px; height: 52px; grid-template-rows: 26px 14px; align-content: center; gap: 1px; transition: transform .12s, background .12s; }
+  #toolbar .tb .n { font: 500 12px/1 var(--small); letter-spacing: .03em; color: var(--dim); }
+  #toolbar .tb .k { position: absolute; left: 6px; top: 4px; font: 10px var(--sc); color: var(--dim); opacity: .8; }
+  /* the active tool is a tab pulled out past the edge of the sheet */
+  #toolbar .tb.on { background: var(--acc); color: var(--acc-ink); transform: translateX(10px); box-shadow: 3px 3px 0 rgba(20,14,8,.32); border: 1.5px solid var(--ink); }
+  #toolbar .tb.on .n, #toolbar .tb.on .k { color: var(--acc-ink); }
+  .tb .tip { position: absolute; left: 76px; top: 50%; transform: translateY(-50%); white-space: nowrap; background: var(--paper); border: 1.5px solid var(--ink); padding: 3px 9px; border-radius: 2px; font: italic 14px var(--display); color: var(--ink); opacity: 0; pointer-events: none; transition: opacity .12s; box-shadow: 3px 3px 0 rgba(20,14,8,.3); }
   .tb:hover .tip { opacity: 1; }
-  #panel { right: 16px; top: 64px; width: 236px; max-height: calc(100vh - 170px); overflow: auto; padding: 10px 12px 12px; }
-  #panel .ph { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
-  #panel h2 { margin: 0; font: 600 15px Fraunces, Georgia, serif; }
-  #panel h2 small { font: 500 11px Inter, sans-serif; color: var(--dim); }
-  .leg { display: flex; gap: 7px; font-size: 10px; color: var(--dim); }
-  .leg i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 3px; vertical-align: 0; }
-  .pr { display: grid; grid-template-columns: 50px 1fr; align-items: center; gap: 6px; margin: 5px 0; }
-  .pl { font-size: 10.5px; color: var(--dim); text-transform: uppercase; letter-spacing: .05em; }
+  #panel { right: 16px; top: 68px; width: 248px; max-height: calc(100vh - 190px); overflow: auto; padding: 11px 14px 13px; }
+  #panel .ph { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; padding-bottom: 5px; border-bottom: 1px solid var(--rule); }
+  #panel h2 { margin: 0; font: 400 20px/1.1 var(--display); }
+  #panel h2 small { font: italic 13px var(--display); color: var(--dim); }
+  .leg { display: flex; gap: 7px; font: 12px var(--small); color: var(--dim); }
+  .leg i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 3px; border: 1px solid var(--ink); }
+  .pr { display: grid; grid-template-columns: 52px 1fr; align-items: center; gap: 6px; margin: 6px 0; }
+  .pl { font: 500 13px var(--small); color: var(--dim); letter-spacing: .02em; }
   .pc { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; }
-  .pc input[type=range] { width: 100%; accent-color: var(--acc); margin: 0; }
-  .chip { border: 1px solid var(--line); background: var(--bg2); color: var(--ink); border-radius: 7px; padding: 4px 7px; font: 500 11.5px Inter, sans-serif; cursor: pointer; line-height: 1.2; }
-  .chip:hover { border-color: rgba(239,228,204,.35); }
-  .chip.on { background: var(--acc); color: #2a1f18; border-color: var(--acc); }
-  .chip.ic { padding: 3px; width: 28px; height: 26px; display: grid; place-items: center; }
-  .chip.ic svg { width: 17px; height: 17px; }
-  .chip.sq { width: 24px; padding: 3px 0; }
-  .chip.warn { color: #f1a58a; }
-  .dot { display: block; width: 14px; height: 14px; border-radius: 50%; }
-  .val { min-width: 38px; text-align: center; font-size: 12px; }
-  .pa { display: flex; gap: 4px; justify-content: flex-end; margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--line); }
-  .sws { display: grid; grid-template-columns: repeat(8, 1fr); gap: 3px; margin: 2px 0 7px; }
-  .sws .sw { height: 20px; border-radius: 5px; }
-  .lbl { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; margin: 12px 0 6px; }
+  .chip { border: 1px solid var(--rule); background: rgba(255,250,235,.45); color: var(--ink); border-radius: 2px; padding: 3px 7px 4px; font: 500 13px var(--body); cursor: pointer; line-height: 1.15; }
+  .chip:hover { border-color: var(--ink); background: rgba(255,250,235,.8); }
+  .chip.on { background: var(--acc); color: var(--acc-ink); border-color: var(--ink); }
+  .chip.ic { padding: 3px; width: 29px; height: 27px; display: grid; place-items: center; }
+  .chip.ic svg { width: 18px; height: 18px; }
+  .chip.sq { width: 25px; padding: 2px 0; font-size: 15px; }
+  .chip.warn, .btn.warn { color: #9c2f1a; }
+  .chip.warn:hover, .btn.warn:hover { background: #9c2f1a; color: var(--acc-ink); border-color: var(--ink); }
+  .dot { display: block; width: 15px; height: 15px; border-radius: 50%; border: 1px solid var(--ink); }
+  .val { min-width: 40px; text-align: center; font: 15px var(--display); }
+  .pa { display: flex; gap: 4px; justify-content: flex-end; margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--rule); }
+  .sws { display: grid; grid-template-columns: repeat(8, 1fr); gap: 3px; margin: 2px 0 8px; }
+  .sws .sw { height: 20px; }
+  .lbl { font: 13px var(--small); color: var(--dim); margin: 12px 0 6px; }
   .seg { display: flex; flex-wrap: wrap; gap: 4px; }
-  .btn { border: 1px solid var(--line); background: var(--bg2); color: var(--ink); border-radius: 8px; padding: 6px 9px; font: 500 12px Inter, sans-serif; cursor: pointer; }
-  .btn:hover { border-color: rgba(239,228,204,.35); }
-  .btn.on { background: var(--acc); color: #2a1f18; border-color: var(--acc); }
-  .btn.warn { color: #f1a58a; }
+  .btn { border: 1px solid transparent; background: transparent; color: var(--ink); border-radius: 2px; padding: 5px 9px; font: 500 15px var(--body); cursor: pointer; }
+  .btn:hover { border-color: var(--rule); background: rgba(255,250,235,.6); }
+  .btn.on { background: var(--acc); color: var(--acc-ink); border-color: var(--ink); }
   .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
-  .sw { height: 26px; border-radius: 7px; border: 2px solid transparent; cursor: pointer; position: relative; overflow: hidden; }
-  .sw.on { border-color: var(--ink); }
+  .sw { height: 26px; border-radius: 1px; border: 1px solid var(--rule); cursor: pointer; position: relative; overflow: hidden; }
+  .sw.on { outline: 2px solid var(--ink); outline-offset: 1px; }
   .sw i { position: absolute; right: 0; top: 0; bottom: 0; width: 34%; }
-  .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 12px; }
-  .row input[type=range] { flex: 1; accent-color: var(--acc); }
+  .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 13px; }
   .row b { width: 34px; text-align: right; font-weight: 500; color: var(--dim); }
-  #top { top: 14px; right: 16px; padding: 5px; display: flex; gap: 2px; }
+  /* sliders: an inked rule with a terracotta bead */
+  input[type=range] { -webkit-appearance: none; appearance: none; background: transparent; height: 18px; margin: 0; cursor: pointer; }
+  .pc input[type=range], .row input[type=range] { width: 100%; flex: 1; }
+  input[type=range]::-webkit-slider-runnable-track { height: 2px; background: var(--ink); border-radius: 1px; }
+  input[type=range]::-moz-range-track { height: 2px; background: var(--ink); }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 13px; height: 13px; margin-top: -5.5px; border-radius: 50%; background: var(--acc); border: 1.5px solid var(--ink); }
+  input[type=range]::-moz-range-thumb { width: 11px; height: 11px; border-radius: 50%; background: var(--acc); border: 1.5px solid var(--ink); }
+  #top { top: 14px; right: 16px; padding: 4px 6px; display: flex; gap: 0; }
   #top .tb { width: 38px; height: 38px; }
-  #time { right: 16px; bottom: 16px; padding: 8px 12px; display: flex; align-items: center; gap: 10px; }
-  #time .tb { width: 34px; height: 34px; }
-  #time input { width: 150px; accent-color: var(--acc); }
-  #time .t { font: 500 13px Inter, sans-serif; width: 64px; }
-  #hint { left: 50%; bottom: 18px; transform: translateX(-50%); padding: 6px 12px; font-size: 12px; color: var(--dim); max-width: min(620px, 60vw); text-align: center; }
-  #hint b { color: var(--ink); font-weight: 600; }
-  #toast { left: 50%; top: 18px; transform: translate(-50%, -10px); padding: 9px 16px; font-size: 13px; opacity: 0; transition: all .2s; pointer-events: none; }
-  #toast.on { opacity: 1; transform: translate(-50%, 0); }
+  /* clock: an almanac dial, day above the horizon and night below */
+  #time { right: 16px; bottom: 16px; padding: 8px 14px 8px 8px; display: flex; align-items: center; gap: 8px; }
+  #time .tb { width: 32px; height: 32px; }
+  #time .tb svg { width: 18px; height: 18px; }
+  .dial { width: 74px; height: 74px; cursor: grab; touch-action: none; border-radius: 50%; }
+  .dial:active { cursor: grabbing; }
+  .dial svg { width: 100%; height: 100%; display: block; overflow: visible; }
+  #time .t { display: flex; flex-direction: column; min-width: 86px; }
+  #time .t b { font: 400 22px/1 var(--display); }
+  #time .t i { font: italic 14px/1.2 var(--display); color: var(--dim); }
+  /* hint: a map cartouche */
+  #hint { left: 50%; bottom: 18px; transform: translateX(-50%); padding: 6px 18px 7px; font: italic 15px var(--display); color: var(--ink); max-width: min(640px, 60vw); text-align: center; border-radius: 14px / 50%; box-shadow: 0 0 0 3px var(--paper) inset, 0 0 0 3.8px var(--hair) inset, 3px 4px 0 rgba(20,14,8,.3); }
+  #hint kbd { font-style: normal; }
+  #hint b { font-weight: 400; }
+  /* toast: a harbourmaster's stamp, pressed onto the view */
+  #toast { left: 50%; top: 22px; transform: translate(-50%, 0) rotate(-2deg); padding: 6px 16px 7px; font: 17px var(--sc); letter-spacing: .03em; color: var(--acc); background: rgba(240,229,203,.94); border: 2px solid var(--acc); border-radius: 3px; box-shadow: 0 0 0 3px rgba(240,229,203,.94), 0 0 0 4.5px var(--acc), 4px 6px 0 4px rgba(20,14,8,.22); opacity: 0; pointer-events: none; transition: opacity .35s; }
+  #toast.on { opacity: 1; animation: stamp .26s cubic-bezier(.2,.9,.3,1.3); }
+  @keyframes stamp { 0% { opacity: 0; transform: translate(-50%, 0) rotate(-6deg) scale(1.5); } 70% { opacity: 1; transform: translate(-50%, 0) rotate(-1.5deg) scale(.97); } 100% { transform: translate(-50%, 0) rotate(-2deg) scale(1); } }
   body.noui .ui:not(#toast) { display: none !important; }
-  #help { inset: 0; display: none; place-items: center; background: rgba(10,20,26,.55); z-index: 30; }
+  #help { inset: 0; display: none; place-items: center; background: rgba(12,26,32,.5); z-index: 30; }
   #help.on { display: grid; }
-  #help .card { width: min(640px, 92vw); padding: 20px 22px; max-height: 86vh; overflow: auto; }
-  #help h2 { margin: 0 0 12px; font: 650 22px Fraunces, Georgia, serif; }
-  #help table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  #help td { padding: 5px 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  #help td:first-child { width: 42%; color: var(--dim); }
-  kbd { font: 600 11px Inter, sans-serif; background: var(--bg2); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; color: var(--ink); }
-  #menu { top: 62px; right: 16px; padding: 8px; display: none; flex-direction: column; gap: 4px; min-width: 190px; z-index: 20; }
+  #help .card { width: min(660px, 92vw); padding: 22px 26px; max-height: 86vh; overflow: auto; transform: rotate(-.4deg); }
+  #help h2 { margin: 0 0 10px; font: 400 30px var(--display); }
+  #help table { width: 100%; border-collapse: collapse; font-size: 14.5px; line-height: 1.4; }
+  #help td { padding: 6px 4px; border-bottom: 1px dotted var(--rule); vertical-align: top; }
+  #help td:first-child { width: 36%; font: italic 15.5px var(--display); color: var(--ink); }
+  #help p { color: var(--dim); font: italic 15px var(--display); margin: 14px 0 0; }
+  kbd { font: 700 12px/1 var(--body); background: rgba(255,250,235,.7); border: 1px solid var(--ink); border-bottom-width: 2px; border-radius: 2px; padding: 1px 5px 2px; color: var(--ink); }
+  #menu { top: 66px; right: 16px; padding: 8px 8px 9px; display: none; flex-direction: column; gap: 0; min-width: 210px; z-index: 20; }
   #menu.on { display: flex; }
   #menu .btn { text-align: left; }
-  #menu .mh { font-size: 11px; opacity: .6; text-transform: uppercase; letter-spacing: .06em; padding: 6px 4px 2px; }
-  #menu .sep { height: 1px; background: currentColor; opacity: .12; margin: 4px 0; }
+  #menu .mh { font: 400 18px var(--display); padding: 2px 8px 4px; border-bottom: 1px solid var(--rule); margin-bottom: 3px; }
+  #menu .sep { height: 0; border-top: 1px dashed var(--rule); margin: 5px 4px; }
   @media (max-width: 760px) {
-    #toolbar { top: auto; bottom: 12px; left: 50%; transform: translateX(-50%); flex-direction: row; }
+    #toolbar { top: auto; bottom: 12px; left: 50%; transform: translateX(-50%); flex-direction: row; padding: 0 6px; }
+    #toolbar .tb { width: 46px; }
+    #toolbar .tb.on { transform: translateY(-8px); }
+    #toolbar .tb .k { display: none; }
     .tb .tip { display: none; }
-    #panel { top: auto; bottom: 76px; right: 8px; left: 8px; width: auto; max-height: 38vh; }
+    #panel { top: auto; bottom: 84px; right: 8px; left: 8px; width: auto; max-height: 38vh; }
     #hint { display: none; }
-    #time { bottom: auto; top: 14px; right: 110px; padding: 4px 8px; }
-    #time input { width: 70px; }
+    #time { bottom: auto; top: 12px; right: 104px; padding: 3px 8px 3px 4px; }
+    .dial { width: 44px; height: 44px; }
+    #time .t i { display: none; }
+    #time .t { min-width: 0; }
+    #time .t b { font-size: 16px; }
     #brand span { display: none; }
   }`;
   const s = document.createElement("style"); s.textContent = css; document.head.appendChild(s);
@@ -130,8 +173,10 @@ export class UI {
   private toastEl!: HTMLDivElement;
   private toastT = 0;
   private toolBtns = new Map<ToolId, HTMLButtonElement>();
-  private timeLbl!: HTMLSpanElement;
-  private timeIn!: HTMLInputElement;
+  private timeLbl!: HTMLElement;
+  private timePart!: HTMLElement;
+  private dial!: HTMLDivElement;
+  private hand!: SVGGElement;
   private playBtn!: HTMLButtonElement;
   help!: HTMLDivElement;
   private menu!: HTMLDivElement;
@@ -139,11 +184,11 @@ export class UI {
   constructor(private app: App, private tools: Tools, private cam: { orbit: (d: number) => void; zoom: (d: number) => void; reset: () => void }) {
     injectStyles();
     const el = (html: string) => { const d = document.createElement("div"); d.innerHTML = html.trim(); const n = d.firstElementChild as HTMLDivElement; document.body.appendChild(n); return n; };
-    el(`<div id="brand" class="ui card"><h1>Grotto</h1><span>a cove village builder</span></div>`);
+    el(`<div id="brand" class="ui card"><h1><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M12 1.5l2.4 8.1 8.1 2.4-8.1 2.4-2.4 8.1-2.4-8.1-8.1-2.4 8.1-2.4z"/><path d="M12 1.5v21M1.5 12h21" stroke-width=".7"/></svg>Grotto</h1><span>a cove village builder</span></div>`);
     const tb = el(`<div id="toolbar" class="ui card"></div>`);
     for (const t of TOOLS) {
       const b = document.createElement("button");
-      b.className = "tb"; b.innerHTML = `${svg(t.id)}<span class="k">${t.key}</span><span class="tip">${t.label} <kbd>${t.key}</kbd></span>`;
+      b.className = "tb"; b.setAttribute("aria-label", t.label); b.innerHTML = `${svg(t.id)}<span class="n">${t.tab}</span><span class="k">${t.key}</span><span class="tip">${t.label} <kbd>${t.key}</kbd></span>`;
       b.onclick = () => tools.setTool(t.id);
       tb.appendChild(b); this.toolBtns.set(t.id, b);
     }
@@ -175,10 +220,33 @@ export class UI {
     this.panel = el(`<div id="panel" class="ui card"></div>`);
     this.hint = el(`<div id="hint" class="ui card"></div>`);
     this.toastEl = el(`<div id="toast" class="ui card"></div>`);
-    const time = el(`<div id="time" class="ui card"><button class="tb" title="Play the day (N)"></button><input type="range" min="0" max="24" step="0.05"><span class="t"></span></div>`);
-    this.playBtn = time.querySelector("button")!; this.timeIn = time.querySelector("input")!; this.timeLbl = time.querySelector(".t")!;
+    // ticks every hour, long ones at the quarters of the day
+    const ticks = Array.from({ length: 24 }, (_, i) => { const a = i * Math.PI / 12, r0 = i % 6 ? 36.5 : 33, c = Math.sin(a), d = -Math.cos(a); return `M${(c * r0).toFixed(1)} ${(d * r0).toFixed(1)}L${(c * 40).toFixed(1)} ${(d * 40).toFixed(1)}`; }).join("");
+    const time = el(`<div id="time" class="ui card"><button class="tb" title="Play the day (N)"></button>
+      <div class="dial" role="slider" tabindex="0" aria-label="Time of day" aria-valuemin="0" aria-valuemax="24"><svg viewBox="-50 -50 100 100">
+        <path d="M-44 0A44 44 0 0 0 44 0z" fill="rgba(47,94,108,.22)"/>
+        <circle r="44" fill="none" stroke="var(--ink)" stroke-width="1.5"/><circle r="40" fill="none" stroke="var(--ink)" stroke-width=".6"/>
+        <path d="${ticks}" stroke="var(--ink)" stroke-width="1" stroke-linecap="round"/>
+        <path d="M-47 0H47" stroke="var(--ink)" stroke-width="1" stroke-dasharray="2 2"/>
+        <g class="hand"><path d="M0 0V-21" stroke="var(--ink)" stroke-width="1.4"/><circle r="2.2" fill="var(--ink)"/>
+          <g class="sun"><circle cy="-28" r="6" fill="var(--acc)" stroke="var(--ink)" stroke-width="1.2"/></g>
+          <g class="moon"><path d="M3 -33a6 6 0 1 0 0 10a4.6 4.6 0 1 1 0-10z" fill="var(--paper)" stroke="var(--ink)" stroke-width="1.2"/></g></g>
+      </svg></div><span class="t"><b></b><i></i></span></div>`);
+    this.playBtn = time.querySelector("button")!; this.dial = time.querySelector(".dial")!; this.hand = time.querySelector(".hand")!;
+    this.timeLbl = time.querySelector(".t b")!; this.timePart = time.querySelector(".t i")!;
     this.playBtn.onclick = () => { app.playing = !app.playing; this.refreshTime(); };
-    this.timeIn.oninput = () => { app.hour = +this.timeIn.value; this.refreshTime(); };
+    const setFromPointer = (e: PointerEvent) => {
+      const r = this.dial.getBoundingClientRect();
+      const a = Math.atan2(e.clientX - (r.left + r.width / 2), -(e.clientY - (r.top + r.height / 2)));
+      app.hour = Math.round(((a * 12 / Math.PI + 36) % 24) * 20) / 20; this.refreshTime();
+    };
+    this.dial.onpointerdown = e => { this.dial.setPointerCapture(e.pointerId); setFromPointer(e); };
+    this.dial.onpointermove = e => { if (this.dial.hasPointerCapture(e.pointerId)) setFromPointer(e); };
+    this.dial.onwheel = e => { e.preventDefault(); app.hour = (app.hour + Math.sign(e.deltaY) * 0.25 + 24) % 24; this.refreshTime(); };
+    this.dial.onkeydown = e => {
+      const d = e.key === "ArrowRight" || e.key === "ArrowUp" ? 0.25 : e.key === "ArrowLeft" || e.key === "ArrowDown" ? -0.25 : 0;
+      if (d) { e.preventDefault(); e.stopPropagation(); app.hour = (app.hour + d + 24) % 24; this.refreshTime(); }
+    };
     this.help = el(`<div id="help" class="ui"><div class="card"><h2>Building the cove</h2><table>
       <tr><td>Orbit · zoom · pan</td><td>Right-drag · scroll · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrows</td></tr>
       <tr><td>Low, upward shots</td><td>Right-drag down to tip the view up · scroll toward a subject · <kbd>U</kbd> hides the interface</td></tr>
@@ -194,7 +262,7 @@ export class UI {
       <tr><td>Delete · cancel</td><td><kbd>Del</kbd> / <kbd>Backspace</kbd> · <kbd>Esc</kbd></td></tr>
       <tr><td>Undo · redo</td><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> · <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></td></tr>
       <tr><td>Time of day</td><td><kbd>N</kbd> play/pause · <kbd>,</kbd> <kbd>.</kbd> an hour back/forward</td></tr>
-      </table><p style="color:var(--dim);font-size:12px;margin:14px 0 0">Your cove saves itself in this browser. Press <kbd>?</kbd> or <kbd>Esc</kbd> to close.</p></div></div>`);
+      </table><p>Your cove saves itself in this browser. Press <kbd>?</kbd> or <kbd>Esc</kbd> to close.</p></div></div>`);
     this.help.onclick = e => { if (e.target === this.help) this.toggleHelp(); };
 
     tools.onChange = () => this.refresh();
@@ -207,7 +275,7 @@ export class UI {
   }
 
   toast(msg: string) {
-    this.toastEl.textContent = msg; this.toastEl.classList.add("on");
+    this.toastEl.textContent = msg; this.toastEl.classList.remove("on"); void this.toastEl.offsetWidth; this.toastEl.classList.add("on");
     clearTimeout(this.toastT); this.toastT = window.setTimeout(() => this.toastEl.classList.remove("on"), 2600);
   }
   toggleHelp() { this.help.classList.toggle("on"); }
@@ -216,8 +284,13 @@ export class UI {
   private refreshTimer = 0;
   private refreshSoon() { clearTimeout(this.refreshTimer); this.refreshTimer = window.setTimeout(() => this.refreshPanelValues(), 120); }
   refreshTime() {
-    this.timeIn.value = String(this.app.hour);
-    this.timeLbl.textContent = formatHour(this.app.hour);
+    const h = this.app.hour;
+    this.hand.setAttribute("transform", `rotate(${(h * 15 + 180).toFixed(2)})`);
+    const day = h > 6 && h < 18.5;
+    (this.hand.querySelector(".sun") as SVGGElement).style.display = day ? "" : "none";
+    (this.hand.querySelector(".moon") as SVGGElement).style.display = day ? "none" : "";
+    this.dial.setAttribute("aria-valuenow", h.toFixed(2)); this.dial.setAttribute("aria-valuetext", formatHour(h));
+    this.timeLbl.textContent = formatHour(h); this.timePart.textContent = partOfDay(h);
     this.playBtn.innerHTML = svg(this.app.playing ? "pause" : "play");
   }
 
