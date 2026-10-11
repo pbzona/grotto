@@ -11,7 +11,7 @@
   const hull = [...w.props.values()].at(-1);
   ok('hull placed on the beach', w.props.size === n + 1 && hull.type === 'hull', hull && `${hull.x},${hull.z}`);
   // grotto into a cliff wall: aim at the western cliff face over water
-  t.propType = 'grotto'; n = w.props.size;
+  t.propType = 'grotto'; t.propSeed = 0.3; t.ghostOpts = { size: 1 }; n = w.props.size;   // pinned: a random size may not fit this cliff
   const f = t.fitAt('grotto', 9.5, 38);
   click(scr(9.5, 0.2, 38)); a.update(0);
   const gr = [...w.props.values()].at(-1);
