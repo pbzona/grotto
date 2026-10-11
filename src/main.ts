@@ -12,6 +12,8 @@ import { Villagers, CROWDS } from "./villagers";
 import { villagerHomes } from "./houses";
 import { Tools } from "./tools";
 import { UI, injectStyles } from "./ui";
+import { Ambience } from "./sound";
+import { ambienceMix } from "./ambience";
 
 async function boot() {
   injectStyles();
@@ -161,8 +163,19 @@ async function boot() {
     const floor = Math.max(g, WATER_Y) + 0.35;
     if (p.y < floor) { const dy = floor - p.y; p.y = floor; _cp.copy(p); void _cp; if (controls.target.y < floor - 0.5) controls.target.y += dy * 0.5; }
   }
+  // ambient sound follows what's around the camera target (mix recomputed a few times a second)
+  const sound = new Ambience();
+  let heard = ambienceMix(world, { x: controls.target.x, z: controls.target.z, dist: 30, night: 0 }), sinceMix = 0;
+  function updateSound(dt: number) {
+    sinceMix += dt;
+    if (sinceMix > 0.4 && sound.enabled) {
+      sinceMix = 0;
+      heard = ambienceMix(world, { x: controls.target.x, z: controls.target.z, dist: camera.position.distanceTo(controls.target), night: U.night.value, people: villagers.people, sailing: app.boats.filter(b => b.moving).length });
+    }
+    sound.update(dt, heard);
+  }
   const tools = new Tools(app, renderer.domElement);
-  const ui = new UI(app, tools, cam);
+  const ui = new UI(app, tools, cam, sound);
   app.onSaveError = message => ui.toast(message);
   if (app.saveError) ui.toast(app.saveError);
   const flushSave = () => { tools.cancelDrag(); tools.endChain(); app.commit(); app.save(); };
@@ -178,7 +191,7 @@ async function boot() {
     camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
-  (window as any).__grotto = { app, world, camera, controls, renderer, scene, applySky, tools, ui, villagers, updateVillagers };
+  (window as any).__grotto = { app, world, camera, controls, renderer, scene, applySky, tools, ui, villagers, updateVillagers, sound, ambienceMix };
   const fpsCap = () => (document.hidden ? 0 : !document.hasFocus() || performance.now() - lastInput > 6000 ? Math.min(30, app.settings.fps) : app.settings.fps);
   function frame() {
     const now = performance.now();
@@ -193,6 +206,7 @@ async function boot() {
     applySky(app.hour);
     gulls.update(app.time, U.night.value);
     updateVillagers(step);
+    updateSound(step);
     controls.update();
     keepAboveGround();
     pipeline.render();

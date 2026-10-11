@@ -55,6 +55,12 @@
   ok('quiet townsfolk thins the walkways', g.villagers.density < 0.2 && count() <= lively && btn('Townsfolk').textContent === 'Townsfolk: Quiet' && localStorage.getItem('grotto.crowd') === '0');
   while (a.settings.crowd !== crowd) btn('Townsfolk').click();
   g.updateVillagers(1);
+  const was = g.sound.enabled;
+  btn('Sound').click();
+  ok('sound toggle flips and remembers', g.sound.enabled === !was && localStorage.getItem('grotto.sound') === (was ? 'off' : 'on') && btn('Sound').textContent === `Sound: ${was ? 'off' : 'on'}`);
+  btn('Sound').click();
+  const m = g.ambienceMix(w, { x: 24, z: 26, dist: 12, night: 0, people: g.villagers.people });
+  ok('the starter village has surf, gulls and creaking decks', m.surf > 0.2 && m.gulls > 0.1 && m.creaks > 0.1);
   btn('Cove').click(); a.update(0);
   ok('cove restores the starter village', a.cove.kind === 'classic' && a.cove.seed === 0 && w.houses.size > 5 && JSON.stringify(w.save()).length > 1000);
   while (a.undo()) {}

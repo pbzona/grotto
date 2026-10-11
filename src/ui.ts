@@ -1,3 +1,4 @@
+import type { Ambience } from "./sound";
 import type { App } from "./app";
 import { Tools, ToolId, HOUSE_PRESETS } from "./tools";
 import { PALETTES } from "./houses";
@@ -186,7 +187,7 @@ export class UI {
   help!: HTMLDivElement;
   private menu!: HTMLDivElement;
 
-  constructor(private app: App, private tools: Tools, private cam: { orbit: (d: number) => void; zoom: (d: number) => void; reset: () => void }) {
+  constructor(private app: App, private tools: Tools, private cam: { orbit: (d: number) => void; zoom: (d: number) => void; reset: () => void }, private sound?: Ambience) {
     injectStyles();
     const el = (html: string) => { const d = document.createElement("div"); d.innerHTML = html.trim(); const n = d.firstElementChild as HTMLDivElement; document.body.appendChild(n); return n; };
     el(`<div id="brand" class="ui card"><h1><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M12 1.5l2.4 8.1 8.1 2.4-8.1 2.4-2.4 8.1-2.4-8.1-8.1-2.4 8.1-2.4z"/><path d="M12 1.5v21M1.5 12h21" stroke-width=".7"/></svg>Grotto</h1><span>a cove village builder</span></div>`);
@@ -232,6 +233,14 @@ export class UI {
     });
     const crowdBtn = this.menu.lastElementChild as HTMLElement;
     crowdBtn.setAttribute("title", "How many villagers the walkways hold, by their length");
+    const soundLabel = () => `Sound: ${this.sound?.enabled ? "on" : "off"}`;
+    mbtn(soundLabel(), () => {
+      if (!this.sound) return;
+      this.sound.enabled = !this.sound.enabled;
+      soundBtn.textContent = soundLabel(); this.toast(this.sound.enabled ? "Listening to the cove" : "Sound off");
+    });
+    const soundBtn = this.menu.lastElementChild as HTMLElement;
+    soundBtn.setAttribute("title", "Surf, wind, gulls and whatever else lives near where you're looking");
     mbtn("Toggle 30 / 60 fps cap", () => { app.settings.fps = app.settings.fps === 60 ? 30 : 60; this.toast(`Frame cap: ${app.settings.fps} fps`); });
 
     this.panel = el(`<div id="panel" class="ui card"></div>`);
