@@ -204,11 +204,11 @@ export class UI {
     const fresh = (kind: CoveKind, seed: number) => {
       app.begin(); app.newCove(kind, seed); app.markAll(); tools.select(null);
       const name = COVES.find(c => c.kind === kind)!.name;
-      this.toast(kind === "classic" && seed === 0 ? "Starter village restored" : `${name} · seed ${seed}`);
+      this.toast(`${name} · seed ${seed}`);
     };
     const newSeed = () => 1 + Math.floor(Math.random() * 99999);
     mhead("New cove");
-    for (const c of COVES) { mbtn(c.name, () => fresh(c.kind, c.kind === "classic" ? 0 : newSeed())); this.menu.lastElementChild!.setAttribute("title", c.kind === "classic" ? `${c.blurb}, with the starter village` : c.blurb); }
+    for (const c of COVES) { mbtn(c.name, () => fresh(c.kind, c.kind === "classic" ? 0 : newSeed())); this.menu.lastElementChild!.setAttribute("title", c.kind === "classic" ? `${c.blurb}, with the starter village` : `${c.blurb}, with a small village`); }
     mbtn("Reroll this land", () => fresh(app.cove.kind, newSeed()));
     this.menu.lastElementChild!.setAttribute("title", "Same preset, new seed. Replaces everything you've built (undo brings it back).");
     this.menu.appendChild(Object.assign(document.createElement("div"), { className: "sep" }));

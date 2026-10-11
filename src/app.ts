@@ -6,6 +6,7 @@ import type { Materials } from "./materials";
 import { LightMap } from "./lighting";
 import { MeshBuilder, Part, mergeParts, rng } from "./mesh";
 import { buildHouse, makeHouse, houseLayout, HouseBuild, Light } from "./houses";
+import { seedCove } from "./seed";
 import { fitLandmark } from "./landmarks";
 import { buildWalks, defaultDeckY, WALK_W } from "./walks";
 import { buildProps, buildBoat, updateBoat, Boat, stringLights, PROP_INFO, buildScatter } from "./props";
@@ -284,8 +285,8 @@ export class App {
   cove: { kind: CoveKind; seed: number } = { kind: "classic", seed: 0 };
 
   /**
-   * Fresh land from a preset. The classic cove at seed 0 gets the hand-built village;
-   * everything else starts with a few seed props so it doesn't open empty.
+   * Fresh land from a preset. The cove at seed 0 gets the hand-built village;
+   * everything else is seeded with a small generated one.
    */
   newCove(kind: CoveKind, seed: number) {
     if (kind === "classic" && seed === 0) { this.starter(); return; }
@@ -293,44 +294,8 @@ export class App {
     w.clear();
     carveCove(w, kind, seed);
     this.cove = { kind, seed };
-    this.seedProps(seed);
+    seedCove(this, seed);
     w.version++;
-  }
-
-  /** A handful of palms, scrub, rocks, a rowboat and (where it fits) a lighthouse. */
-  private seedProps(seed: number) {
-    const w = this.world, r = rng(seed * 7.31 + 0.13);
-    const cells: [number, number, number][] = [];
-    for (let j = 1; j < N - 1; j++) for (let i = 1; i < N - 1; i++) cells.push([i, j, w.level(i, j)]);
-    for (let k = cells.length - 1; k > 0; k--) { const m = Math.floor(r() * (k + 1)); [cells[k], cells[m]] = [cells[m], cells[k]]; }
-    const placed: [number, number][] = [];
-    const free = (x: number, z: number, d: number) => placed.every(([px, pz]) => Math.hypot(px - x, pz - z) > d);
-    const flat = (i: number, j: number) => { const l = w.level(i, j); return [[1, 0], [-1, 0], [0, 1], [0, -1]].every(([a, b]) => Math.abs(w.level(i + a, j + b) - l) <= 1); };
-    const nearWater = (i: number, j: number, R: number) => { for (let b = -R; b <= R; b++) for (let a = -R; a <= R; a++) if (w.level(i + a, j + b) <= 5) return true; return false; };
-    const take = (type: PropType, count: number, ok: (i: number, j: number, l: number) => boolean, spacing: number) => {
-      let n = 0;
-      for (const [i, j, l] of cells) {
-        if (n >= count) break;
-        const x = i + 0.2 + r() * 0.6, z = j + 0.2 + r() * 0.6;
-        if (!ok(i, j, l) || !free(x, z, spacing)) continue;
-        this.addProp(type, x, z, r() * Math.PI * 2, r()); placed.push([x, z]); n++;
-      }
-    };
-    // a lighthouse on the highest flat ground that still looks over the water
-    const sites = cells.filter(([i, j, l]) => l >= 9 && flat(i, j) && nearWater(i, j, 4) && i > 2 && j > 2 && i < N - 3 && j < N - 3).sort((a, b) => b[2] - a[2]);
-    for (const [i, j] of sites.slice(0, 12)) {
-      const s = 0.2 + r() * 0.6, f = fitLandmark(w, "lighthouse", i + 0.5, j + 0.5, s, {}, false);
-      if (f.ok) { this.addProp("lighthouse", f.x, f.z, f.rot, s); placed.push([f.x, f.z]); break; }
-    }
-    take("palm", 6, (i, j, l) => l >= 6 && l <= 8 && flat(i, j), 2.2);
-    take("scrub", 5, (i, j, l) => l >= 8 && flat(i, j), 2.5);
-    take("rock", 3, (i, j, l) => l === 6 && nearWater(i, j, 1), 3);
-    take("bougainvillea", 2, (i, j, l) => l >= 7 && l <= 11 && flat(i, j), 4);
-    take("rowboat", 1, (i, j, l) => l === 4 && nearWater(i, j, 0) && [[2, 0], [-2, 0], [0, 2], [0, -2]].some(([a, b]) => w.level(i + a, j + b) === 6) && w.height(i + 0.5, j + 0.5) < WATER_Y - 0.2, 0);
-    for (const lm of [...w.props.values()].filter(p => isLandmark(p.type))) {
-      const pts = landmarkSamples(lm);
-      for (const o of [...w.props.values()]) if (!isLandmark(o.type) && pts.some(([x, z]) => Math.hypot(x - o.x, z - o.z) < 0.7)) w.props.delete(o.id);
-    }
   }
 
   /** A lived-in starter village for the cove. */

@@ -316,7 +316,7 @@ function decodeWorldData(s: RecordData) {
 // ---------- cove presets ----------
 export type CoveKind = "classic" | "fjord" | "islets" | "estuary";
 export const COVES: { kind: CoveKind; name: string; blurb: string }[] = [
-  { kind: "classic", name: "Classic cove", blurb: "Sandstone cliffs wrap a lagoon open to the south" },
+  { kind: "classic", name: "Cove", blurb: "Sandstone cliffs wrap a lagoon open to the south" },
   { kind: "fjord", name: "Fjord", blurb: "A narrow inlet between sheer walls, a beach at its head" },
   { kind: "islets", name: "Islets", blurb: "A scatter of small islands in open water" },
   { kind: "estuary", name: "Estuary", blurb: "A slow river winds through low banks to the sea" },
