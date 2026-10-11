@@ -72,18 +72,41 @@ export function propOpt<T extends string | number>(p: Pick<Prop, "seed" | "opts"
 export const HULL_OPTS = { size: [0, 1, 2], cabin: ["low", "tall", "stern"], roof: ["gable", "hip", "awning"], masts: [0, 1, 2], annex: ["none", "deck", "shack"] } as const;
 export const GROTTO_OPTS = { size: [0, 1, 2], arch: ["round", "tall", "wide"], dock: ["left", "right", "both"] } as const;
 export function hullDims(p: Pick<Prop, "seed" | "opts">) { const s = propOpt(p, "size", HULL_OPTS.size); return { len: [6.6, 8, 9.4][s], wid: [2.7, 3.2, 3.6][s], dep: [1.4, 1.7, 1.9][s] }; }
-export function grottoDims(p: Pick<Prop, "seed" | "opts">) { const s = propOpt(p, "size", GROTTO_OPTS.size); return { R: [2.2, 2.7, 3.2][s], D: [3.8, 4.6, 5.4][s], T: 1.1 }; }
+/** The vault's feet sit this far below the waterline. */
+export const GROTTO_SINK = 0.8;
+/** Height of the hidden dock over the water (same as a walkway deck). */
+export const GROTTO_DECK = DECK_Y - WATER_Y;
+export interface GrottoDims {
+  size: number; /** half width at the waterline */ W: number; /** crown height over the water */ H: number;
+  D: number; T: number; /** superellipse semi-axes and exponent of the inner vault */ a: number; b: number; n: number;
+  /** half width of the open channel between docks */ chan: number;
+}
+/**
+ * Vaults are sized for use: S and M float a rowboat and let a person stand on the dock,
+ * L is a sea cave a masted sloop can lie in. The arch only changes the profile, never the headroom.
+ */
+export function grottoDims(p: Pick<Prop, "seed" | "opts">): GrottoDims {
+  const size = propOpt(p, "size", GROTTO_OPTS.size), arch = propOpt(p, "arch", GROTTO_OPTS.arch);
+  const [kw, kh, n] = arch === "wide" ? [1.2, 0.88, 4] : arch === "tall" ? [0.88, 1.2, 2.4] : [1, 1, 3];
+  const W = [2.0, 2.5, 3.1][size] * kw, H = Math.max([2.6, 3.3, 5.2][size] * kh, size === 2 ? 5.0 : 0);
+  const b = H + GROTTO_SINK, sw = Math.pow(GROTTO_SINK / b, n / 2), a = W / Math.pow(Math.sqrt(1 - sw * sw), 2 / n);
+  return { size, W, H, D: [4.4, 5.2, 6.6][size], T: 1.1, a, b, n, chan: size === 2 ? 1.1 : 0.75 };
+}
+/** Inner vault ceiling over the water at lateral offset x (negative where the wall is). */
+export function grottoCeiling(g: GrottoDims, x: number) { const t = Math.abs(x) / g.a; return t >= 1 ? -GROTTO_SINK : g.b * Math.pow(1 - Math.pow(t, g.n), 1 / g.n) - GROTTO_SINK; }
+/** Lateral offset of the inner wall at height y over the water. */
+export function grottoWall(g: GrottoDims, y: number) { const t = (y + GROTTO_SINK) / g.b; return t >= 1 ? 0 : g.a * Math.pow(1 - Math.pow(Math.max(0, t), g.n), 1 / g.n); }
 /** Flooded channel and lowered lip; these caps never overwrite editable base terrain. */
 export function grottoCells(p: Prop): { i: number; j: number; cap: number; under: boolean }[] {
-  const { R, D, T } = grottoDims(p);
+  const { a: R, H, D, T } = grottoDims(p);
   const c = Math.cos(p.rot), s = Math.sin(p.rot), out: { i: number; j: number; cap: number; under: boolean }[] = [];
-  const lip = Math.round((R * 0.95 - 0.8 + T + 0.2 - levelY(0)) / STEP);
+  const lip = Math.round((H + T + WATER_Y - levelY(0)) / STEP);
   for (let j = Math.floor(p.z - D - 5); j <= Math.ceil(p.z + D + 5); j++) for (let i = Math.floor(p.x - D - 5); i <= Math.ceil(p.x + D + 5); i++) {
     if (i < 0 || j < 0 || i >= N || j >= N) continue;
     const dx = i + 0.5 - p.x, dz = j + 0.5 - p.z;
     const lx = dx * c + dz * s, lz = -dx * s + dz * c, ax = Math.abs(lx);
     if (lz > 5 || lz < -D - 0.6) continue;
-    if (ax < R * 1.2 + Math.min(Math.max(0, lz), 2.5) * 0.4) out.push({ i, j, cap: 3, under: lz < -0.3 });
+    if (ax < R + T * 0.8 + Math.min(Math.max(0, lz), 2.5) * 0.4) out.push({ i, j, cap: 3, under: lz < -0.3 });
     else if (ax < R + T + 0.9 && lz > -0.9 && lz < 0.7) out.push({ i, j, cap: lip, under: false });
   }
   return out;
@@ -101,7 +124,7 @@ export function landmarkSamples(p: Prop): [number, number][] {
     }
     if (propOpt(p, "annex", HULL_OPTS.annex) !== "none") for (let lx = -wid / 2 - 2.4; lx < -wid / 2; lx += 0.6) for (let lz = -1.2; lz <= 1.8; lz += 0.6) add(lx, lz);
   } else if (p.type === "grotto") {
-    const { R, D, T } = grottoDims(p);
+    const { a: R, D, T } = grottoDims(p);
     for (let lx = -R - T; lx <= R + T + 1e-6; lx += 0.7) for (let lz = -D - 0.3; lz <= 0.8; lz += 0.7) add(lx, lz);
     // open water kept clear in front of the mouth
     for (let lx = -R - 0.6; lx <= R + 0.6 + 1e-6; lx += 0.7) for (let lz = 1.5; lz <= 5; lz += 0.7) add(lx, lz);

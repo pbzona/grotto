@@ -1,4 +1,4 @@
-import { World, Prop, PropType, WATER_Y, N, levelY, propOpt, HULL_OPTS, GROTTO_OPTS, hullDims, grottoDims, landmarkSamples, isLandmark, fbm } from "./world";
+import { World, Prop, PropType, WATER_Y, N, levelY, propOpt, HULL_OPTS, GROTTO_OPTS, GROTTO_SINK, GROTTO_DECK, grottoWall, hullDims, grottoDims, landmarkSamples, isLandmark, fbm } from "./world";
 import { MeshBuilder, V3, M, hexRGB, rng, lerp3, add } from "./mesh";
 import type { Light } from "./houses";
 import { PALETTES } from "./houses";
@@ -49,10 +49,10 @@ function siteScore(w: World, p: Prop): { s: number; why?: string } {
   const c = Math.cos(p.rot), sn = Math.sin(p.rot);
   const G = (lx: number, lz: number) => w.height(clampN(p.x + lx * c - lz * sn), clampN(p.z + lx * sn + lz * c), p.type === "grotto");
   if (p.type === "grotto") {
-    const { R, D } = grottoDims(p);
+    const { W: R, D } = grottoDims(p);
     // the mouth must open onto water and the vault must run back into a cliff
     let wet = 0, n = 0, back = 0, nb = 0, minBack = Infinity;
-    for (let lx = -R - 1; lx <= R + 1 + 1e-6; lx += (R + 1) / 3) for (let lz = 1; lz <= 5.6; lz += 0.9) { n++; if (G(lx, lz) < WATER_Y - 0.3) wet++; }
+    for (let lx = -R - 0.6; lx <= R + 0.6 + 1e-6; lx += (R + 0.6) / 3) for (let lz = 1; lz <= 5.6; lz += 0.9) { n++; if (G(lx, lz) < WATER_Y - 0.3) wet++; }
     for (let lx = -R; lx <= R + 1e-6; lx += R / 2) for (let lz = -1.4; lz >= -D; lz -= 1.1) { const g = G(lx, lz); nb++; back += Math.min(g, WATER_Y + 5); minBack = Math.min(minBack, g); }
     back /= nb;
     if (wet / n < 0.85) return { s: -Infinity, why: "Needs open water in front of the mouth" };
@@ -106,46 +106,50 @@ export function fitLandmark(w: World, type: PropType, hx: number, hz: number, se
 }
 
 // ---------------- sea grotto ----------------
+const sstep = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 export { grottoCells } from "./world";
 
 export function buildGrotto(mb: MeshBuilder, w: World, p: Prop, L: Light[]) {
   const r = rng(p.seed);
-  const { R, D, T } = grottoDims(p);
-  const arch = propOpt(p, "arch", GROTTO_OPTS.arch), dock = propOpt(p, "dock", GROTTO_OPTS.dock);
-  const sx = arch === "wide" ? 1.3 : arch === "tall" ? 0.9 : 1.1, sy = arch === "wide" ? 0.72 : arch === "tall" ? 1.22 : 0.95;
+  const g = grottoDims(p), { D, T, chan, size } = g;
+  const dock = propOpt(p, "dock", GROTTO_OPTS.dock);
+  const deckY = GROTTO_DECK;
   const NU = 28, NV = 12;
-  const noise = (u: number, v: number, rad: number) => fbm(u * 4.2 + rad * 0.7 + p.seed * 13, v * 3.1 + rad * 0.3) - 0.5;
-  const shell = (rad: number, u: number, v: number): V3 => {
-    const th = Math.PI * u;
-    const bulge = 1 + 0.12 * Math.sin(v * Math.PI) + noise(u, v, rad) * (rad > R + 0.5 ? 0.42 : 0.22);
-    const rr = rad * bulge * (1 - 0.35 * v * v);
-    const sv = Math.sin(th), pointy = arch === "tall" ? Math.pow(sv, 0.7) : sv;
-    return [Math.cos(th) * rr * sx, pointy * rr * sy - 0.8, -D * v];
+  const noise = (u: number, v: number, k: number) => fbm(u * 4.2 + k * 0.7 + p.seed * 13, v * 3.1 + k * 0.3) - 0.5;
+  /** vault point: grow 0 is the inner face, grow T the outer rock; the inner face only ever bulges outward */
+  const shell = (grow: number, u: number, v: number): V3 => {
+    const th = Math.PI * u, cs = Math.cos(th), sn = Math.sin(th);
+    const rough = grow > 0 ? 1 + noise(u, v, 3) * 0.3 : 1 + (noise(u, v, 0) + 0.5) * 0.1;
+    const k = (1 + 0.08 * Math.sin(v * Math.PI)) * rough * (1 - 0.3 * sstep(0.72, 1, v));
+    const ax = (g.a + grow) * k, by = (g.b + grow) * k;
+    return [Math.sign(cs) * Math.pow(Math.abs(cs), 2 / g.n) * ax, Math.pow(sn, 2 / g.n) * by - GROTTO_SINK, -D * v];
   };
+  // nothing hangs into the space a person on the dock or a sloop's mast needs
+  const floorAt = (x: number) => size === 2 && Math.abs(x) < chan + 0.3 ? 4.7 : deckY + 1.45;
   const prev = mb.xf!;
   mb.paint(hexRGB("#dba46b"), M.rock);
   for (let i = 0; i < NU; i++) for (let j = 0; j < NV; j++) {
     const u0 = i / NU, u1 = (i + 1) / NU, v0 = j / NV, v1 = (j + 1) / NV;
-    const inn = [shell(R, u0, v0), shell(R, u1, v0), shell(R, u1, v1), shell(R, u0, v1)];
-    const outr = [shell(R + T, u0, v0), shell(R + T, u1, v0), shell(R + T, u1, v1), shell(R + T, u0, v1)];
+    const inn = [shell(0, u0, v0), shell(0, u1, v0), shell(0, u1, v1), shell(0, u0, v1)];
+    const outr = [shell(T, u0, v0), shell(T, u1, v0), shell(T, u1, v1), shell(T, u0, v1)];
     const cI = lerp3(inn[0], inn[2], 0.5), cO = lerp3(outr[0], outr[2], 0.5);
-    mb.quad(inn, [-cI[0], -cI[1] - 0.8, 0]);
-    mb.quad(outr, [cO[0], cO[1] + 0.8, 0]);
+    mb.quad(inn, [-cI[0], -cI[1] - GROTTO_SINK, 0]);
+    mb.quad(outr, [cO[0], cO[1] + GROTTO_SINK, 0]);
   }
   for (let i = 0; i < NU; i++) {
-    const a = shell(R, i / NU, 0), b = shell(R, (i + 1) / NU, 0), c = shell(R + T, (i + 1) / NU, 0), d = shell(R + T, i / NU, 0);
+    const a = shell(0, i / NU, 0), b = shell(0, (i + 1) / NU, 0), c = shell(T, (i + 1) / NU, 0), d = shell(T, i / NU, 0);
     mb.quad([a, b, c, d], [0, 0, 1]);
-    const e = shell(R, i / NU, 1), f = shell(R, (i + 1) / NU, 1);
-    mb.tri([[0, -0.8, -D * 0.95], e, f], [0, 0, 1]);
-    const g = shell(R + T, i / NU, 1), hh = shell(R + T, (i + 1) / NU, 1);
-    mb.quad([e, f, hh, g], [0, 0, -1]);
+    const e = shell(0, i / NU, 1), f = shell(0, (i + 1) / NU, 1);
+    mb.tri([[0, -GROTTO_SINK, -D * 0.95], e, f], [0, 0, 1]);
+    const gg = shell(T, i / NU, 1), hh = shell(T, (i + 1) / NU, 1);
+    mb.quad([e, f, hh, gg], [0, 0, -1]);
   }
   // the cliff over the vault: rebuild the terrain surface the carve removed (same height function, original levels),
   // so above the cave the cliff reads as continuous ground rather than a trench
   const c = Math.cos(p.rot), s = Math.sin(p.rot);
-  const vaultTop = R * sy - 0.8 + T + WATER_Y;
+  const vaultTop = g.H + T + WATER_Y;
   if (p.carved?.length) {
-    const step = 0.25, X = R * sx + T + 1.6, Z0 = -D - 1.5;
+    const step = 0.25, X = g.a + T + 1.6, Z0 = -D - 1.5;
     const nx = Math.ceil((2 * X) / step), nz = Math.ceil(-Z0 / step);
     const vx: number[][] = [], vo: number[][] = [], vc: number[][] = [];
     for (let k = 0; k <= nz; k++) { vx.push([]); vo.push([]); vc.push([]); for (let i = 0; i <= nx; i++) {
@@ -181,13 +185,13 @@ export function buildGrotto(mb: MeshBuilder, w: World, p: Prop, L: Light[]) {
   }
   mb.paint(hexRGB("#dba46b"), M.rock);
   // rubble at the feet and a brow of rock over the lip
-  for (let i = 0; i < 6; i++) { const sg = i % 2 ? 1 : -1; mb.blob([sg * (R * sx + 0.3 + r() * 0.8), -0.6, -r() * D * 0.8 + 0.3], [0.6, 0.5, 0.6], r() * 99, 1); }
-  for (let i = 0; i < 5; i++) mb.blob([(i / 4 - 0.5) * R * sx * 1.6, vaultTop - WATER_Y - 0.35, -0.2 - r() * 0.4], [0.7, 0.45, 0.6], r() * 99, 1);
-  // hanging greenery and a few stalactites
+  for (let i = 0; i < 6; i++) { const sg = i % 2 ? 1 : -1; mb.blob([sg * (g.W + 0.3 + r() * 0.8), -0.6, -r() * D * 0.8 + 0.3], [0.6, 0.5, 0.6], r() * 99, 1); }
+  for (let i = 0; i < 5; i++) mb.blob([(i / 4 - 0.5) * g.a * 1.6, vaultTop - WATER_Y - 0.35, -0.2 - r() * 0.4], [0.7, 0.45, 0.6], r() * 99, 1);
+  // hanging greenery at the mouth and a few stalactites, all kept clear of heads and masts
   mb.paint(hexRGB("#6f8a45"), M.leaf);
   const vines = 3 + Math.floor(r() * 5);
   for (let i = 0; i < vines; i++) {
-    const u = 0.15 + r() * 0.7; const q = shell(R + T * 0.5, u, 0); const len = Math.min(0.3 + r() * 0.8, q[1] - 0.7);
+    const u = 0.15 + r() * 0.7; const q = shell(T * 0.5, u, 0); const len = Math.min(0.3 + r() * 0.8, q[1] - floorAt(q[0]));
     if (len < 0.2) continue;
     const pts: V3[] = []; for (let k = 0; k <= 5; k++) pts.push([q[0] + Math.sin(k * 1.7 + i) * 0.04, q[1] - (k / 5) * len, 0.22]);
     mb.paint(hexRGB("#5d7a3c"), M.leaf); mb.tube(pts, 0.02, 3);
@@ -195,39 +199,53 @@ export function buildGrotto(mb: MeshBuilder, w: World, p: Prop, L: Light[]) {
     for (let k = 0; k < 5; k++) { const t = k / 4; mb.blob([pts[0][0] + (r() - 0.5) * 0.12, q[1] - t * len, 0.24], [0.08, 0.07, 0.05], r() * 99, 0); }
   }
   mb.paint(hexRGB("#c99561"), M.rock);
-  for (let i = 0; i < 8; i++) { const u = 0.2 + r() * 0.6, v = 0.2 + r() * 0.7; const q = shell(R, u, v); mb.cyl(q[0] * 0.95, q[2], q[1] - 0.45 - r() * 0.3, q[1] + 0.05, 0.015, 0.1, 5); }
-  // the hidden dock
-  const deckY = 0.75;
+  for (let i = 0; i < 8; i++) {
+    const u = 0.2 + r() * 0.6, v = 0.2 + r() * 0.7; const q = shell(0, u, v);
+    const len = Math.min(0.3 + r() * 0.35, q[1] - floorAt(q[0]));
+    if (len > 0.12) mb.cyl(q[0] * 0.97, q[2], q[1] - len, q[1] + 0.1, 0.015, 0.1, 5);
+  }
+  // the hidden dock runs from the channel edge to the wall
+  const wallAtDeck = grottoWall(g, deckY) - 0.08;
+  const lampY = deckY + 1.35, lampX = grottoWall(g, lampY + 0.4);
   const sides = dock === "both" ? [-1, 1] : dock === "left" ? [-1] : [1];
   for (const sd of sides) {
-    const xa = sd * R * sx * 0.92, xb = sd * R * sx * 0.25;
-    const x0 = Math.min(xa, xb), x1 = Math.max(xa, xb);
+    const xa = sd * wallAtDeck, xb = sd * chan;
+    const x0 = Math.min(xa, xb), x1 = Math.max(xa, xb), xin = sd < 0 ? x0 : x1, xout = sd < 0 ? x1 : x0;
     mb.paint(hexRGB("#9c7b58"), M.plank);
     const nb = Math.floor((D * 0.85 + 0.4) / 0.24);
     for (let k = 0; k < nb; k++) { const z = 0.4 - k * 0.24; mb.box([x0, deckY - 0.06, z - 0.1], [x1, deckY, z + 0.1]); }
     mb.paint(hexRGB("#4c3b2e"), M.plank);
     for (let k = 0; k < 4; k++) for (const x of [x0 + 0.1, x1 - 0.1]) mb.cyl(x, 0.3 - k * D * 0.28, -1.5, deckY - 0.05, 0.07, 0.07, 6);
-    const zb = -D * 0.72;
-    if (r() < 0.7) { mb.paint(hexRGB("#9a7650"), M.plank); mb.box([x0 + 0.1, deckY, zb], [x0 + 0.5, deckY + 0.45, zb + 0.4]); mb.box([x0 + 0.15, deckY + 0.45, zb + 0.05], [x0 + 0.45, deckY + 0.75, zb + 0.35]); }
-    barrel(mb, (x0 + x1) / 2, -D * 0.55, deckY, r);
-    if (r() < 0.6) barrel(mb, (x0 + x1) / 2 + 0.3, -D * 0.45, deckY, r);
-    if (r() < 0.5) { mb.paint(hexRGB("#8a5a2a"), M.plank); mb.box([x0 + 0.2, deckY, -D * 0.3], [x0 + 0.62, deckY + 0.28, -D * 0.3 + 0.3]); mb.paint(hexRGB("#ffd070"), M.lamp); mb.box([x0 + 0.24, deckY + 0.28, -D * 0.3 + 0.04], [x0 + 0.58, deckY + 0.31, -D * 0.3 + 0.26]); L.push({ x: x0 + 0.4, y: deckY + 0.4, z: -D * 0.3, r: 1.4, i: 0.4 }); }
+    // bollards along the channel edge
+    for (const z of [0.0, -D * 0.5]) mb.cyl(xout - sd * 0.12, z, deckY, deckY + 0.22, 0.06, 0.07, 6);
+    const zb = -D * 0.72, xw = xin - sd * 0.1;
+    if (r() < 0.7) { mb.paint(hexRGB("#9a7650"), M.plank); const xc = xw - sd * 0.2; mb.box([xc - 0.2, deckY, zb], [xc + 0.2, deckY + 0.45, zb + 0.4]); mb.box([xc - 0.15, deckY + 0.45, zb + 0.05], [xc + 0.15, deckY + 0.75, zb + 0.35]); }
+    barrel(mb, xw - sd * 0.3, -D * 0.55, deckY, r);
+    if (r() < 0.6) barrel(mb, xw - sd * 0.62, -D * 0.47, deckY, r);
+    if (r() < 0.5) { const xc = xw - sd * 0.3; mb.paint(hexRGB("#8a5a2a"), M.plank); mb.box([xc - 0.21, deckY, -D * 0.3], [xc + 0.21, deckY + 0.28, -D * 0.3 + 0.3]); mb.paint(hexRGB("#ffd070"), M.lamp); mb.box([xc - 0.17, deckY + 0.28, -D * 0.3 + 0.04], [xc + 0.17, deckY + 0.31, -D * 0.3 + 0.26]); L.push({ x: xc, y: deckY + 0.4, z: -D * 0.3, r: 1.4, i: 0.4 }); }
     for (const z of [0.1, -D * 0.4, -D * 0.75]) {
-      const xl = sd * R * sx * 0.98;
-      mb.paint(hexRGB("#3b332c"), M.metal); mb.beam([xl, 1.9, z], [xl - sd * 0.3, 1.9, z], [0, 0, 1], 0.02, 0.02);
-      mb.paint(hexRGB("#ffd08a"), M.lamp); mb.box([xl - sd * 0.36 - 0.06, 1.52, z - 0.07], [xl - sd * 0.36 + 0.06, 1.75, z + 0.07]);
-      L.push({ x: xl - sd * 0.36, y: 1.6, z, r: 3.1, i: 0.85 });
+      const xl = sd * lampX;
+      mb.paint(hexRGB("#3b332c"), M.metal); mb.beam([xl, lampY + 0.4, z], [xl - sd * 0.3, lampY + 0.4, z], [0, 0, 1], 0.02, 0.02);
+      mb.paint(hexRGB("#ffd08a"), M.lamp); mb.box([xl - sd * 0.36 - 0.06, lampY, z - 0.07], [xl - sd * 0.36 + 0.06, lampY + 0.23, z + 0.07]);
+      L.push({ x: xl - sd * 0.36, y: lampY + 0.1, z, r: 3.1 + size * 0.5, i: 0.85 });
     }
     // stair cut into the rock at the back of this dock
     mb.paint(hexRGB("#c99561"), M.rock);
-    for (let k = 0; k < 7; k++) { const x = sd < 0 ? x1 - 0.1 + k * 0.22 : x0 + 0.1 - k * 0.22; mb.box([Math.min(x, x + 0.28 * sd), deckY + k * 0.25 - 0.25, -D * 0.82], [Math.max(x, x + 0.28 * sd), deckY + k * 0.25, -D * 0.82 + 0.8]); }
+    for (let k = 0; k < 7; k++) { const x = xout + sd * (0.1 + k * 0.22); mb.box([Math.min(x, x + 0.28 * sd), deckY + k * 0.25 - 0.25, -D * 0.82], [Math.max(x, x + 0.28 * sd), deckY + k * 0.25, -D * 0.82 + 0.8]); }
   }
-  // a skiff tied up inside when there's room
-  if (dock !== "both" && r() < 0.75) {
-    const bx = -sides[0] * R * sx * 0.35;
+  // a boat tied up alongside when there's room: a skiff, or in the big cave a sloop with her sails furled
+  if (dock !== "both" && r() < (size === 2 ? 0.85 : 0.75)) {
+    const sd = sides[0], big = size === 2, bx = sd * (chan - (big ? 0.8 : 0.5)), bz = -D * (big ? 0.42 : 0.45);
     const sm = mb.xf!;
-    mb.xf = (q: V3) => sm([q[0] + bx, q[1] + 0.2, q[2] - D * 0.45]);
-    hull(mb, 1.8, 0.72, 0.28, hexRGB(["#3f8783", "#c0643f", "#e9dcbc"][Math.floor(r() * 3)]), hexRGB("#8a6a48"), hexRGB("#efe4cc"));
+    mb.xf = (q: V3) => sm([q[0] + bx, q[1] + (big ? 0.32 : 0.2), q[2] + bz]);
+    const col = hexRGB(["#3f8783", "#c0643f", "#e9dcbc"][Math.floor(r() * 3)]);
+    if (big) {
+      hull(mb, 3.8, 1.35, 0.6, col, hexRGB("#8a6a48"), hexRGB("#efe4cc"));
+      mb.paint(hexRGB("#9c7b58"), M.plank); mb.box([-0.55, -0.05, -1.4], [0.55, 0.02, 1.2]);
+      mb.paint(hexRGB("#6b4a33"), M.plank); mb.cyl(0, 0.35, 0, 4.1, 0.06, 0.045, 7);
+      mb.beam([0, 0.75, 0.35], [0, 0.77, -1.7], [1, 0, 0], 0.035, 0.035);
+      mb.paint(hexRGB("#ece0c4"), M.cloth); mb.tube([[0, 0.86, 0.3], [0.03, 0.88, -0.6], [0, 0.86, -1.6]], 0.09, 6);
+    } else hull(mb, 1.8, 0.72, 0.28, col, hexRGB("#8a6a48"), hexRGB("#efe4cc"));
     mb.xf = sm;
   }
   mb.xf = prev;
