@@ -96,6 +96,24 @@
   const samples = [];
   for (let n = 0; n < 8; n++) { a.changed({ structures: true }); const start = performance.now(); a.update(0); samples.push(performance.now() - start); }
   samples.sort((a, b) => a - b);
+  {
+    // a walkway built under one post of a laundry line lifts it onto the deck, and follows the deck's height
+    reset();
+    for (let i = 8; i < 16; i++) for (let j = 29; j < 38; j++) w.setLevel(i, j, 8);
+    const { propBase, greeneryHidden } = await import('/src/props.ts');
+    const gy = w.height(11, 33), L = a.addProp('laundry', 11, 33, 0, 0.3);
+    const D1 = a.addNode(11.9, 31.5, gy + 1), D2 = a.addNode(11.9, 34.5, gy + 1); a.addEdge(D1, D2);
+    ok('laundry steps up onto a deck under one post', Math.abs(propBase(w, L) - (gy + 1)) < 0.05);
+    D1.y += 0.5; D2.y += 0.5;
+    ok('laundry follows the deck when it is raised', Math.abs(propBase(w, L) - (gy + 1.5)) < 0.05);
+    // a palm leaning over the deck hides when its trunk would pass through the planks
+    const P2 = a.addProp('palm', 12.9, 33, Math.PI, 0.5); P2.opts = { height: 1, lean: 1.4 };
+    D1.y = D2.y = gy + 0.25;
+    ok('palm beside a low deck still drawn', !greeneryHidden(w, P2));
+    let pierced = false; for (let y = 0.5; y < 4 && !pierced; y += 0.1) { D1.y = D2.y = gy + y; pierced = greeneryHidden(w, P2); }
+    ok('palm leaning through a raised deck is hidden', pierced);
+    reset();
+  }
   results.push(`PERF warmed unchanged structure rebuild median=${samples[4].toFixed(1)}ms max=${samples.at(-1).toFixed(1)}ms`);
   return results.join('\n');
 })()

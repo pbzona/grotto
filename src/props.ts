@@ -22,6 +22,45 @@ export function surfaceAt(world: World, x: number, z: number) {
   return y;
 }
 
+/** Local points a prop stands on: posts for the lines, a small ring for heaps, the centre for the rest. */
+function footSamples(type: string): [number, number][] {
+  if (type === "laundry") return [[0, 0], [-0.9, 0], [0.9, 0]];
+  if (type === "nets") return [[0, 0], [-0.85, 0], [0.85, 0]];
+  if (type === "crates" || type === "barrels") return [[0, 0], [0.3, 0], [-0.3, 0], [0, 0.3], [0, -0.3]];
+  return [[0, 0]];
+}
+/** A placed prop's base: the highest deck or ground under any of its feet, so a walkway built beneath lifts it. */
+export function propBase(world: World, p: Prop) {
+  const c = Math.cos(p.rot), s = Math.sin(p.rot), sc = p.scale ?? 1;
+  let y = -Infinity;
+  for (const [lx, lz] of footSamples(p.type)) y = Math.max(y, surfaceAt(world, p.x + (lx * c - lz * s) * sc, p.z + (lx * s + lz * c) * sc));
+  return y;
+}
+
+/** Palm trunk shape from its seed and options (shared by the mesh and the walkway cover test). */
+function palmShape(p: Prop) {
+  const r = rng(p.seed);
+  const h0 = 2.4 + r() * 1.2, lean0 = 0.4 + r() * 0.5;
+  return { h: h0 * +(p.opts?.height ?? 1), lean: p.opts?.lean !== undefined ? +p.opts.lean : lean0 };
+}
+/** Would this palm's leaning trunk pass through a walkway deck? */
+function palmPierces(world: World, p: Prop) {
+  const { h, lean } = palmShape(p), sc = p.scale ?? 1, c = Math.cos(p.rot), s = Math.sin(p.rot);
+  const y0 = groundBase(world, p.x, p.z, 0.16 * sc);
+  for (let i = 1; i <= 10; i++) {
+    const t = i / 10, off = lean * t * t * sc, x = p.x + c * off, z = p.z + s * off, y = y0 + t * h * sc;
+    for (const e of world.edges.values()) {
+      const a = world.nodes.get(e.a), b = world.nodes.get(e.b); if (!a || !b) continue;
+      const dx = b.x - a.x, dz = b.z - a.z, L2 = dx * dx + dz * dz || 1e-6;
+      const u = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / L2));
+      if (Math.hypot(a.x + dx * u - x, a.z + dz * u - z) > e.width / 2 + 0.15) continue;
+      const dy = a.y + (b.y - a.y) * u;
+      if (Math.abs(dy - y) < 0.35) return true;
+    }
+  }
+  return false;
+}
+
 export interface PropBuild { lights: Light[]; foam: { x: number; z: number; r: number }[] }
 
 export const PROP_INFO: Record<string, { label: string; water?: boolean; big?: boolean; r: number }> = {
@@ -48,6 +87,7 @@ export function greeneryHidden(world: World, p: Prop) {
     if (Math.hypot(a.x + dx * t - p.x, a.z + dz * t - p.z) < e.width / 2 + r + 0.1) return true;
   }
   for (const o of world.props.values()) if (isLandmark(o.type) && landmarkSamples(o).some(([x, z]) => Math.hypot(x - p.x, z - p.z) < 0.55 + r)) return true;
+  if (p.type === "palm" && palmPierces(world, p)) return true;
   return false;
 }
 /** Greenery stands on the ground (never on a deck), with its base sunk to the low side so nothing floats on a slope. */
@@ -67,8 +107,10 @@ export function buildProps(world: World, mb: MeshBuilder, out: PropBuild) {
 export function buildOneProp(world: World, mb: MeshBuilder, p: Prop, out: PropBuild) {
   {
     mb.setOwner(`p:${p.id}`);
-    const y = p.type === "grotto" ? WATER_Y : isGreenery(p.type) ? groundBase(world, p.x, p.z, (p.type === "palm" ? 0.16 : 0.3) * (p.scale ?? 1)) : surfaceAt(world, p.x, p.z);
+    const y = p.type === "grotto" ? WATER_Y : isGreenery(p.type) ? groundBase(world, p.x, p.z, (p.type === "palm" ? 0.16 : 0.3) * (p.scale ?? 1)) : propBase(world, p);
     const c = Math.cos(p.rot), s = Math.sin(p.rot), sc = p.scale ?? 1;
+    /** Local height of the surface under local point (lx, lz), relative to the base (<= 0): posts reach down to it. */
+    foot = (lx: number, lz: number) => Math.min(0, (surfaceAt(world, p.x + (lx * c - lz * s) * sc, p.z + (lx * s + lz * c) * sc) - y) / sc);
     // build in local space (x right, z forward), rotate + translate
     mb.xf = (q: V3) => [p.x + (q[0] * c - q[2] * s) * sc, y + q[1] * sc, p.z + (q[0] * s + q[2] * c) * sc];
     const L: Light[] = [];
@@ -80,6 +122,7 @@ export function buildOneProp(world: World, mb: MeshBuilder, p: Prop, out: PropBu
   }
 }
 
+let foot = (_lx: number, _lz: number) => 0;
 function propMesh(mb: MeshBuilder, p: Prop, L: Light[], out: PropBuild, y: number) {
   const r = rng(p.seed);
   switch (p.type) {
@@ -103,7 +146,7 @@ function propMesh(mb: MeshBuilder, p: Prop, L: Light[], out: PropBuild, y: numbe
     case "lantern": lanternPost(mb, 0, 0, 0, { lights: L }); break;
     case "nets": {
       mb.paint(hexRGB("#6b4a33"), M.plank);
-      for (const x of [-0.85, 0.85]) mb.cyl(x, 0, 0, 1.3, 0.05, 0.045, 6);
+      for (const x of [-0.85, 0.85]) mb.cyl(x, 0, foot(x, 0) - 0.04, 1.3, 0.05, 0.045, 6);
       mb.beam([-0.9, 1.25, 0], [0.9, 1.25, 0], [0, 0, 1], 0.035, 0.035);
       for (let k = 0; k < 2; k++) {
         const zz = k ? 0.06 : -0.06;
@@ -118,7 +161,7 @@ function propMesh(mb: MeshBuilder, p: Prop, L: Light[], out: PropBuild, y: numbe
     }
     case "laundry": {
       mb.paint(hexRGB("#6b4a33"), M.plank);
-      for (const x of [-0.9, 0.9]) mb.cyl(x, 0, 0, 1.5, 0.04, 0.035, 6);
+      for (const x of [-0.9, 0.9]) mb.cyl(x, 0, foot(x, 0) - 0.04, 1.5, 0.04, 0.035, 6);
       const rope: V3[] = []; for (let i = 0; i <= 10; i++) { const t = i / 10; rope.push([-0.9 + 1.8 * t, 1.42 - Math.sin(Math.PI * t) * 0.12, 0]); }
       mb.paint(hexRGB("#d8c8a8"), M.cloth); mb.tube(rope, 0.012, 4);
       const cloth = ["#e9dcbc", "#3f8783", "#c96b43", "#dca34e", "#9fb3c8", "#f1ead8"];
@@ -155,8 +198,8 @@ export function barrel(mb: MeshBuilder, x: number, z: number, y0: number, r: () 
 }
 
 function palm(mb: MeshBuilder, r: () => number, p: Prop) {
-  const h0 = 2.4 + r() * 1.2, lean0 = 0.4 + r() * 0.5; r();
-  const h = h0 * +(p.opts?.height ?? 1), lean = p.opts?.lean !== undefined ? +p.opts.lean : lean0, dir = 0; // leans along local +x; the prop's rotation aims it
+  r(); r(); r();
+  const { h, lean } = palmShape(p), dir = 0; // leans along local +x; the prop's rotation aims it
   const pts: V3[] = [];
   for (let i = 0; i <= 10; i++) { const t = i / 10; const off = lean * t * t; pts.push([Math.cos(dir) * off, t * h, Math.sin(dir) * off]); }
   for (let i = 0; i < 10; i++) { mb.paint(hexRGB(i % 2 ? "#8b7358" : "#7a6450"), M.plank); mb.tube([pts[i], pts[i + 1]], (t: number) => 0.13 - (i + t) * 0.006, 7); }
