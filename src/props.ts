@@ -1,7 +1,8 @@
 import * as THREE from "three/webgpu";
 import { World, Prop, WATER_Y, N, fbm, isLandmark, landmarkSamples } from "./world";
 import { MeshBuilder, V3, M, hexRGB, rng, hsh, add, scl, lerp3, norm, sub } from "./mesh";
-import type { Light, Anchor } from "./houses";
+import type { Light, Anchor, Face } from "./houses";
+import { FLOOR_H } from "./world";
 import { landingRadius, isStairs, lanternPost } from "./walks";
 import { buildHullTavern, buildGrotto, buildLighthouseBase } from "./landmarks";
 
@@ -436,6 +437,93 @@ export function stringLights(anchors: Anchor[], mb: MeshBuilder, out: { lights: 
     out.lights.push({ x: mid[0], y: mid[1], z: mid[2], r: L * 0.55, i: 0.35 });
   }
   void norm; void sub;
+}
+
+// ---------- washing strung across the gap between two facing walls ----------
+const CLOTHES = ["#f2ede0", "#e9e2cf", "#3f6f8f", "#b5523b", "#d9a441", "#8fb4c9", "#c9577a", "#6d8a5a", "#f6f3ea"];
+/** Pairs of walls from different houses that look at each other across a narrow gap, at a common height. */
+export function linePairs(world: World, faces: Face[]) {
+  const out: { a: V3; b: V3; key: string; seed: number }[] = [];
+  const per = new Map<string, number>(), done = new Set<string>();
+  const cands: { A: Face; B: Face; gap: number; lo: number; hi: number; ya: number; yb: number }[] = [];
+  for (const A of faces) for (const B of faces) {
+    if (A.house >= B.house || A.n[0] !== -B.n[0] || A.n[1] !== -B.n[1]) continue;
+    const gap = (B.a[0] - A.a[0]) * A.n[0] + (B.a[1] - A.a[1]) * A.n[1];
+    if (gap < 0.9 || gap > 3.4) continue;
+    const ux = (A.b[0] - A.a[0]), uz = (A.b[1] - A.a[1]), len = Math.hypot(ux, uz);
+    const t = (p: [number, number]) => ((p[0] - A.a[0]) * ux + (p[1] - A.a[1]) * uz) / len;
+    const lo = Math.max(0, Math.min(t(B.a), t(B.b))) + 0.3, hi = Math.min(len, Math.max(t(B.a), t(B.b))) - 0.3;
+    if (hi - lo < 0.4) continue;
+    // the highest floor both reach, close enough in height to string a line level-ish
+    let best: [number, number] | null = null;
+    for (let fa = A.floors - 1; fa >= 0 && !best; fa--) for (let fb = B.floors - 1; fb >= 0; fb--) {
+      const ya = A.base + fa * FLOOR_H + 1.02, yb = B.base + fb * FLOOR_H + 1.02;
+      if (Math.abs(ya - yb) < 0.6) { best = [ya, yb]; break; }
+    }
+    if (best) cands.push({ A, B, gap, lo, hi, ya: best[0], yb: best[1] });
+  }
+  cands.sort((p, q) => p.gap - q.gap || q.ya - p.ya);
+  for (const { A, B, lo, hi, ya, yb } of cands) {
+    const pk = A.house + "|" + B.house;
+    if (done.has(pk) || (per.get(A.house) ?? 0) >= 2 || (per.get(B.house) ?? 0) >= 2) continue;
+    const ux = A.b[0] - A.a[0], uz = A.b[1] - A.a[1], len = Math.hypot(ux, uz);
+    const gap = (B.a[0] - A.a[0]) * A.n[0] + (B.a[1] - A.a[1]) * A.n[1];
+    const ts = hi - lo > 1.8 ? [lo + (hi - lo) * 0.2, hi - (hi - lo) * 0.2] : [(lo + hi) / 2];
+    const lines = ts.map(t => {
+      const x = A.a[0] + ux / len * t, z = A.a[1] + uz / len * t;
+      return { a: [x + A.n[0] * 0.04, ya, z + A.n[1] * 0.04] as V3, b: [x + A.n[0] * (gap - 0.04), yb, z + A.n[1] * (gap - 0.04)] as V3 };
+    }).filter(({ a, b }) => {
+      for (let k = 1; k < 6; k++) {
+        const p = lerp3(a, b, k / 6);
+        if (world.houseAt(p[0], p[2])) return false; // another house sits in the gap
+        // a low line must clear anyone walking a deck beneath it
+        for (const e of world.edges.values()) {
+          const na = world.nodes.get(e.a), nb = world.nodes.get(e.b); if (!na || !nb) continue;
+          const dx = nb.x - na.x, dz = nb.z - na.z, L2 = dx * dx + dz * dz || 1e-6;
+          const u = Math.max(0, Math.min(1, ((p[0] - na.x) * dx + (p[2] - na.z) * dz) / L2));
+          if (Math.hypot(na.x + dx * u - p[0], na.z + dz * u - p[2]) < e.width / 2 + 0.2 && p[1] - 0.45 - (na.y + (nb.y - na.y) * u) < 1.15) return false;
+        }
+      }
+      return true;
+    });
+    if (!lines.length) continue;
+    done.add(pk); per.set(A.house, (per.get(A.house) ?? 0) + 1); per.set(B.house, (per.get(B.house) ?? 0) + 1);
+    lines.forEach((l, i) => out.push({ ...l, key: pk + "#" + i, seed: hsh(l.a[0] * 3.7 + l.a[2] * 1.3 + i) }));
+  }
+  return out;
+}
+export function washingLines(world: World, faces: Face[], mb: MeshBuilder) {
+  mb.setOwner("strings");
+  for (const { a, b, seed } of linePairs(world, faces)) {
+    const r = rng(seed * 991 + 0.17);
+    const L = Math.hypot(b[0] - a[0], b[2] - a[2]), sag = 0.06 + L * 0.04;
+    const at = (t: number): V3 => { const p = lerp3(a, b, t); p[1] -= Math.sin(Math.PI * t) * sag; return p; };
+    const pts: V3[] = []; for (let i = 0; i <= 10; i++) pts.push(at(i / 10));
+    mb.paint(hexRGB("#e6dcc4"), M.cloth); mb.tube(pts, 0.006, 3);
+    mb.paint(hexRGB("#3a3430"), M.metal);
+    for (const p of [a, b]) mb.box([p[0] - 0.025, p[1] - 0.025, p[2] - 0.025], [p[0] + 0.025, p[1] + 0.025, p[2] + 0.025]);
+    // clothes pegged along it: shirts, a sheet, socks; laid flat in the plane of the line
+    const along = Math.abs(b[0] - a[0]) > Math.abs(b[2] - a[2]);
+    let t = 0.12 + r() * 0.08;
+    while (t < 0.88) {
+      const kind = r(), w = kind < 0.2 ? 0.5 + r() * 0.2 : kind < 0.75 ? 0.24 + r() * 0.08 : 0.08;
+      const hgt = kind < 0.2 ? 0.45 + r() * 0.15 : kind < 0.75 ? 0.28 + r() * 0.06 : 0.16;
+      const tw = w / L; if (t + tw > 0.9) break;
+      const p = at(t + tw / 2), d = 0.008;
+      mb.paint(hexRGB(CLOTHES[Math.floor(r() * CLOTHES.length)]), M.cloth);
+      const lo: V3 = along ? [p[0] - w / 2, p[1] - hgt, p[2] - d] : [p[0] - d, p[1] - hgt, p[2] - w / 2];
+      const hi: V3 = along ? [p[0] + w / 2, p[1] - 0.005, p[2] + d] : [p[0] + d, p[1] - 0.005, p[2] + w / 2];
+      mb.box(lo, hi);
+      if (kind >= 0.2 && kind < 0.75) { // sleeves
+        const s = 0.07;
+        for (const sd of [-1, 1]) {
+          const c = along ? p[0] + sd * (w / 2 + s / 2) : p[2] + sd * (w / 2 + s / 2);
+          mb.box(along ? [c - s / 2, p[1] - 0.12, p[2] - d] : [p[0] - d, p[1] - 0.12, c - s / 2], along ? [c + s / 2, p[1] - 0.005, p[2] + d] : [p[0] + d, p[1] - 0.005, c + s / 2]);
+        }
+      }
+      t += tw + (kind < 0.75 ? 0.16 : 0.03) / L + r() * 0.12;
+    }
+  }
 }
 
 // ---------- natural scatter: scrub, rocks, agaves and stone pines on open ground ----------

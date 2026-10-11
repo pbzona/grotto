@@ -5,12 +5,12 @@ import { Terrain } from "./terrain";
 import type { Materials } from "./materials";
 import { LightMap } from "./lighting";
 import { MeshBuilder, Part, mergeParts, rng } from "./mesh";
-import { buildHouse, makeHouse, houseLayout, HouseBuild, Light } from "./houses";
+import { buildHouse, makeHouse, houseLayout, HouseBuild, Light, Face } from "./houses";
 import { seedCove } from "./seed";
 import { fitLandmark } from "./landmarks";
 import { buildWalks, defaultDeckY, WALK_W, MAX_STAIR, slopeOf } from "./walks";
 import { Fleet } from "./voyages";
-import { buildProps, buildBoat, updateBoat, Boat, stringLights, PROP_INFO, buildScatter, isGreenery } from "./props";
+import { buildProps, buildBoat, updateBoat, Boat, stringLights, washingLines, PROP_INFO, buildScatter, isGreenery } from "./props";
 import { Edits } from "./edits";
 import { CROWDS, CROWD_KEY, DEFAULT_CROWD } from "./villagers";
 
@@ -138,8 +138,8 @@ export class App {
     const t0 = performance.now();
     const w = this.world;
     const parts: Part[] = [];
-    const out: Omit<HouseBuild, "mb"> = { lights: [], anchors: [], foam: [] };
-    const merge = (b: Omit<HouseBuild, "mb">) => { out.lights.push(...b.lights); out.anchors.push(...b.anchors); out.foam.push(...b.foam); };
+    const out: Omit<HouseBuild, "mb"> & { faces: Face[] } = { lights: [], anchors: [], foam: [], faces: [] };
+    const merge = (b: Omit<HouseBuild, "mb">) => { out.lights.push(...b.lights); out.anchors.push(...b.anchors); out.foam.push(...b.foam); out.faces.push(...b.faces ?? []); };
     const liveNodes = [...w.nodes.values()].filter(n => w.edgesOf(n.id).length);
     // houses: each cached on its own description, the terrain and the walkways that can open doors in it
     const seen = new Set<string>();
@@ -151,7 +151,7 @@ export class App {
       if (!c || c.key !== key) {
         const hb: HouseBuild = { mb: new MeshBuilder(), lights: [], anchors: [], foam: [] };
         buildHouse(w, h, hb);
-        c = { key, part: hb.mb.freeze(), b: { lights: hb.lights, anchors: hb.anchors, foam: hb.foam } };
+        c = { key, part: hb.mb.freeze(), b: { lights: hb.lights, anchors: hb.anchors, foam: hb.foam, faces: hb.faces } };
         this.houseCache.set(h.id, c);
       }
       parts.push(c.part); merge(c.b);
@@ -176,6 +176,7 @@ export class App {
     parts.push(this.scatterCache.part);
     const smb = new MeshBuilder();
     stringLights(out.anchors, smb, out);
+    washingLines(w, out.faces, smb);
     parts.push(smb.freeze());
     const m = mergeParts(parts);
     this.structures.geometry.dispose();

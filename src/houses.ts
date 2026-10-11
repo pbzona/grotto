@@ -25,7 +25,8 @@ const WOOD = "#7a5438", TAR = "#4c3b2e", STONE = "#b9a78b";
 export interface Light { x: number; y: number; z: number; r: number; i: number }
 export interface Anchor { x: number; y: number; z: number; house: string }
 /** One outside wall of a volume: where neighbours can string things across a gap. */
-export interface HouseBuild { mb: MeshBuilder; lights: Light[]; anchors: Anchor[]; foam: { x: number; z: number; r: number }[] }
+export interface Face { house: string; a: [number, number]; b: [number, number]; n: [number, number]; base: number; floors: number }
+export interface HouseBuild { mb: MeshBuilder; lights: Light[]; anchors: Anchor[]; foam: { x: number; z: number; r: number }[]; faces?: Face[] }
 
 export interface Bay { vi: number; side: number; floor: number; a: [number, number]; b: [number, number]; n: [number, number]; key: string; kind: "window" | "wall" | "door"; y0: number }
 export interface Layout { base: number; gmin: number; gmax: number; over: boolean; stilts: boolean; plinth: boolean; rock: boolean; bays: Bay[]; lean: [number, number]; top: number; lived: boolean }
@@ -306,6 +307,7 @@ export function buildHouse(world: World, h: House, out: HouseBuild, ghost = fals
     // ---------- roofs ----------
     if (kind === "lookout") lookoutTop(mb, v, base, wallFloors, trim, wood, roofC, h, out);
     else roofFor(mb, v, topY, h, r, roofC, wood, wall, trim, out, lay);
+    if (kind === "room") for (let sd = 0; sd < 4; sd++) { const L = sideLine(v, sd); (out.faces ??= []).push({ house: h.id, a: L.a, b: L.b, n: L.n, base, floors: wallFloors }); }
     out.anchors.push(...[[v.x0 - 0.1, v.z0 - 0.1], [v.x1 + 0.1, v.z0 - 0.1], [v.x1 + 0.1, v.z1 + 0.1], [v.x0 - 0.1, v.z1 + 0.1]].map(([x, z]) => ({ x, y: topY - 0.1, z, house: h.id })));
   });
   mb.xf = null;
