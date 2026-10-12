@@ -8,7 +8,7 @@ import { MeshBuilder, Part, mergeParts, rng } from "./mesh";
 import { buildHouse, makeHouse, houseLayout, doorOf, HouseBuild, Light, Face } from "./houses";
 import { seedCove } from "./seed";
 import { fitLandmark } from "./landmarks";
-import { buildWalks, defaultDeckY, WALK_W, MAX_STAIR, slopeOf } from "./walks";
+import { buildWalks, defaultDeckY, WALK_W, MAX_STAIR, slopeOf, isStairs } from "./walks";
 import { buildProps, buildBoat, updateBoat, Boat, stringLights, washingLines, PROP_INFO, buildScatter, isGreenery } from "./props";
 import { Edits } from "./edits";
 import { CROWDS, CROWD_KEY, DEFAULT_CROWD } from "./villagers";
@@ -305,10 +305,47 @@ export class App {
    * when the joined stretch would still clear the ground. Doors, grotto docks and landings stay.
    * With no `only`, every post is considered. Returns true if anything was removed.
    */
-  mergeInline(only?: Iterable<string>): boolean {
+  /** does a deck from A to B clear the ground across its width? */
+  private clears(A: { x: number; z: number; y: number }, B: { x: number; z: number; y: number }, width: number) {
+    const w = this.world;
+    const Hc = (x: number, z: number) => w.height(Math.min(N - 0.01, Math.max(0.01, x)), Math.min(N - 0.01, Math.max(0.01, z)));
+    const L = Math.hypot(B.x - A.x, B.z - A.z) || 1, ux = (B.x - A.x) / L, uz = (B.z - A.z) / L, hw = width / 2;
+    for (let t = 0.06; t < 0.95; t += 0.04) {
+      const x = A.x + (B.x - A.x) * t, z = A.z + (B.z - A.z) * t, y = A.y + (B.y - A.y) * t;
+      for (const o of [-hw, -hw / 2, 0, hw / 2, hw]) if (Hc(x - uz * o, z + ux * o) + 0.1 - y >= 0.06) return false;
+    }
+    return true;
+  }
+  /**
+   * Smooth out stubby flights: a post partway along a walkway that sits off the even grade between its neighbours
+   * (so one short stretch takes the whole climb as a few stairs) drops or rises onto that grade, if the deck still clears the ground.
+   */
+  fairStairs(only?: Iterable<string>): boolean {
     const w = this.world;
     const Hc = (x: number, z: number) => w.height(Math.min(N - 0.01, Math.max(0.01, x)), Math.min(N - 0.01, Math.max(0.01, z)));
     let changed = false;
+    const ids = only ? [...only] : [...w.nodes.keys()];
+    for (let pass = 0; pass < 3; pass++) for (const id of ids) {
+      const n = w.nodes.get(id); if (!n || n.pad > 0) continue;
+      const es = w.edgesOf(id); if (es.length !== 2 || es.some(e => e.style === "rope")) continue;
+      if (doorOf(w, n) || grottoTieAt(w, n.x, n.z)) continue;
+      const A = w.nodes.get(es[0].a === id ? es[0].b : es[0].a)!, B = w.nodes.get(es[1].a === id ? es[1].b : es[1].a)!;
+      const la = Math.hypot(n.x - A.x, n.z - A.z), lb = Math.hypot(n.x - B.x, n.z - B.z);
+      const stub = (o: WalkNode, l: number) => l < 1.6 && isStairs(n, o);
+      if (!stub(A, la) && !stub(B, lb)) continue;
+      const y = Math.round((A.y + (B.y - A.y) * la / (la + lb)) * 20) / 20;
+      const m = { ...n, y };
+      if (isStairs(m, A) || isStairs(m, B)) continue;
+      let g = Hc(n.x, n.z);
+      for (let k = 0; k < 8; k++) g = Math.max(g, Hc(n.x + Math.cos(k * 0.785) * 0.55, n.z + Math.sin(k * 0.785) * 0.55));
+      if (g + 0.1 > y || !this.clears(A, m, es[0].width) || !this.clears(m, B, es[1].width)) continue;
+      n.y = y; changed = true;
+    }
+    return changed;
+  }
+  mergeInline(only?: Iterable<string>): boolean {
+    const w = this.world;
+    let changed = this.fairStairs(only);
     for (const id of only ? [...only] : [...w.nodes.keys()]) {
       const n = w.nodes.get(id); if (!n || n.pad > 0) continue;
       const es = w.edgesOf(id); if (es.length !== 2) continue;
@@ -325,13 +362,7 @@ export class App {
       // even grade: the joined deck passes through n's height
       if (Math.abs(A.y + (B.y - A.y) * la / L - n.y) > 0.06) continue;
       if (slopeOf(A, B) > MAX_STAIR + 1e-6) continue;
-      const ux = (B.x - A.x) / L, uz = (B.z - A.z) / L, hw = e1.width / 2;
-      let buried = false;
-      for (let t = 0.06; t < 0.95 && !buried; t += 0.04) {
-        const x = A.x + (B.x - A.x) * t, z = A.z + (B.z - A.z) * t, y = A.y + (B.y - A.y) * t;
-        for (const o of [-hw, -hw / 2, 0, hw / 2, hw]) if (Hc(x - uz * o, z + ux * o) + 0.1 - y >= 0.06) { buried = true; break; }
-      }
-      if (buried) continue;
+      if (!this.clears(A, B, e1.width)) continue;
       w.edges.delete(e2.id); w.nodes.delete(id);
       w.edges.set(e1.id, { ...e1, a: A.id, b: B.id });
       changed = true;
