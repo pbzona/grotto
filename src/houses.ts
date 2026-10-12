@@ -541,16 +541,17 @@ function roofFor(mb: MeshBuilder, v: Volume, yb: number, h: House, r: () => numb
 }
 
 function flatRoof(mb: MeshBuilder, v: Volume, yb: number, h: House, wall: V3, trim: V3, wood: V3, r: () => number) {
-  const o = 0.06;
+  const o = 0.06, pt = 0.12, ph = 0.36, yp = yb - 0.03;
+  // the deck sits inside the parapet so no faces share a plane
+  const ins = o - pt + 0.02;
   mb.paint(hexRGB("#d9c9a8"), M.plaster);
-  mb.box([v.x0 - o, yb - 0.02, v.z0 - o], [v.x1 + o, yb + 0.08, v.z1 + o]);
+  mb.box([v.x0 + ins, yb - 0.02, v.z0 + ins], [v.x1 - ins, yb + 0.08, v.z1 - ins]);
   // parapet
-  const pt = 0.12, ph = 0.36;
   mb.paint(wall, h.style === "plank" ? M.plank : M.plaster);
-  mb.box([v.x0 - o, yb, v.z0 - o], [v.x1 + o, yb + ph, v.z0 - o + pt]);
-  mb.box([v.x0 - o, yb, v.z1 + o - pt], [v.x1 + o, yb + ph, v.z1 + o]);
-  mb.box([v.x0 - o, yb, v.z0 - o + pt], [v.x0 - o + pt, yb + ph, v.z1 + o - pt]);
-  mb.box([v.x1 + o - pt, yb, v.z0 - o + pt], [v.x1 + o, yb + ph, v.z1 + o - pt]);
+  mb.box([v.x0 - o, yp, v.z0 - o], [v.x1 + o, yb + ph, v.z0 - o + pt]);
+  mb.box([v.x0 - o, yp, v.z1 + o - pt], [v.x1 + o, yb + ph, v.z1 + o]);
+  mb.box([v.x0 - o, yp, v.z0 - o + pt], [v.x0 - o + pt, yb + ph, v.z1 + o - pt]);
+  mb.box([v.x1 + o - pt, yp, v.z0 - o + pt], [v.x1 + o, yb + ph, v.z1 + o - pt]);
   mb.paint(hexRGB("#efe4cc"), M.plain);
   mb.box([v.x0 - o - 0.03, yb + ph, v.z0 - o - 0.03], [v.x1 + o + 0.03, yb + ph + 0.05, v.z1 + o + 0.03]);
   // pots on the terrace
