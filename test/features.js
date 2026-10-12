@@ -58,6 +58,32 @@
   const nh = w.houses.size;
   if (cliff) t.commitHouse(cliff, cliff, false);
   ok('a house will not straddle a cliff', cliff && w.houses.size === nh, cliff ? `${cliff.x},${cliff.z}` : 'no cliff found');
+  // --- walkways: posts clicked in a straight line fold away; deleting a mid-run post bridges the gap
+  t.setTool('walk');
+  let site = null;
+  for (let z = 4; z < 44 && !site; z += 1) for (let x = 4; x < 36 && !site; x += 1) {
+    let open = true;
+    for (let k = 0; k <= 8 && open; k++) open = w.height(x + k, z) < -0.5 && !w.houseAt(x + k, z, 1);
+    if (open && ![...w.nodes.values()].some(n => Math.hypot(n.x - x - 4, n.z - z) < 7)) site = [x, z];
+  }
+  const n0 = w.nodes.size, e0 = w.edges.size;
+  if (site) {
+    const [sx, sz] = site;
+    a.begin(true); const r0 = t.walkPoint(new V(sx, 0, sz), null); t.chain = r0.node; w.nodes.delete(r0.node.id); t.chainTemp = r0.node;
+    for (const k of [3, 6, 8]) t.walkTo(new V(sx + k, 0, sz));
+    t.endChain();
+  }
+  ok('posts in a straight line fold into one stretch', site && w.nodes.size === n0 + 2 && w.edges.size === e0 + 1, site ? `${w.nodes.size - n0} posts ${w.edges.size - e0} stretches` : 'no open water');
+  if (site) {
+    const [sx, sz] = site;
+    a.begin(true); const r0 = t.walkPoint(new V(sx, 0, sz + 4), null); t.chain = r0.node; w.nodes.delete(r0.node.id); t.chainTemp = r0.node;
+    t.walkTo(new V(sx + 3, 0, sz + 4)); t.walkTo(new V(sx + 5, 0, sz + 6));
+    t.endChain();
+    const mid = [...w.nodes.values()].find(n => Math.hypot(n.x - sx - 3, n.z - sz - 4) < 0.2);
+    const n1 = w.nodes.size, e1 = w.edges.size;
+    t.select({ kind: 'node', id: mid.id }); t.deleteSelection();
+    ok('removing a mid-run post bridges the walkway', w.nodes.size === n1 - 1 && w.edges.size === e1 - 1, `${n1 - w.nodes.size} ${e1 - w.edges.size}`);
+  }
   t.setTool('select');
   return R.join('\n');
 })()

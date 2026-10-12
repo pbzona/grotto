@@ -14,7 +14,7 @@ export function seedCove(app: App, seed: number) {
   const r = rng(seed * 7.31 + 0.13);
   seedVillage(app, r);
   seedProps(app, r);
-  app.settleWalks(); app.easeStairs();
+  app.settleWalks(); app.easeStairs(); app.mergeInline();
   const w = app.world;
   // a door the ground forced a too-steep flight onto: that house doesn't make the cut
   for (const e of [...w.edges.values()]) {

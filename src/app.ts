@@ -1,6 +1,6 @@
 import * as THREE from "three/webgpu";
 import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { World, N, uid, newVolume, DECK_Y, Prop, PropType, WalkNode, WalkEdge, PAINT_CH, PaintType, carveCove, CoveKind, COVES, WATER_Y, isLandmark, landmarkSamples } from "./world";
+import { World, N, uid, newVolume, DECK_Y, Prop, PropType, WalkNode, WalkEdge, PAINT_CH, PaintType, carveCove, CoveKind, COVES, WATER_Y, grottoTieAt, isLandmark, landmarkSamples } from "./world";
 import { Terrain } from "./terrain";
 import type { Materials } from "./materials";
 import { LightMap } from "./lighting";
@@ -300,6 +300,61 @@ export class App {
     }
   }
 
+  /**
+   * Fold away posts a walkway doesn't need: a post with two stretches that carry on in a straight line, at an even grade,
+   * when the joined stretch would still clear the ground. Doors, grotto docks and landings stay.
+   * With no `only`, every post is considered. Returns true if anything was removed.
+   */
+  mergeInline(only?: Iterable<string>): boolean {
+    const w = this.world;
+    const Hc = (x: number, z: number) => w.height(Math.min(N - 0.01, Math.max(0.01, x)), Math.min(N - 0.01, Math.max(0.01, z)));
+    let changed = false;
+    for (const id of only ? [...only] : [...w.nodes.keys()]) {
+      const n = w.nodes.get(id); if (!n || n.pad > 0) continue;
+      const es = w.edgesOf(id); if (es.length !== 2) continue;
+      const [e1, e2] = es;
+      if (e1.style !== e2.style || e1.style === "rope" || Math.abs(e1.width - e2.width) > 1e-3 || e1.rail !== e2.rail) continue;
+      const A = w.nodes.get(e1.a === id ? e1.b : e1.a)!, B = w.nodes.get(e2.a === id ? e2.b : e2.a)!;
+      if (A === B || w.edgesOf(A.id).some(e => e.a === B.id || e.b === B.id)) continue;
+      if (doorOf(w, n) || grottoTieAt(w, n.x, n.z)) continue;
+      const L = Math.hypot(B.x - A.x, B.z - A.z), la = Math.hypot(n.x - A.x, n.z - A.z);
+      if (L > 14 || L < 0.1) continue;
+      // in line: n sits within a few centimetres of the straight run from A to B
+      const off = Math.abs((B.x - A.x) * (n.z - A.z) - (B.z - A.z) * (n.x - A.x)) / L;
+      if (off > 0.05 || la <= 0 || la >= L) continue;
+      // even grade: the joined deck passes through n's height
+      if (Math.abs(A.y + (B.y - A.y) * la / L - n.y) > 0.06) continue;
+      if (slopeOf(A, B) > MAX_STAIR + 1e-6) continue;
+      const ux = (B.x - A.x) / L, uz = (B.z - A.z) / L, hw = e1.width / 2;
+      let buried = false;
+      for (let t = 0.06; t < 0.95 && !buried; t += 0.04) {
+        const x = A.x + (B.x - A.x) * t, z = A.z + (B.z - A.z) * t, y = A.y + (B.y - A.y) * t;
+        for (const o of [-hw, -hw / 2, 0, hw / 2, hw]) if (Hc(x - uz * o, z + ux * o) + 0.1 - y >= 0.06) { buried = true; break; }
+      }
+      if (buried) continue;
+      w.edges.delete(e2.id); w.nodes.delete(id);
+      w.edges.set(e1.id, { ...e1, a: A.id, b: B.id });
+      changed = true;
+    }
+    return changed;
+  }
+  /** take a post out of a walkway; a post in the middle of a run is bridged over rather than leaving a gap */
+  removePost(id: string) {
+    const w = this.world, es = w.edgesOf(id);
+    if (es.length === 2 && es[0].style === es[1].style) {
+      const [e1, e2] = es, a = e1.a === id ? e1.b : e1.a, b = e2.a === id ? e2.b : e2.a;
+      const A = w.nodes.get(a), B = w.nodes.get(b);
+      if (A && B && a !== b && !w.edgesOf(a).some(e => e.a === b || e.b === b) && Math.hypot(B.x - A.x, B.z - A.z) <= 14) {
+        w.removeNode(id);
+        w.edges.set(e1.id, { ...e1, a, b });
+        this.easeStairs(new Set([a, b]));
+        this.settleWalks(new Set([a, b]));
+        return;
+      }
+    }
+    w.removeNode(id); w.pruneNodes();
+  }
+
   carveGrotto(_p: Prop) { this.world.rebuildCarving(); }
   paintDisc(type: PaintType | "erase", x: number, z: number, r: number, strength = 1) {
     const w = this.world;
@@ -419,7 +474,7 @@ export class App {
     for (let z = 23; z <= 34; z += 1) this.paintDisc("path", 10.7, z, 0.6);
     for (let z = 18; z <= 23; z += 1) this.paintDisc("path", 10 + (z - 18) * 0.15, z, 0.5);
     this.paintDisc("greenery", 5, 28.5, 1.8); this.paintDisc("greenery", 25, 10.5, 1.6); this.paintDisc("greenery", 31.5, 11, 1.2);
-    this.settleWalks(); this.easeStairs();
+    this.settleWalks(); this.easeStairs(); this.mergeInline();
     // nothing small may end up inside a landmark
     for (const lm of [...w.props.values()].filter(p => isLandmark(p.type))) {
       const pts = landmarkSamples(lm);

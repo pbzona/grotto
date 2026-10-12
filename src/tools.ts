@@ -357,7 +357,7 @@ export class Tools {
     const moved = Math.hypot(e.clientX - this.downAt.x, e.clientY - this.downAt.y) > 6;
     switch (d.t) {
       case "rect": this.commitHouse(d.a, d.b, moved); break;
-      case "stroke": if (!d.changed) this.app.cancel(); else if (this.tool === "terrain" && this.app.settleWalks()) this.app.changed({ structures: true }); break;
+      case "stroke": if (!d.changed) this.app.cancel(); else if (this.tool === "terrain") { const a = this.app.settleWalks(), b = this.app.mergeInline(); if (a || b) this.app.changed({ structures: true }); } break;
       case "walk": {
         const g = this.surface() ?? d.down;
         if (moved && d.down.distanceTo(g) > 0.5) {
@@ -441,7 +441,7 @@ export class Tools {
       const h = this.world.houses.get(s.id);
       if (h && h.volumes.length > 1 && s.vi > 0) { h.volumes.splice(s.vi, 1); this.select({ kind: "house", id: h.id, vi: 0 }); }
       else { this.world.houses.delete(s.id); this.select(null); }
-    } else if (s.kind === "node") { this.world.removeNode(s.id); this.world.pruneNodes(); this.select(null); }
+    } else if (s.kind === "node") { this.app.removePost(s.id); this.select(null); }
     else if (s.kind === "edge") { this.world.edges.delete(s.id); this.world.pruneNodes(); this.select(null); }
     else if (s.kind === "prop") {
       const pr = this.world.props.get(s.id);
@@ -1143,6 +1143,7 @@ export class Tools {
     if (!this.chain) return;
     if (!this.app.edits.active) this.app.begin(true);
     if (this.chainTemp && !this.world.nodes.has(this.chainTemp.id)) this.world.nodes.set(this.chainTemp.id, this.chainTemp);
+    const nodesBefore = new Set(this.world.nodes.keys());
     const r = this.walkPoint(p, this.chain);
     if (r.node === this.chain || Math.hypot(r.node.x - this.chain.x, r.node.z - this.chain.z) > 14) {
       const long = r.node !== this.chain;
@@ -1159,6 +1160,8 @@ export class Tools {
         this.toast("Too steep for stairs — start them further out, or lift the post with [ ]"); return;
       }
     }
+    const fresh = [...this.world.nodes.keys()].filter(id => !nodesBefore.has(id));
+    this.app.mergeInline([this.chain.id, ...fresh].filter(id => id !== r.node.id));
     this.chain = r.node; this.chainTemp = null;
     this.walkLift = 0;
     this.app.changed({ structures: true });
