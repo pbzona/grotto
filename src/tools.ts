@@ -484,7 +484,6 @@ export class Tools {
     this.app.changed({ structures: true });
     this.setTool("select");
     this.select({ kind: "house", id: h.id, vi: 0 });
-    this.toast("Pull the arrows to stretch · Shift-drag an arrow for a new wing · the diamond adds floors");
   }
   private toggleBay(id: string, point: THREE.Vector3, normal: THREE.Vector3) {
     const h = this.world.houses.get(id); if (!h) return false;
