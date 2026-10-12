@@ -300,7 +300,8 @@ function palm(mb: MeshBuilder, r: () => number, p: Prop) {
 /** Lofted hull: shared by boats and the beached tavern. Returns nothing; draws outer + inner shell + gunwale. */
 /** A depth-only lid across the hull at the waterline: drawn after the boat but before the water, it keeps the sea out of the hull. */
 const hullMaskMat = (() => { const m = new THREE.MeshBasicNodeMaterial(); m.colorWrite = false; return m; })();
-export function hullMask(len: number, wid: number, dep: number, y: number): THREE.Mesh {
+/** Half-width outline of the hull's waterplane at height y, bow to stern. */
+function waterplane(len: number, wid: number, dep: number, y: number) {
   const NL = 24, pts: [number, number][] = [];
   for (let i = 0; i <= NL; i++) {
     const t = i / NL * 2 - 1;
@@ -310,6 +311,19 @@ export function hullMask(len: number, wid: number, dep: number, y: number): THRE
     const sN = (sheer - y) / d;
     pts.push([hwid * 0.97 * Math.sqrt(Math.max(0, 1 - sN * sN)), t * len / 2]);
   }
+  return pts;
+}
+/** Floorboards laid across the hull at height y, for boats baked into a
+ *  merged mesh where a depth-only mask can't go: they hide the sea inside. */
+export function hullFloor(mb: MeshBuilder, len: number, wid: number, dep: number, y: number) {
+  const pts = waterplane(len, wid, dep, y), up: V3 = [0, 1, 0];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [x0, z0] = pts[i], [x1, z1] = pts[i + 1];
+    mb.quad([[-x0, y, z0], [x0, y, z0], [x1, y, z1], [-x1, y, z1]], up);
+  }
+}
+export function hullMask(len: number, wid: number, dep: number, y: number): THREE.Mesh {
+  const NL = 24, pts = waterplane(len, wid, dep, y);
   const pos: number[] = [];
   for (let i = 0; i < NL; i++) {
     const [x0, z0] = pts[i], [x1, z1] = pts[i + 1];

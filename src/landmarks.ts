@@ -2,7 +2,7 @@ import { World, Prop, PropType, WATER_Y, N, levelY, propOpt, HULL_OPTS, GROTTO_O
 import { MeshBuilder, V3, M, hexRGB, rng, lerp3, add } from "./mesh";
 import type { Light } from "./houses";
 import { PALETTES } from "./houses";
-import { hull, hullDeck, barrel, isGreenery } from "./props";
+import { hull, hullDeck, hullFloor, barrel, isGreenery } from "./props";
 
 /**
  * Landmarks (hull tavern, sea grotto, lighthouse) are big enough that they have to be sited, not dropped:
@@ -229,7 +229,12 @@ export function buildGrotto(mb: MeshBuilder, w: World, p: Prop, L: Light[]) {
       mb.paint(hexRGB("#6b4a33"), M.plank); mb.cyl(0, 0.35, 0, 4.1, 0.06, 0.045, 7);
       mb.beam([0, 0.75, 0.35], [0, 0.77, -1.7], [1, 0, 0], 0.035, 0.035);
       mb.paint(hexRGB("#ece0c4"), M.cloth); mb.tube([[0, 0.86, 0.3], [0.03, 0.88, -0.6], [0, 0.86, -1.6]], 0.09, 6);
-    } else hull(mb, 1.8, 0.72, 0.28, col, hexRGB("#8a6a48"), hexRGB("#efe4cc"));
+      // floorboards just above the waterline keep the sea out of the hull
+      mb.paint(hexRGB("#7d5f42"), M.plank); hullFloor(mb, 3.8, 1.35, 0.6, -0.32 + 0.05);
+    } else {
+      hull(mb, 1.8, 0.72, 0.28, col, hexRGB("#8a6a48"), hexRGB("#efe4cc"));
+      mb.paint(hexRGB("#7d5f42"), M.plank); hullFloor(mb, 1.8, 0.72, 0.28, -0.2 + 0.04);
+    }
     mb.xf = sm;
   }
   mb.xf = prev;
