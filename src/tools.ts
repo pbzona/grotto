@@ -103,6 +103,7 @@ export class Tools {
   /** for tests and the panel: the live handle group */
   get handles() { return this.layer.group; }
   private label = document.createElement("div");
+  private hoverBox = new THREE.Box3();
   private pointerId = -1;
   private downAt = { x: 0, y: 0 };
   private keys = new Set<string>();
@@ -607,6 +608,11 @@ export class Tools {
     const s = this.sel;
     if (s?.kind !== "house") return;
     if (hnd) { this.setReveal(this.reveal); return; }
+    // cheap box test first: the full structure raycast only runs over the selected part
+    const hb = this.world.houses.get(s.id), vb = hb?.volumes[s.vi];
+    if (!hb || !vb) return;
+    const lb = houseLayout(this.world, hb).base, box = this.hoverBox.set(new THREE.Vector3(vb.x0 - 0.3, lb, vb.z0 - 0.3), new THREE.Vector3(vb.x1 + 0.3, lb + vb.floors * FLOOR_H + Math.max(vb.x1 - vb.x0, vb.z1 - vb.z0) * 1.5, vb.z1 + 0.3));
+    if (!this.ray.ray.intersectsBox(box)) { this.setReveal(null); return; }
     const p = this.pick();
     const o = p && this.ownerToSel(p.owner);
     const h = this.world.houses.get(s.id), v = h?.volumes[s.vi];
