@@ -54,7 +54,7 @@ export function junctionTrim(world: World, n: WalkNode) {
  * How walkways meet at a post: "through" when one runs straight on (no platform, the decks just join),
  * "square" when they meet at right angles (a plain square of decking), "landing" for anything else.
  */
-export type Joint = "end" | "through" | "square" | "landing";
+export type Joint = "end" | "through" | "square" | "bend" | "landing";
 const THROUGH = (20 * Math.PI) / 180, SQUARE = (8 * Math.PI) / 180;
 export function jointOf(world: World, n: WalkNode): Joint {
   const es = world.edgesOf(n.id);
@@ -66,14 +66,27 @@ export function jointOf(world: World, n: WalkNode): Joint {
   if (dirs.length === 2 && junctionAngle(world, n) >= Math.PI - THROUGH) return "through";
   const q = Math.PI / 2;
   const square = dirs.every(d => { const r = (((d - dirs[0]) % q) + q) % q; return Math.min(r, q - r) <= SQUARE; });
-  return square ? "square" : "landing";
+  if (square) return "square";
+  // a single turn wider than 60 degrees gets a mitred corner rather than a platform
+  return dirs.length === 2 && junctionAngle(world, n) >= Math.PI / 3 ? "bend" : "landing";
+}
+/** The mitred corner piece at a bend: inner mitre point, the two outer deck corners and the outer point between them. */
+function bendKite(world: World, n: WalkNode) {
+  const es = world.edgesOf(n.id), hw = jointHalf(world, n);
+  const [p, q] = es.map(e => world.nodes.get(e.a === n.id ? e.b : e.a)!);
+  const la = Math.hypot(p.x - n.x, p.z - n.z), lb = Math.hypot(q.x - n.x, q.z - n.z);
+  const ua = [(p.x - n.x) / la, (p.z - n.z) / la], ub = [(q.x - n.x) / lb, (q.z - n.z) / lb];
+  const th = junctionAngle(world, n), t = hw / Math.tan(th / 2), m = hw / Math.sin(th / 2);
+  const bl = Math.hypot(ua[0] + ub[0], ua[1] + ub[1]), b = [(ua[0] + ub[0]) / bl, (ua[1] + ub[1]) / bl];
+  const outer = (u: number[]) => { const sx = -u[1], sz = u[0], k = sx * b[0] + sz * b[1] > 0 ? -1 : 1; return [n.x + u[0] * t + sx * hw * k, n.z + u[1] * t + sz * hw * k]; };
+  return { t, pts: [[n.x + b[0] * m, n.z + b[1] * m], outer(ua), [n.x - b[0] * m, n.z - b[1] * m], outer(ub)] };
 }
 export function landingRadius(world: World, n: WalkNode) {
   const es = world.edgesOf(n.id);
   const w = es.reduce((m, e) => Math.max(m, e.width), 0.6);
   if (n.pad > 0) return n.pad;
   const j = jointOf(world, n);
-  if (j === "through" || j === "square") return (w / 2) * 1.14 / OCT;
+  if (j === "through" || j === "square" || j === "bend") return (w / 2) * 1.14 / OCT;
   return Math.max((w / 2) * 1.14 / OCT, junctionTrim(world, n) + 0.12);
 }
 
@@ -90,12 +103,45 @@ export function buildWalks(world: World, mb: MeshBuilder, out: WalkBuild) {
   }
 }
 
-function trimFor(world: World, n: WalkNode, w: number) {
+/**
+ * Where several walkways meet at odd angles: each deck stops just where it would run into its neighbours,
+ * and the junction is the tight outline around those deck ends.
+ */
+function junctionHull(world: World, n: WalkNode) {
+  const hw = jointHalf(world, n);
+  const arms = world.edgesOf(n.id).map(e => { const o = world.nodes.get(e.a === n.id ? e.b : e.a)!; return { e, a: Math.atan2(o.z - n.z, o.x - n.x) }; }).sort((p, q) => p.a - q.a);
+  const trims = new Map<string, number>();
+  arms.forEach((arm, i) => {
+    let t = hw * 0.55;
+    for (const j of [i - 1, i + 1]) {
+      const o = arms[(j + arms.length) % arms.length];
+      let d = Math.abs(o.a - arm.a) % (2 * Math.PI); if (d > Math.PI) d = 2 * Math.PI - d;
+      t = Math.max(t, Math.min(1.9, hw / Math.tan(Math.max(0.2, d) / 2) + 0.04));
+    }
+    trims.set(arm.e.id, t);
+  });
+  const pts: [number, number][] = [];
+  for (const { e, a } of arms) {
+    const t = trims.get(e.id)!, c = Math.cos(a), s = Math.sin(a);
+    pts.push([n.x + c * t - s * hw, n.z + s * t + c * hw], [n.x + c * t + s * hw, n.z + s * t - c * hw]);
+  }
+  // convex hull (monotone chain)
+  pts.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+  const cr = (o: number[], a: number[], b: number[]) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lo: [number, number][] = [], hi: [number, number][] = [];
+  for (const p of pts) { while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], p) <= 0) lo.pop(); lo.push(p); }
+  for (const p of [...pts].reverse()) { while (hi.length >= 2 && cr(hi[hi.length - 2], hi[hi.length - 1], p) <= 0) hi.pop(); hi.push(p); }
+  return { trims, hull: lo.slice(0, -1).concat(hi.slice(0, -1)) };
+}
+
+function trimFor(world: World, n: WalkNode, w: number, e?: WalkEdge) {
+  if (e && n.pad <= 0 && jointOf(world, n) === "landing") return junctionHull(world, n).trims.get(e.id)! - 0.01;
   if (n.pad > 0) return n.pad * 0.92;
   const j = jointOf(world, n);
   // running straight on: the decks overrun the post a touch so a slight kink leaves no gap
   if (j === "through") return -(w / 2) * Math.tan((Math.PI - junctionAngle(world, n)) / 2) - 0.01;
   if (j === "square") return jointHalf(world, n) - 0.01;
+  if (j === "bend") return bendKite(world, n).t - 0.01;
   if (j === "landing") return Math.max((w / 2) * 0.55, junctionTrim(world, n));
   return 0;
 }
@@ -121,7 +167,7 @@ function edgeMesh(world: World, mb: MeshBuilder, e: WalkEdge, A: WalkNode, B: Wa
   if (L < 0.05) return;
   const u: V3 = [dx / L, 0, dz / L], s: V3 = [-u[2], 0, u[0]];
   const w = e.width, hw = w / 2;
-  const tA = trimFor(world, A, w), tB = trimFor(world, B, w);
+  const tA = trimFor(world, A, w, e), tB = trimFor(world, B, w, e);
   const s0 = tA, s1 = L - tB;
   if (s1 - s0 < 0.02) return;
   const yAt = (d: number) => A.y + (B.y - A.y) * (d / L);
@@ -256,6 +302,15 @@ function nodeMesh(world: World, mb: MeshBuilder, n: WalkNode, out: WalkBuild) {
   }
   const joint = jointOf(world, n);
   if (joint === "through") return;
+  if (joint === "bend") {
+    const k = bendKite(world, n).pts, y = n.y;
+    mb.paint(hexRGB(DECK, 0.92), M.plank);
+    mb.quad(k.map(([x, z]) => [x, y, z] as V3), [0, 1, 0]);
+    mb.paint(hexRGB("#6b4a33"), M.plank);
+    for (let i = 0; i < 4; i++) { const [a, b] = [k[i], k[(i + 1) % 4]]; mb.quad([[a[0], y, a[1]], [b[0], y, b[1]], [b[0], y - 0.06, b[1]], [a[0], y - 0.06, a[1]]], [(a[0] + b[0]) / 2 - n.x, 0, (a[1] + b[1]) / 2 - n.z]); }
+    for (const i of [0, 2]) { const dx = n.x - k[i][0], dz = n.z - k[i][1], d = Math.hypot(dx, dz); post(world, mb, k[i][0] + dx / d * 0.08, k[i][1] + dz / d * 0.08, n.y - 0.06, out); }
+    return;
+  }
   if (joint === "square") {
     // a plain square of boards where walkways meet at right angles, laid across the first one
     const c = Math.cos(ang), s = Math.sin(ang), P = jointHalf(world, n);
@@ -268,18 +323,13 @@ function nodeMesh(world: World, mb: MeshBuilder, n: WalkNode, out: WalkBuild) {
     for (const [i, j] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) post(world, mb, n.x + c * i * (P - 0.02) - s * j * (P - 0.02), n.z + s * i * (P - 0.02) + c * j * (P - 0.02), n.y - 0.06, out);
     return;
   }
-  if (deg >= 2) {
-    const R = landingRadius(world, n);
-    mb.paint(hexRGB(DECK, 0.95), M.plank);
-    mb.cyl(n.x, n.z, n.y - 0.06, n.y, R, R, 8, true, ang + Math.PI / 8);
+  if (joint === "landing") {
+    const k = junctionHull(world, n).hull, y = n.y;
+    mb.paint(hexRGB(DECK, 0.92), M.plank);
+    for (let i = 1; i < k.length - 1; i++) mb.tri([[k[0][0], y, k[0][1]], [k[i][0], y, k[i][1]], [k[i + 1][0], y, k[i + 1][1]]], [0, 1, 0]);
     mb.paint(hexRGB("#6b4a33"), M.plank);
-    mb.cyl(n.x, n.z, n.y - 0.2, n.y - 0.06, R * 0.92, R * 0.92, 8, false, ang + Math.PI / 8);
-    const np = R > 1.1 ? 8 : 4;
-    for (let k = 0; k < np; k++) {
-      const a = ang + Math.PI / np + k * 2 * Math.PI / np;
-      post(world, mb, n.x + Math.cos(a) * R * 0.8, n.z + Math.sin(a) * R * 0.8, n.y - 0.06, out);
-    }
-    if (R > 1.1) post(world, mb, n.x, n.z, n.y - 0.06, out, 0.09);
+    for (let i = 0; i < k.length; i++) { const [a, b] = [k[i], k[(i + 1) % k.length]]; mb.quad([[a[0], y, a[1]], [b[0], y, b[1]], [b[0], y - 0.06, b[1]], [a[0], y - 0.06, a[1]]], [(a[0] + b[0]) / 2 - n.x, 0, (a[1] + b[1]) / 2 - n.z]); }
+    for (const [x, z] of k) { const dx = n.x - x, dz = n.z - z, d = Math.hypot(dx, dz) || 1; post(world, mb, x + dx / d * 0.08, z + dz / d * 0.08, n.y - 0.06, out); }
     return;
   }
   if (deg === 1) {
