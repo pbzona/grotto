@@ -102,7 +102,6 @@ export class Tools {
   private layer: HandleLayer;
   /** for tests and the panel: the live handle group */
   get handles() { return this.layer.group; }
-  private label = document.createElement("div");
   private hoverBox = new THREE.Box3();
   private pointerId = -1;
   private downAt = { x: 0, y: 0 };
@@ -122,7 +121,6 @@ export class Tools {
     for (const g of [this.ghost, this.ghostBad, this.ghostX, this.ghostBadX, this.foot]) { g.frustumCulled = false; g.visible = false; }
     this.layer = new HandleLayer(m.handle, m.handleHot, m.handleLine, m.handleWash);
     app.d.scene.add(this.ghostX, this.ghostBadX, this.ghost, this.ghostBad, this.foot, this.layer.group);
-    this.label.className = "hlabel"; document.body.appendChild(this.label);
     dom.addEventListener("pointerdown", e => {
       // Clicking the world takes focus back from any panel control.
       const f = document.activeElement as HTMLElement | null;
@@ -346,32 +344,12 @@ export class Tools {
         break;
       }
     }
-    this.showLabel(e);
   }
-  /** A small readout by the pointer while a handle is held: size, floors, height. */
-  private showLabel(e: PointerEvent) {
-    const d = this.drag, s = this.sel, L = this.label;
-    let txt = "";
-    const m = (x: number) => String(+x.toFixed(2));
-    if (d && s?.kind === "house") {
-      const h = this.world.houses.get(s.id), v = h?.volumes[s.vi];
-      if (h && v) {
-        if (d.t === "side" || d.t === "move") txt = `${m(v.x1 - v.x0)} × ${m(v.z1 - v.z0)}`;
-        else if (d.t === "floors") txt = `${v.floors} floor${v.floors > 1 ? "s" : ""}`;
-        else if (d.t === "lift") txt = d.df === 0 ? "drag up or down" : `${d.df > 0 ? "+" : ""}${d.df} floor${Math.abs(d.df) > 1 ? "s" : ""}`;
-        else if (d.t === "seg") { const w = h.volumes.length > d.orig.volumes.length ? h.volumes.at(-1)! : null; txt = w ? `wing ${m(w.x1 - w.x0)} × ${m(w.z1 - w.z0)}` : "pull out a wing"; }
-      }
-    } else if (d?.t === "nodeY") { const n = this.world.nodes.get(d.id); if (n) txt = `height ${n.y.toFixed(2)}`; }
-    L.textContent = txt;
-    L.style.display = txt ? "block" : "none";
-    if (txt) { L.style.left = e.clientX + 16 + "px"; L.style.top = e.clientY + 14 + "px"; }
-  }
-
   private up(e: PointerEvent) {
     if (e.button !== 0 && e.pointerType === "mouse") return;
     const d = this.drag;
     this.drag = null;
-    this.layer.held = null; this.label.style.display = "none";
+    this.layer.held = null;
     this.app.endInteraction();
     try { this.dom.releasePointerCapture(this.pointerId); } catch { /* not captured */ }
     if (!d) return;
@@ -428,7 +406,7 @@ export class Tools {
     if (!this.drag) return;
     if (this.drag.t === "walk") { this.chain = null; this.chainTemp = null; this.walkLift = 0; }
     this.drag = null; this.housesChanged = false;
-    this.layer.held = null; this.label.style.display = "none";
+    this.layer.held = null;
     try { this.dom.releasePointerCapture(this.pointerId); } catch { /* not captured */ }
     this.app.cancel(); this.pointerId = -1;
     if (this.sel?.kind === "house") { const h = this.world.houses.get(this.sel.id); if (h && this.sel.vi >= h.volumes.length) this.sel.vi = 0; }

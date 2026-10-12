@@ -53,7 +53,6 @@ export function injectStyles() {
     --body: "Alegreya Sans", "Gill Sans", "Trebuchet MS", sans-serif; --small: "Alegreya Sans SC", "Gill Sans", sans-serif;
   }
   * { box-sizing: border-box; }
-  .hlabel { position: fixed; display: none; z-index: 20; pointer-events: none; padding: 2px 7px 3px; background: rgba(42,36,32,.86); color: #fff1c9; border-radius: 2px; font: 500 13px var(--body); white-space: nowrap; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #0b2a36; font-family: var(--body); color: var(--ink); -webkit-user-select: none; user-select: none; }
   canvas { display: block; touch-action: none; }
   #loading, #fallback { position: fixed; inset: 0; display: grid; place-items: center; font: italic 22px var(--display); color: var(--ink); background: ${GRAIN}, radial-gradient(#f1e7cf, #d9c69f); z-index: 50; text-align: center; }
