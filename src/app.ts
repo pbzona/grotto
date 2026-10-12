@@ -404,7 +404,7 @@ export class App {
     this.addProp("rowboat", 23.95, 21.5, -0.08, 0.33);
     for (const [x, z, s] of [[17.2, 14.8, 1], [27.8, 16.6, 2], [12.2, 20.4, 3], [11.2, 27.5, 4], [36.4, 27, 5], [35.8, 33.5, 6], [15, 15.8, 7], [33.8, 20.5, 8]] as const)
       this.addProp("palm", x, z, s, s * 0.137);
-    for (const [x, z] of [[24.2, 13.8], [18.9, 12.3], [10.2, 26], [10.4, 29.2], [30.2, 12.6], [37.4, 23.4]] as const) this.addProp("bougainvillea", x, z, 0, x * 0.01);
+    for (const [x, z] of [[24.2, 13.8], [18.9, 12.3], [10.0, 26], [10.4, 29.2], [30.0, 12.6], [37.4, 23.4]] as const) this.addProp("bougainvillea", x, z, 0, x * 0.01);
     for (const [x, z] of [[13, 13], [9, 18], [38, 14], [39, 30], [14.5, 36], [34, 37]] as const) this.addProp("scrub", x, z, 0, z * 0.01);
     for (const [x, z] of [[11.4, 33.8], [36.7, 36.5], [14.2, 38.6]] as const) this.addProp("rock", x, z, x, 0.3);
     this.addProp("crates", 24.6, 29.4, 0.3, 0.2);

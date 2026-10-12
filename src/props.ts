@@ -125,6 +125,7 @@ export function buildOneProp(world: World, mb: MeshBuilder, p: Prop, out: PropBu
   }
 }
 
+export const CLIMB_REACH = 0.7;
 /** The wall a bougainvillea planted beside a house can climb: nearest outside face within reach, not one shared with another volume. */
 export function climbWall(world: World, p: Prop) {
   let best: { a: [number, number]; n: [number, number]; t: number; len: number; d: number; y0: number; y1: number } | null = null;
@@ -137,10 +138,11 @@ export function climbWall(world: World, p: Prop) {
         const len = Math.hypot(b[0] - a[0], b[1] - a[1]); if (len < 1) continue;
         const ux = (b[0] - a[0]) / len, uz = (b[1] - a[1]) / len;
         const d = (p.x - a[0]) * n[0] + (p.z - a[1]) * n[1];
-        if (d < 0.3 || d > 1.2 || (best && d >= best.d)) continue;
+        // only a shrub planted right against the boards, squarely in front of them
+        if (d < 0.25 || d > CLIMB_REACH || (best && d >= best.d)) continue;
         const t = (p.x - a[0]) * ux + (p.z - a[1]) * uz;
-        if (t < 0.2 || t > len - 0.2) continue;
-        const tc = Math.max(0.6, Math.min(len - 0.6, t));
+        if (t < 0.35 || t > len - 0.35) continue;
+        const tc = t;
         const fx = a[0] + ux * tc + n[0] * 0.15, fz = a[1] + uz * tc + n[1] * 0.15;
         if (world.houseAt(fx, fz, 0.05)) continue; // the face is against another room
         L ??= houseLayout(world, h);

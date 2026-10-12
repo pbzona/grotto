@@ -90,7 +90,17 @@
     ok('houses with no walkway stay dark', lived.some(([c]) => !c) && lived.every(([c, l]) => c === l));
     const faces = H.buildHouses(w).faces ?? [];
     ok('washing hangs between close neighbours', P.linePairs(w, faces).length >= 1);
-    ok('bougainvillea climbs a wall it grows beside', [...w.props.values()].some(p => p.type === 'bougainvillea' && P.climbWall(w, p)));
+    const climber = [...w.props.values()].find(p => p.type === 'bougainvillea' && P.climbWall(w, p));
+    ok('bougainvillea climbs a wall it grows beside', !!climber);
+    {
+      const cw = P.climbWall(w, climber), ux = -cw.n[1], uz = cw.n[0];
+      const at = (dn, dt) => P.climbWall(w, { ...climber, x: climber.x + cw.n[0] * dn + ux * dt, z: climber.z + cw.n[1] * dn + uz * dt });
+      const off = at(P.CLIMB_REACH - cw.d + 0.2, 0);
+      const past = at(0, cw.len - cw.t + 0.3), close = at(0.05, 0);
+      ok('bougainvillea a step back from the wall does not reach for it', !off || off.d < cw.d);
+      ok('bougainvillea past the end of a wall does not climb it', !past || past.n[0] !== cw.n[0] || past.n[1] !== cw.n[1] || past.len !== cw.len);
+      ok('climbing stems rise straight in front of the shrub', Math.abs(close.t - cw.t) < 1e-6);
+    }
     a.update(0); g.updateVillagers(1); g.fish.update(1, 0);
     ok('seagrass grows in the shallows and fish circle it', P.seagrassCells(w).length > 10 && g.fish.state.schools > 0 && g.fish.state.fish > 0);
   }
