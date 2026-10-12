@@ -9,15 +9,25 @@
     return Math.abs(p.x - q.x) < 1e-6 || Math.abs(p.z - q.z) < 1e-6;
   });
   const { MAX_STAIR, slopeOf } = await import('/src/walks.ts');
+  const { propBase } = await import('/src/props.ts');
+  const { planSloop } = await import('/src/voyages.ts');
+  const DECK_PROPS = ['crates', 'barrels', 'crane', 'lantern', 'nets', 'laundry'];
+  const dry = () => [...w.props.values()].filter(p => DECK_PROPS.includes(p.type)).every(p => propBase(w, p) > 0.25);
   const gentle = () => [...w.edges.values()].every(e => slopeOf(w.nodes.get(e.a), w.nodes.get(e.b)) <= MAX_STAIR + 1e-6 && Math.hypot(w.nodes.get(e.a).x - w.nodes.get(e.b).x, w.nodes.get(e.a).z - w.nodes.get(e.b).z) >= 0.3);
+  let sloops = 0;
   for (const kind of ['classic', 'fjord', 'islets', 'estuary']) for (let s = 1; s <= 12; s++) {
     a.newCove(kind, s);
     if (!gentle() || villagerHomes(w).length !== w.houses.size || w.houses.size < 3) throw new Error(`${kind} ${s}: steep stairs or a stranded house`);
+    if (!dry()) throw new Error(`${kind} ${s}: a deck prop stands in the water`);
+    if (planSloop(w)) sloops++;
   }
+  ok('most villages have a berth for their sloop', sloops >= 30);
   a.starter();
   results.push('PASS every preset seed 1-12 has climbable stairs and connected houses');
   const start = JSON.stringify(w.save());
   ok('starter stairs are climbable, with no stubby steps', gentle());
+  ok('starter deck props stand on decks or land', dry());
+  ok('the starter pier has a berth for the village sloop', !!planSloop(w));
   ok('starter walkways run at right angles', square());
   ok('starter connects several houses', villagerHomes(w).length >= 5);
   for (const [label, kind] of [['Fjord', 'fjord'], ['Islets', 'islets'], ['Estuary', 'estuary']]) {

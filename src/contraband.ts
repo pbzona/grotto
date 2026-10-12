@@ -52,8 +52,8 @@ export class Contraband {
   }
 
   /** Re-plan tonight's run from the world (call when it changes). */
-  replan(world: World, lookouts: Lookout[], homes: Home[]) {
-    this.plan = planRun(world, lookouts, homes);
+  replan(world: World, lookouts: Lookout[], homes: Home[], moored: [number, number][] = []) {
+    this.plan = planRun(world, lookouts, homes, moored);
     const key = lookouts.map(l => `${l.x.toFixed(2)},${l.y.toFixed(2)},${l.z.toFixed(2)}`).join(";");
     if (key === this.lookoutKey) return;
     this.lookoutKey = key;

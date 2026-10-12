@@ -157,15 +157,32 @@
     reset();
   }
 
-  // Boats are moored at night and out on the water at noon, never over land or houses.
+  // Placed boats are plain props: they stay where they were put all day, and selecting one keeps it shown.
   {
     reset(); const hour = a.hour, at = h => { a.hour = h; a.update(0.4); a.update(0.4); return a.boats.map(b => ({ b, p: w.props.get(b.id) })); };
-    const night = at(2);
-    ok('boats sit on their moorings at night', night.length > 0 && night.every(({ b, p }) => b.x === p.x && b.z === p.z && b.vis === 1));
-    const noon = at(12.5);
-    ok('boats are out at noon', noon.filter(({ b, p }) => Math.hypot(b.x - p.x, b.z - p.z) > 4).length >= noon.length - 1);
-    ok('boats out at noon float on open water', noon.every(({ b }) => w.isWater(b.x, b.z) && !w.houseAt(b.x, b.z, 0.2)));
-    at(hour); reset();
+    const still = list => list.length > 0 && list.every(({ b, p }) => b.x === p.x && b.z === p.z && b.mesh.visible && b.mesh.scale.x === 1);
+    ok('placed boats stay on their moorings at night', still(at(2)));
+    ok('placed boats stay on their moorings at noon', still(at(12.5)));
+    const id = a.boats[0].id;
+    t.setTool('select'); t.select({ kind: 'prop', id: a.boats[0].id }); a.update(0.1); g.updateVillagers(0.1);
+    ok('a selected boat stays visible', a.boats[0].mesh.visible && a.boats[0].mesh.scale.x === 1 && w.props.has(id));
+    t.select(null);
+    // the village sloop: alongside the pier head overnight, gone past the map edge by day
+    a.hour = 2; g.updateVillagers(1);
+    const sl = g.sloop;
+    ok('the village sloop has a berth by the pier', !!sl.plan && w.isWater(sl.plan.berth.x, sl.plan.berth.z));
+    ok('the village sloop is moored overnight', sl.pose && sl.pose.vis === 1 && !sl.pose.moving);
+    a.hour = 12.5; g.updateVillagers(0);
+    ok('the village sloop is off the map at noon', sl.pose.vis === 0);
+    let worst = Infinity, edge = false;
+    for (let h = sl.plan.depart; h < sl.plan.depart + sl.plan.travel; h += 0.05) {
+      a.hour = h; g.updateVillagers(0);
+      const p = sl.pose;
+      if (p.vis > 0.05) worst = Math.min(worst, 0.2 - w.height(Math.min(47.9, Math.max(0.1, p.x)), Math.min(47.9, Math.max(0.1, p.z))));
+      if (p.x < 0 || p.z < 0 || p.x > 48 || p.z > 48) edge = true;
+    }
+    ok('the village sloop sails out past the map edge over deep water', edge && worst > 0.4, `depth ${worst.toFixed(2)}`);
+    a.hour = hour; g.updateVillagers(0); reset();
   }
   results.push(`PERF warmed unchanged structure rebuild median=${samples[4].toFixed(1)}ms max=${samples.at(-1).toFixed(1)}ms`);
   return results.join('\n');

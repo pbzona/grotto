@@ -177,16 +177,19 @@ function buildVillage(app: App, site: Site, r: () => number, dress: boolean): nu
   }
   if (!dress) return count;
 
-  // --- the working end: boats along the pier, clutter on the head, a lantern at the root ---
+  // --- the working end: a rowboat along the pier (the village sloop berths itself), clutter on the head, a lantern at the root ---
   const prop = (type: PropType, k: number, s: number, rot: number) => { const [x, z] = at(k, s); return app.addProp(type, x, z, rot, r()); };
   const along = Math.atan2(dx, dz);
   const free = (k: number, s: number, rad: number) => { const [x, z] = at(k, s); return wet(Math.floor(x), Math.floor(z)) && !w.houseAt(x, z, rad); };
   if (free(L - 0.3, 1.9, 1.2)) prop("rowboat", L - 0.3, 1.9, along + 0.15);
   else if (free(L - 0.3, -1.9, 1.2)) prop("rowboat", L - 0.3, -1.9, along - 0.15);
-  if (L >= 8 && free(L - 3, -2.6 * side, 2.2) && w.height(...at(L - 3, -2.6 * side)) < WATER_Y - 0.6) prop("sloop", L - 3, -2.6 * side, along + 0.1);
   prop("crates", L + 0.4, 0.5, r());
   prop("barrels", L - 0.3, -0.6, 0);
-  { const [x, z] = at(0.6, 0.9); app.addProp("lantern", x, z, 0, r()); }
+  // the lantern stands on dry ground at the root, beside the walkway
+  for (const [k, sd] of [[-0.5, 0.85], [-0.5, -0.85], [-1.2, 0.85], [-1.2, -0.85]]) {
+    const [x, z] = at(k, sd);
+    if (w.height(x, z) > WATER_Y + 0.1 && !w.houseAt(x, z, 0.3)) { app.addProp("lantern", x, z, 0, r()); break; }
+  }
   return count;
 }
 

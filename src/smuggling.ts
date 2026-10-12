@@ -69,7 +69,7 @@ const segDist = (px: number, pz: number, ax: number, az: number, bx: number, bz:
 };
 /** Open water alongside a pier head: clear of every deck (never tucked underneath), of houses and of
  *  moored boats; the deepest such spot around the pad. */
-function pierBerth(world: World, x: number, z: number, pad: number): Pt | null {
+function pierBerth(world: World, x: number, z: number, pad: number, moored: Pt[]): Pt | null {
   const r = pad * 0.71 + 0.75;
   let best: Pt | null = null, deep = Infinity;
   for (let k = 0; k < 8; k++) {
@@ -83,6 +83,7 @@ function pierBerth(world: World, x: number, z: number, pad: number): Pt | null {
     }
     for (const n of world.nodes.values()) if (n.pad > 0 && Math.abs(bx - n.x) < n.pad / 2 + 0.55 && Math.abs(bz - n.z) < n.pad / 2 + 0.55) ok = false;
     for (const p of world.props.values()) if ((p.type === "rowboat" || p.type === "sloop") && Math.hypot(p.x - bx, p.z - bz) < (p.type === "sloop" ? 2.4 : 1.7)) ok = false;
+    for (const [mx, mz] of moored) if (Math.hypot(mx - bx, mz - bz) < 2.4) ok = false;
     if (ok && h < deep) { deep = h; best = [bx, bz]; }
   }
   return best;
@@ -103,7 +104,8 @@ function walkHome(world: World, from: string, homes: Home[]) {
 }
 
 /** Plan tonight's run (if any). `lookouts` come from the houses, `homes` are the villager homes. */
-export function planRun(world: World, lookouts: Lookout[], homes: Home[]): RunPlan {
+/** `moored`: where the village sloop lies overnight (kept clear). */
+export function planRun(world: World, lookouts: Lookout[], homes: Home[], moored: Pt[] = []): RunPlan {
   const plan: RunPlan = {
     lookouts, signal: lookouts.length ? "dark" : null, landing: null, path: null, cum: [0], length: 0,
     travel: 0, arrive: 0, leave: 0, home: null, walk: [], walkLength: 0, speed: WALK_SPEED, crates: CRATES, carriers: [], stack: null,
@@ -125,7 +127,7 @@ export function planRun(world: World, lookouts: Lookout[], homes: Home[]): RunPl
     const pads = [...world.nodes.values()].filter(n => n.pad > 0 && world.edgesOf(n.id).length && n.y < DECK_Y + 0.6).sort((a, b) => (a.id < b.id ? -1 : 1));
     for (const n of pads) {
       if (world.height(n.x, n.z) > WATER_Y - 0.4) continue;
-      const b = pierBerth(world, n.x, n.z, n.pad);
+      const b = pierBerth(world, n.x, n.z, n.pad, moored);
       const path = b && seaRoute(world, false, b[0], b[1], [], 1.5);
       if (path) tries.push({ landing: { kind: "pier", id: n.id, node: n.id, x: b![0], z: b![1] }, path });
     }

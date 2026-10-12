@@ -12,6 +12,7 @@ import { seagrassCells } from "./props";
 import { Villagers, CROWDS } from "./villagers";
 import { villagerHomes, lookoutLanterns } from "./houses";
 import { Contraband } from "./contraband";
+import { VillageSloop } from "./sloop";
 import { Tools } from "./tools";
 import { UI, injectStyles } from "./ui";
 import { Ambience } from "./sound";
@@ -152,6 +153,9 @@ async function boot() {
   // the night trade: replanned with the villagers, posed from the hour dial
   const smuggling = new Contraband(mats.building);
   scene.add(smuggling.group);
+  // the village sloop: out past the map edge by day, alongside the pier head at night
+  const sloop = new VillageSloop(mats.building);
+  scene.add(sloop.group);
   let seenVersion = -1, sinceSync = 1;
   function updateVillagers(dt: number) {
     sinceSync += dt;
@@ -160,12 +164,14 @@ async function boot() {
     if (world.version !== seenVersion && sinceSync > 0.3) { seenVersion = world.version; sinceSync = 0;
       const homes = villagerHomes(world);
       villagers.sync(world, homes);
-      smuggling.replan(world, lookoutLanterns(world), homes);
+      sloop.replan(world);
+      smuggling.replan(world, lookoutLanterns(world), homes, sloop.berth);
       fish.plan(planSchools(world, seagrassCells(world)));
     }
     villagers.update(world, dt);
     people.update(villagers.people, app.time);
     smuggling.update(app.hour, app.time);
+    sloop.update(app.hour, app.time);
   }
   /** Never let the camera sink into the land or the water; ease the target up with it so orbiting stays smooth. */
   const _cp = new THREE.Vector3();
@@ -183,7 +189,7 @@ async function boot() {
     sinceMix += dt;
     if (sinceMix > 0.4 && sound.enabled) {
       sinceMix = 0;
-      heard = ambienceMix(world, { x: controls.target.x, z: controls.target.z, dist: camera.position.distanceTo(controls.target), night: U.night.value, people: villagers.people, sailing: app.boats.filter(b => b.moving).length });
+      heard = ambienceMix(world, { x: controls.target.x, z: controls.target.z, dist: camera.position.distanceTo(controls.target), night: U.night.value, people: villagers.people, sailing: sloop.moving ? 1 : 0 });
     }
     sound.update(dt, heard);
   }
@@ -204,7 +210,7 @@ async function boot() {
     camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
-  (window as any).__grotto = { app, world, camera, controls, renderer, scene, applySky, tools, ui, villagers, updateVillagers, smuggling, fish, sound, ambienceMix };
+  (window as any).__grotto = { app, world, camera, controls, renderer, scene, applySky, tools, ui, villagers, updateVillagers, smuggling, sloop, fish, sound, ambienceMix };
   const fpsCap = () => (document.hidden ? 0 : !document.hasFocus() || performance.now() - lastInput > 6000 ? Math.min(30, app.settings.fps) : app.settings.fps);
   function frame() {
     const now = performance.now();

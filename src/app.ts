@@ -9,7 +9,6 @@ import { buildHouse, makeHouse, houseLayout, HouseBuild, Light, Face } from "./h
 import { seedCove } from "./seed";
 import { fitLandmark } from "./landmarks";
 import { buildWalks, defaultDeckY, WALK_W, MAX_STAIR, slopeOf } from "./walks";
-import { Fleet } from "./voyages";
 import { buildProps, buildBoat, updateBoat, Boat, stringLights, washingLines, PROP_INFO, buildScatter, isGreenery } from "./props";
 import { Edits } from "./edits";
 import { CROWDS, CROWD_KEY, DEFAULT_CROWD } from "./villagers";
@@ -34,12 +33,6 @@ export class App {
   time = 0;
   structures: THREE.Mesh;
   boats: Boat[] = [];
-  /** Where the boats go by day; replanned (throttled) when the world changes. */
-  fleet = new Fleet();
-  private fleetVersion = -1;
-  private fleetWait = 0;
-  private shoreFoam: { x: number; z: number; r: number }[] = [];
-  private foamKey = "";
   boatGroup = new THREE.Group();
   dirty = { terrain: true, paint: true, structures: true };
   onChange: (() => void) | null = null;
@@ -188,7 +181,6 @@ export class App {
     const boatIds = new Set([...w.props.values()].filter(p => PROP_INFO[p.type]?.water).map(p => p.id));
     for (const [id, entry] of this.boatCache) if (!boatIds.has(id)) { entry.boat.mesh.geometry.dispose(); this.boatGroup.remove(entry.boat.mesh); this.boatCache.delete(id); }
     this.boats = [];
-    this.shoreFoam = out.foam.slice(); this.foamKey = "";
     for (const p of w.props.values()) if (PROP_INFO[p.type]?.water) {
       const key = JSON.stringify(p);
       let entry = this.boatCache.get(p.id);
@@ -199,9 +191,11 @@ export class App {
       }
       const b = entry.boat;
       this.boats.push(b);
+      updateBoat(b, this.time); b.mesh.updateMatrixWorld(true);
+      const c = Math.cos(p.rot), s = Math.sin(p.rot), L = p.type === "sloop" ? 1.8 : 0.9;
+      for (let k = -1; k <= 1; k++) out.foam.push({ x: p.x - s * L * k * 0.7, z: p.z + c * L * k * 0.7, r: p.type === "sloop" ? 0.4 : 0.22 });
     }
-    this.sailBoats(0);
-    for (const b of this.boats) b.mesh.updateMatrixWorld(true);
+    this.d.terrain.setFoam(out.foam);
     this.lights = out.lights;
     void mb;
     this.d.lightMap.update(out.lights.map((l: Light) => ({ x: l.x, z: l.z, r: l.r, i: l.i })));
@@ -216,31 +210,7 @@ export class App {
     this.time += dt;
     if (this.playing) this.hour = (this.hour + dt * this.speed * 24 / 300) % 24;
     this.rebuild();
-    this.sailBoats(dt);
-  }
-  /** Put each boat where its day has taken it, and keep the mooring foam only under boats that are home. */
-  sailBoats(dt: number) {
-    const w = this.world;
-    this.fleetWait -= dt;
-    if (w.version !== this.fleetVersion && this.fleetWait <= 0) { this.fleet.replan(w); this.fleetVersion = w.version; this.fleetWait = 0.3; }
-    let key = "";
-    for (const b of this.boats) {
-      const p = w.props.get(b.id), pose = this.fleet.pose(b.id, this.hour, dt);
-      if (pose) { b.x = pose.x; b.z = pose.z; b.rot = pose.rot; b.vis = pose.vis; b.moving = pose.moving; }
-      else if (p) { b.x = p.x; b.z = p.z; b.rot = p.rot; b.vis = 1; b.moving = false; }
-      updateBoat(b, this.time);
-      if (p && (!pose || pose.home)) key += b.id + ":" + p.x + "," + p.z + "," + p.rot + ";";
-    }
-    if (key === this.foamKey) return;
-    this.foamKey = key;
-    const foam = this.shoreFoam.slice();
-    for (const b of this.boats) {
-      const p = w.props.get(b.id), pose = this.fleet.pose(b.id, this.hour, 0);
-      if (!p || (pose && !pose.home)) continue;
-      const c = Math.cos(p.rot), s = Math.sin(p.rot), L = p.type === "sloop" ? 1.8 : 0.9;
-      for (let k = -1; k <= 1; k++) foam.push({ x: p.x - s * L * k * 0.7, z: p.z + c * L * k * 0.7, r: p.type === "sloop" ? 0.4 : 0.22 });
-    }
-    this.d.terrain.setFoam(foam);
+    for (const b of this.boats) updateBoat(b, this.time);
   }
 
   // ---------- helpers used by tools and the starter ----------
@@ -429,21 +399,20 @@ export class App {
       p.opts = { ...opts };
       if (type === "grotto") this.carveGrotto(p);
     }
-    this.addProp("sloop", 21.6, 30.2, 0.1, 0.61);
-    this.addProp("rowboat", 27.5, 30.9, Math.PI / 2 - 0.2, 0.17);
-    this.addProp("rowboat", 18.3, 29.8, 0.4, 0.83);
-    this.addProp("rowboat", 23.2, 21.5, -0.2, 0.33);
+    // rowboats tied up alongside the pier (the village sloop berths at the head by itself)
+    this.addProp("rowboat", 26.1, 26.3, 0.05, 0.17);
+    this.addProp("rowboat", 23.95, 21.5, -0.08, 0.33);
     for (const [x, z, s] of [[17.2, 14.8, 1], [27.8, 16.6, 2], [12.2, 20.4, 3], [11.2, 27.5, 4], [36.4, 27, 5], [35.8, 33.5, 6], [15, 15.8, 7], [33.8, 20.5, 8]] as const)
       this.addProp("palm", x, z, s, s * 0.137);
     for (const [x, z] of [[24.2, 13.8], [18.9, 12.3], [10.2, 26], [10.4, 29.2], [30.2, 12.6], [37.4, 23.4]] as const) this.addProp("bougainvillea", x, z, 0, x * 0.01);
     for (const [x, z] of [[13, 13], [9, 18], [38, 14], [39, 30], [14.5, 36], [34, 37]] as const) this.addProp("scrub", x, z, 0, z * 0.01);
     for (const [x, z] of [[11.4, 33.8], [36.7, 36.5], [14.2, 38.6]] as const) this.addProp("rock", x, z, x, 0.3);
-    this.addProp("crates", 24.4, 29.7, 0.3, 0.2);
-    this.addProp("barrels", 26, 28.3, 0, 0.4);
+    this.addProp("crates", 24.6, 29.4, 0.3, 0.2);
+    this.addProp("barrels", 24.6, 28.55, 0, 0.4);
     this.addProp("nets", 13.2, 17.8, 0.9, 0.5);
     this.addProp("laundry", 8, 29, 0, 0.7);
     this.addProp("lantern", 23.5, 16.7, 0, 0.1);
-    this.addProp("crane", 26.1, 30.1, -0.6, 0.5);
+    this.addProp("crane", 25.4, 29.4, -0.6, 0.5);
     this.addProp("barrels", 10.5, 23.4, 0, 0.9);
     // --- paint: cobbles by the terrace houses, sandy paths ---
     for (let x = 18; x <= 30; x += 1) this.paintDisc("cobble", x, 14.2, 0.9);
