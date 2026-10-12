@@ -64,6 +64,23 @@ export function walkDoors(world: World, h: House, base: number): Map<string, num
   }
   return out;
 }
+/** How far out from a wall a walkway's post may stand and still open a door there (the deck runs on to the wall). */
+export const DOOR_REACH = 0.65;
+/** How far inside a wall a post may stand and still count as at it. */
+const DOOR_INSET = 0.15;
+/** Whether (x,z) is within door reach of any of the house's walls (a cheap footprint test, no storey check). */
+export const nearWalls = (h: House, x: number, z: number, reach = DOOR_REACH) =>
+  h.volumes.some(v => x > v.x0 - reach && x < v.x1 + reach && z > v.z0 - reach && z < v.z1 + reach);
+/** The house wall a walkway post opens a door in, if any: the house, its floor height and the wall hit. */
+export function doorOf(world: World, n: WalkNode) {
+  for (const h of world.houses.values()) {
+    if (!nearWalls(h, n.x, n.z)) continue;
+    const base = houseLayout(world, h).base;
+    const hit = nodeWall(h, n, base);
+    if (hit) return { house: h, base, hit, line: sideLine(h.volumes[hit.vi], hit.side) };
+  }
+  return null;
+}
 export function nodeWall(h: House, n: WalkNode, base: number) {
   let best: { vi: number; side: number; floor: number; t: number; d: number } | null = null;
   h.volumes.forEach((v, vi) => {
@@ -71,7 +88,7 @@ export function nodeWall(h: House, n: WalkNode, base: number) {
       const L = sideLine(v, s);
       const dx = n.x - L.a[0], dz = n.z - L.a[1];
       const out = dx * L.n[0] + dz * L.n[1];
-      if (out < -0.15 || out > 0.9) continue;
+      if (out < -DOOR_INSET || out > DOOR_REACH) continue;
       const tx = L.b[0] - L.a[0], tz = L.b[1] - L.a[1], len = Math.hypot(tx, tz);
       const t = (dx * tx + dz * tz) / len;
       if (t < 0.25 || t > len - 0.25) continue;
@@ -91,7 +108,7 @@ export function villagerHomes(world: World): Home[] {
   const live = [...world.nodes.values()].filter(n => world.edgesOf(n.id).length).sort((a, b) => (a.id < b.id ? -1 : 1));
   const out: Home[] = [];
   for (const h of world.houses.values()) {
-    const near = live.filter(n => h.volumes.some(v => n.x > v.x0 - 1 && n.x < v.x1 + 1 && n.z > v.z0 - 1 && n.z < v.z1 + 1));
+    const near = live.filter(n => nearWalls(h, n.x, n.z));
     if (!near.length) continue;
     const base = houseLayout(world, h).base;
     const door = near.find(n => nodeWall(h, n, base));

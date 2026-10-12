@@ -5,7 +5,7 @@ import { Terrain } from "./terrain";
 import type { Materials } from "./materials";
 import { LightMap } from "./lighting";
 import { MeshBuilder, Part, mergeParts, rng } from "./mesh";
-import { buildHouse, makeHouse, houseLayout, HouseBuild, Light, Face } from "./houses";
+import { buildHouse, makeHouse, houseLayout, doorOf, HouseBuild, Light, Face } from "./houses";
 import { seedCove } from "./seed";
 import { fitLandmark } from "./landmarks";
 import { buildWalks, defaultDeckY, WALK_W, MAX_STAIR, slopeOf } from "./walks";
@@ -238,7 +238,7 @@ export class App {
     let changed = false;
     const touched = new Set<string>();
     const Hc = (x: number, z: number) => w.height(Math.min(N - 0.01, Math.max(0.01, x)), Math.min(N - 0.01, Math.max(0.01, z)));
-    const nearHouse = (n: WalkNode) => !!w.houseAt(n.x, n.z, 0.9);
+    const nearHouse = (n: WalkNode) => !!doorOf(w, n);
     // posts: a deck sitting in a side slope comes up to clear the ground under its footprint
     for (const n of w.nodes.values()) {
       if (only && !only.has(n.id)) continue;
@@ -292,7 +292,7 @@ export class App {
         const L = Math.hypot(B.x - A.x, B.z - A.z);
         if (slopeOf(A, B) <= MAX_STAIR + 1e-6) continue;
         const [lo, hi] = A.y < B.y ? [A, B] : [B, A];
-        if (w.edgesOf(lo.id).length === 1 && w.houseAt(lo.x, lo.z, 0.9)) continue; // a door: the floor sets it
+        if (w.edgesOf(lo.id).length === 1 && doorOf(w, lo)) continue; // a door: the floor sets it
         lo.y = Math.ceil((hi.y - MAX_STAIR * L) * 20 - 1e-6) / 20;
         next.add(lo.id);
       }
@@ -359,7 +359,7 @@ export class App {
     const hub = this.addNode(25, 24, DECK_Y);
     const head = this.addNode(25, 29, DECK_Y, 1.5);
     this.addEdge(beach, n1); this.addEdge(n1, hub); this.addEdge(hub, head);
-    const west = this.addNode(20.25, 24, DECK_Y);
+    const west = this.addNode(20, 24, DECK_Y);
     const east = this.addNode(30.25, 24, DECK_Y);
     this.addEdge(hub, west); this.addEdge(hub, east);
     H("h", 0.113, [newVolume(16, 23, 19.5, 26.5, 2, "gable"), newVolume(16.5, 26.5, 18.5, 28.5, 1, "shed")], 0, { style: "plank" });
@@ -374,7 +374,7 @@ export class App {
     this.addEdge(bwW, beach); this.addEdge(beach, bwE);
     const hW = H("h", 0.519, [newVolume(19.5, 11, 23, 13.5, 2, "gable"), newVolume(23, 11.5, 24.5, 13.5, 1, "shed")], 1);
     const hE = H("h", 0.638, [newVolume(26.5, 11.5, 29.5, 13.8, 1, "flat")], 5, { awning: true });
-    const stepW = this.addNode(21.25, 14.25, houseLayout(w, hW).base);
+    const stepW = this.addNode(21.25, 14, houseLayout(w, hW).base);
     const stepE = this.addNode(28, 14.25, houseLayout(w, hE).base);
     this.addEdge(bwW, stepW); this.addEdge(bwE, stepE);
     // --- west terraces: a cluster with a lookout on the cliff ---

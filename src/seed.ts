@@ -1,6 +1,6 @@
 import type { App } from "./app";
 import { N, DECK_Y, WATER_Y, newVolume, uid, isLandmark, landmarkSamples, type RoofType, type PropType, type WalkNode } from "./world";
-import { houseLayout, makeHouse } from "./houses";
+import { doorOf, houseLayout, makeHouse } from "./houses";
 import { fitLandmark } from "./landmarks";
 import { rng } from "./mesh";
 import { defaultDeckY, MAX_STAIR, slopeOf } from "./walks";
@@ -20,7 +20,7 @@ export function seedCove(app: App, seed: number) {
   for (const e of [...w.edges.values()]) {
     const A = w.nodes.get(e.a), B = w.nodes.get(e.b); if (!A || !B || slopeOf(A, B) <= MAX_STAIR + 1e-6) continue;
     for (const d of [A, B]) {
-      const h = w.edgesOf(d.id).length === 1 ? w.houseAt(d.x, d.z, 0.9) : null;
+      const h = w.edgesOf(d.id).length === 1 ? doorOf(w, d)?.house : null;
       if (h) { w.houses.delete(h.id); w.edges.delete(e.id); break; }
     }
   }

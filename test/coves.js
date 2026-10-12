@@ -109,6 +109,21 @@
     a.update(0); g.updateVillagers(1); g.fish.update(1, 0);
     ok('seagrass grows in the shallows and fish circle it', P.seagrassCells(w).length > 10 && g.fish.state.schools > 0 && g.fish.state.fish > 0);
   }
+  {
+    // a walkway only opens a door when it reaches the wall, and the door stays with the house as it moves
+    const H = await import('/src/houses.ts');
+    const home = villagerHomes(w)[0], h = w.houses.get(home.house), n = w.nodes.get(home.node);
+    const door = H.doorOf(w, n);
+    ok('door ends sit within reach of the wall', door && door.house === h && door.hit.d <= H.DOOR_REACH);
+    const [nx, nz] = door.line.n, gap = 0.8 - door.hit.d;
+    ok('a walkway stopping short of the wall is no door', !H.doorOf(w, { ...n, x: n.x + nx * gap, z: n.z + nz * gap }));
+    a.begin(true);
+    const orig = JSON.parse(JSON.stringify(h)), ends = g.tools.doorEnds(h);
+    h.volumes = h.volumes.map(v => ({ ...v, x0: v.x0 + 0.5, x1: v.x1 + 0.5 }));
+    g.tools.followDoors(h, orig, ends);
+    ok('door ends follow a moved house', ends.length > 0 && ends.every(e => H.doorOf(w, w.nodes.get(e.id))?.house === h));
+    a.cancel(); a.update(0);
+  }
   a.begin(); a.clearBuildings(); a.commit(); g.updateVillagers(1);
   ok('no lookout, no run', sm.plan.signal === null && !at(23.2).boat);
   a.undo(); a.hour = 16.4;

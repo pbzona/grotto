@@ -2,7 +2,7 @@ import * as THREE from "three/webgpu";
 import type { App } from "./app";
 import { World, N, snap, House, Volume, newVolume, uid, FLOOR_H, MAX_LEVEL, PaintType, PropType, WalkNode, WalkEdge, RoofType, WATER_Y, DECK_Y, Prop, isLandmark, hullDims, grottoDims, grottoTies, grottoTieAt, GROTTO_OPTS, propOpt } from "./world";
 import { MeshBuilder } from "./mesh";
-import { buildHouse, houseLayout, makeHouse, nodeWall, sideLine, HouseBuild, Bay } from "./houses";
+import { buildHouse, houseLayout, makeHouse, nodeWall, nearWalls, sideLine, HouseBuild, Bay } from "./houses";
 import { defaultDeckY, landingRadius, WALK_W, MAX_STAIR, slopeOf, clampStair } from "./walks";
 import { buildOneProp, buildBoat, PROP_INFO, boatFreeboard, isGreenery, palmPierces } from "./props";
 import { fitLandmark, Fit } from "./landmarks";
@@ -25,9 +25,12 @@ export const HOUSE_PRESETS: Record<string, { label: string; w: number; d: number
   tower: { label: "Tower", w: 2, d: 2, floors: 3, roof: "hip", kind: "tower" },
 };
 
+/** A walkway end opening a door in a house wall, remembered so it can follow the wall while the house is reshaped. */
+type DoorEnd = { id: string; vi: number; side: number; t: number; d: number; floor: number };
+
 type Drag =
-  | { t: "side"; side: number; grab: number; plane: number; orig: House; extrude: boolean; wingVi?: number }
-  | { t: "move"; start: THREE.Vector3; orig: House }
+  | { t: "side"; side: number; grab: number; plane: number; orig: House; extrude: boolean; wingVi?: number; doors: DoorEnd[] }
+  | { t: "move"; start: THREE.Vector3; orig: House; doors: DoorEnd[] }
   | { t: "floors"; y0: number; floors0: number }
   | { t: "rect"; a: THREE.Vector3; b: THREE.Vector3 }
   | { t: "stroke"; last: number; flat?: number; changed: boolean }
@@ -693,10 +696,10 @@ export class Tools {
         wingVi = h.volumes.length - 1;
         this.sel = { kind: "house", id: h.id, vi: wingVi };
       }
-      this.drag = { t: "side", side, grab: along - coord, plane, orig, extrude: e.shiftKey, wingVi };
+      this.drag = { t: "side", side, grab: along - coord, plane, orig, extrude: e.shiftKey, wingVi, doors: this.doorEnds(h) };
     } else if (d.t === "move") {
       const g = this.ground() ?? new THREE.Vector3();
-      this.drag = { t: "move", start: g.clone(), orig };
+      this.drag = { t: "move", start: g.clone(), orig, doors: this.doorEnds(h) };
     } else if (d.t === "floors") {
       this.drag = { t: "floors", y0: e.clientY, floors0: h.volumes[s.vi].floors };
     }
@@ -772,7 +775,9 @@ export class Tools {
   private dragExtend(d: Extract<Drag, { t: "extend" }>) {
     const from = this.world.nodes.get(d.from); if (!from) return;
     const g = this.surface(); if (!g) return;
-    const x = Math.round(g.x * 4) / 4, z = Math.round(g.z * 4) / 4;
+    // pulled up to a house it docks at the wall, so it really opens a door
+    const dock = this.wallDock(g, () => from.y);
+    const x = dock?.x ?? Math.round(g.x * 4) / 4, z = dock?.z ?? Math.round(g.z * 4) / 4;
     if (Math.hypot(x - from.x, z - from.z) < 0.6) return;
     if (!d.node) {
       d.node = this.app.addNode(x, z, from.y);
@@ -783,7 +788,7 @@ export class Tools {
     // follow the ground up and down gently; over water stay at deck height
     const want = defaultDeckY(this.world, x, z);
     const most = MAX_STAIR * Math.hypot(x - from.x, z - from.z);
-    d.node.y = Math.abs(want - from.y) < 0.6 ? from.y : from.y + Math.max(-most, Math.min(most, want - from.y));
+    d.node.y = dock ? dock.y : Math.abs(want - from.y) < 0.6 ? from.y : from.y + Math.max(-most, Math.min(most, want - from.y));
     d.changed = true;
     this.app.changed({ structures: true });
   }
@@ -833,6 +838,7 @@ export class Tools {
       });
     }
     Object.assign(v, { x0: test.x0, x1: test.x1, z0: test.z0, z1: test.z1 });
+    this.followDoors(h, d.orig, d.doors);
     this.housesChanged = true;
     this.app.changed({ structures: true });
     this.refreshHandles(); this.refreshHighlight();
@@ -846,9 +852,41 @@ export class Tools {
     if (vols.every((v, i) => v.x0 === h.volumes[i].x0 && v.z0 === h.volumes[i].z0)) return;
     if (!vols.every(v => this.world.footprintFree(v.x0, v.z0, v.x1, v.z1, h))) return;
     h.volumes = vols;
+    this.followDoors(h, d.orig, d.doors);
     this.housesChanged = true;
     this.app.changed({ structures: true });
     this.refreshHandles(); this.refreshHighlight();
+  }
+  /** The walkway ends that open doors in this house. */
+  private doorEnds(h: House): DoorEnd[] {
+    const w = this.world, base = houseLayout(w, h).base, out: DoorEnd[] = [];
+    for (const n of w.nodes.values()) {
+      if (!w.edgesOf(n.id).length || !nearWalls(h, n.x, n.z)) continue;
+      const hit = nodeWall(h, n, base);
+      if (hit) out.push({ id: n.id, vi: hit.vi, side: hit.side, t: hit.t, d: hit.d, floor: hit.floor });
+    }
+    return out;
+  }
+  /**
+   * Keep door ends on their walls after the house moved or a side was pulled: the same storey, the same distance out,
+   * and the same spot along the wall (carried with the wall when the whole volume shifted, clamped when it shrank).
+   */
+  private followDoors(h: House, orig: House, doors: DoorEnd[]) {
+    if (!doors.length) return;
+    const w = this.world, base = houseLayout(w, h).base;
+    for (const dr of doors) {
+      const n = w.nodes.get(dr.id), v = h.volumes[dr.vi], ov = orig.volumes[dr.vi]; if (!n || !v || !ov) continue;
+      const alongX = dr.side % 2 === 0;
+      const lo = alongX ? v.x0 : v.z0, hi = alongX ? v.x1 : v.z1;
+      const olo = alongX ? ov.x0 : ov.z0, ohi = alongX ? ov.x1 : ov.z1;
+      const shift = Math.abs((lo - olo) - (hi - ohi)) < 1e-6 ? lo - olo : 0;
+      const L0 = sideLine(ov, dr.side), L0t = [L0.b[0] - L0.a[0], L0.b[1] - L0.a[1]], L0len = Math.hypot(L0t[0], L0t[1]);
+      const at = (alongX ? L0.a[0] + L0t[0] / L0len * dr.t : L0.a[1] + L0t[1] / L0len * dr.t) + shift;
+      const c = Math.min(hi - 0.5, Math.max(lo + 0.5, at));
+      const L = sideLine(v, dr.side);
+      if (alongX) { n.x = c; n.z = L.a[1] + L.n[1] * dr.d; } else { n.z = c; n.x = L.a[0] + L.n[0] * dr.d; }
+      n.y = base + Math.min(v.floors - 1, dr.floor) * FLOOR_H;
+    }
   }
   private dragFloors(d: Extract<Drag, { t: "floors" }>, e: PointerEvent) {
     const s = this.sel; if (s?.kind !== "house") return;
@@ -901,10 +939,18 @@ export class Tools {
       for (const t of grottoTies(g)) if (Math.hypot(p.x - t.x, p.z - t.z) < 1.1) return { node: this.app.addNode(t.x, t.z, DECK_Y), created: true };
     }
     // dock against a house wall, at the storey nearest the walkway's height
-    let x = p.x, z = p.z;
+    const dock = this.wallDock(p, (base) => prev ? prev.y + this.walkLift : base + this.walkLift);
+    if (dock) return { node: this.app.addNode(dock.x, dock.z, dock.y), created: true };
+    const x = p.x, z = p.z;
     let y = defaultDeckY(w, x, z) + this.walkLift;
     if (prev && Math.abs(this.walkLift) < 1e-3 && prev.y > y && Math.hypot(prev.x - x, prev.z - z) < 8 && this.walkStyle === "rope") y = prev.y;
+    return { node: this.app.addNode(x, z, Math.max(y, Math.max(w.height(x, z), WATER_Y) + 0.2), this.walkPad ? 1.2 : 0), created: true };
+  }
+  /** Where a walkway ending near p would open a door: 0.6 out from the nearest wall, at the storey nearest want(base). */
+  private wallDock(p: { x: number; z: number }, want: (base: number) => number) {
+    const w = this.world;
     for (const h of w.houses.values()) {
+      if (!nearWalls(h, p.x, p.z, 0.9)) continue;
       const lay = houseLayout(w, h);
       for (const v of h.volumes) {
         if (p.x < v.x0 - 0.9 || p.x > v.x1 + 0.9 || p.z < v.z0 - 0.9 || p.z > v.z1 + 0.9) continue;
@@ -912,17 +958,15 @@ export class Tools {
         const ds = [v.z1 - p.z, v.x1 - p.x, p.z - v.z0, p.x - v.x0].map(Math.abs);
         const side = ds.indexOf(Math.min(...ds));
         const [nx, nz] = SIDE_N[side];
+        let x: number, z: number;
         if (side % 2 === 0) { z = (nz > 0 ? v.z1 : v.z0) + nz * 0.6; x = Math.min(v.x1 - 0.5, Math.max(v.x0 + 0.5, p.x)); }
         else { x = (nx > 0 ? v.x1 : v.x0) + nx * 0.6; z = Math.min(v.z1 - 0.5, Math.max(v.z0 + 0.5, p.z)); }
-        const want = prev ? prev.y + this.walkLift : lay.base + this.walkLift;
-        const f = Math.max(0, Math.min(v.floors - 1, Math.round((want - lay.base) / FLOOR_H)));
-        y = lay.base + f * FLOOR_H;
-        const n = this.app.addNode(x, z, y);
-        if (!nodeWall(h, n, lay.base)) { w.nodes.delete(n.id); continue; }
-        return { node: n, created: true };
+        const f = Math.max(0, Math.min(v.floors - 1, Math.round((want(lay.base) - lay.base) / FLOOR_H)));
+        const y = lay.base + f * FLOOR_H;
+        if (nodeWall(h, { x, z, y } as WalkNode, lay.base)) return { x, z, y, house: h };
       }
     }
-    return { node: this.app.addNode(x, z, Math.max(y, Math.max(w.height(x, z), WATER_Y) + 0.2), this.walkPad ? 1.2 : 0), created: true };
+    return null;
   }
   /** Tightest angle a new walkway may leave a junction at; sharper ones get a bend so the path stays walkable. */
   static MIN_JOIN = Math.PI / 4;

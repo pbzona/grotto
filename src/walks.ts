@@ -1,6 +1,6 @@
 import { World, WalkEdge, WalkNode, WATER_Y, DECK_Y, N, grottoTieAt } from "./world";
 import { MeshBuilder, V3, M, hexRGB, hsh, add, scl, lerp3 } from "./mesh";
-import type { Light } from "./houses";
+import { doorOf, type Light } from "./houses";
 
 /**
  * The walkway network: nodes joined by edges. One system covers docks and piers on posts, beach
@@ -250,7 +250,18 @@ function nodeMesh(world: World, mb: MeshBuilder, n: WalkNode, out: WalkBuild) {
     const sx = -uz, sz = ux;
     // end posts
     for (const side of [-1, 1]) post(world, mb, n.x + sx * side * (w / 2 - 0.02) + ux * 0.1, n.z + sz * side * (w / 2 - 0.02) + uz * 0.1, n.y - 0.06, out);
-    if (g < WATER_Y - 0.2 && !world.houseAt(n.x - ux * 0.6, n.z - uz * 0.6, 0.1)) {
+    const door = doorOf(world, n);
+    if (door) {
+      // a door: the deck runs on to the wall as a threshold
+      const [nx, nz] = door.line.n, tx = -nz, tz = nx, d = Math.max(0.05, door.hit.d);
+      const nb = Math.max(1, Math.ceil(d / 0.21)), bw = d / nb;
+      for (let i = 0; i < nb; i++) {
+        const o = (i + 0.5) * bw;
+        const cx = n.x - nx * o, cz = n.z - nz * o;
+        mb.paint(hexRGB(DECK, 0.8 + hsh(i * 4.3 + n.x * 2.1 + n.z) * 0.3), M.plank);
+        mb.beam([cx - tx * w / 2, n.y - 0.03, cz - tz * w / 2], [cx + tx * w / 2, n.y - 0.03, cz + tz * w / 2], [nx, 0, nz], bw / 2 - 0.012, 0.03);
+      }
+    } else if (g < WATER_Y - 0.2) {
       // pier end: bollards, a ladder down to the water, often a lantern
       mb.paint(hexRGB("#3b332c"), M.metal);
       for (const side of [-1, 1]) mb.cyl(n.x + sx * side * (w / 2 - 0.16) + ux * 0.18, n.z + sz * side * (w / 2 - 0.16) + uz * 0.18, n.y, n.y + 0.22, 0.07, 0.06, 7);
