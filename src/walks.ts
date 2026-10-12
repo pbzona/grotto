@@ -50,10 +50,30 @@ export function junctionTrim(world: World, n: WalkNode) {
   const th = Math.max(0.2, junctionAngle(world, n));
   return Math.min(1.9, Math.max(hw * 0.55, hw / Math.tan(th / 2) + 0.12));
 }
+/**
+ * How walkways meet at a post: "through" when one runs straight on (no platform, the decks just join),
+ * "square" when they meet at right angles (a plain square of decking), "landing" for anything else.
+ */
+export type Joint = "end" | "through" | "square" | "landing";
+const THROUGH = (20 * Math.PI) / 180, SQUARE = (8 * Math.PI) / 180;
+export function jointOf(world: World, n: WalkNode): Joint {
+  const es = world.edgesOf(n.id);
+  if (es.length < 2) return "end";
+  const dirs: number[] = [];
+  for (const e of es) { const o = world.nodes.get(e.a === n.id ? e.b : e.a); if (o) dirs.push(Math.atan2(o.z - n.z, o.x - n.x)); }
+  if (dirs.length < 2) return "end";
+  if (es.some(e => e.style === "rope")) return "landing";
+  if (dirs.length === 2 && junctionAngle(world, n) >= Math.PI - THROUGH) return "through";
+  const q = Math.PI / 2;
+  const square = dirs.every(d => { const r = (((d - dirs[0]) % q) + q) % q; return Math.min(r, q - r) <= SQUARE; });
+  return square ? "square" : "landing";
+}
 export function landingRadius(world: World, n: WalkNode) {
   const es = world.edgesOf(n.id);
   const w = es.reduce((m, e) => Math.max(m, e.width), 0.6);
   if (n.pad > 0) return n.pad;
+  const j = jointOf(world, n);
+  if (j === "through" || j === "square") return (w / 2) * 1.14 / OCT;
   return Math.max((w / 2) * 1.14 / OCT, junctionTrim(world, n) + 0.12);
 }
 
@@ -71,11 +91,15 @@ export function buildWalks(world: World, mb: MeshBuilder, out: WalkBuild) {
 }
 
 function trimFor(world: World, n: WalkNode, w: number) {
-  const deg = world.edgesOf(n.id).length;
   if (n.pad > 0) return n.pad * 0.92;
-  if (deg >= 2) return Math.max((w / 2) * 0.55, junctionTrim(world, n));
+  const j = jointOf(world, n);
+  // running straight on: the decks overrun the post a touch so a slight kink leaves no gap
+  if (j === "through") return -(w / 2) * Math.tan((Math.PI - junctionAngle(world, n)) / 2) - 0.01;
+  if (j === "square") return jointHalf(world, n) - 0.01;
+  if (j === "landing") return Math.max((w / 2) * 0.55, junctionTrim(world, n));
   return 0;
 }
+const jointHalf = (world: World, n: WalkNode) => world.edgesOf(n.id).reduce((m, e) => Math.max(m, e.width), WALK_W) / 2;
 
 function post(world: World, mb: MeshBuilder, x: number, z: number, top: number, out: WalkBuild, r = 0.075) {
   const g = world.height(Math.min(N, Math.max(0, x)), Math.min(N, Math.max(0, z)));
@@ -177,6 +201,9 @@ function edgeMesh(world: World, mb: MeshBuilder, e: WalkEdge, A: WalkNode, B: Wa
     // at a junction end the landing carries the deck, but a rope rail still needs a post to tie off to
     const endAtLanding = (i === 0 && tA > 0) || (i === np && tB > 0);
     if (endAtLanding && !rail) continue;
+    // where a walkway runs straight on, the first of its two edges carries the shared pair of posts
+    const endNode = i === 0 ? A : i === np ? B : null;
+    if (endNode && (i === 0 ? tA : tB) < 0 && world.edgesOf(endNode.id)[0]?.id !== e.id) continue;
     const y = stairs ? Math.min(A.y, B.y) + Math.abs(B.y - A.y) * (B.y > A.y ? d / L : 1 - d / L) : yAt(d);
     for (const side of [-1, 1]) {
       const p = P(d, side * (hw - 0.02), 0);
@@ -225,6 +252,20 @@ function nodeMesh(world: World, mb: MeshBuilder, n: WalkNode, out: WalkBuild) {
       post(world, mb, n.x + c * i * (P - 0.08) - s * j * (P - 0.08), n.z + s * i * (P - 0.08) + c * j * (P - 0.08), n.y - 0.06, out, 0.085);
     }
     if (hsh(n.x * 1.7 + n.z * 2.3) < 0.8) lanternPost(mb, n.x + c * (P - 0.2) - s * (P - 0.2), n.z + s * (P - 0.2) + c * (P - 0.2), n.y, out);
+    return;
+  }
+  const joint = jointOf(world, n);
+  if (joint === "through") return;
+  if (joint === "square") {
+    // a plain square of boards where walkways meet at right angles, laid across the first one
+    const c = Math.cos(ang), s = Math.sin(ang), P = jointHalf(world, n);
+    const nb = Math.max(2, Math.round(P * 2 / 0.21));
+    for (let i = 0; i < nb; i++) {
+      const d = -P + (i + 0.5) * (2 * P / nb);
+      mb.paint(hexRGB(DECK, 0.8 + hsh(i * 3.1 + n.x) * 0.3), M.plank);
+      mb.beam([n.x + c * d - s * -P, n.y - 0.03, n.z + s * d + c * -P], [n.x + c * d - s * P, n.y - 0.03, n.z + s * d + c * P], [c, 0, s], P / nb - 0.012, 0.03);
+    }
+    for (const [i, j] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) post(world, mb, n.x + c * i * (P - 0.02) - s * j * (P - 0.02), n.z + s * i * (P - 0.02) + c * j * (P - 0.02), n.y - 0.06, out);
     return;
   }
   if (deg >= 2) {

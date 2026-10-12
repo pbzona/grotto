@@ -29,6 +29,11 @@
   ok('starter deck props stand on decks or land', dry());
   ok('the starter pier has a berth for the village sloop', !!planSloop(w));
   ok('starter walkways run at right angles', square());
+  {
+    const { jointOf } = await import('/src/walks.ts');
+    const joints = [...w.nodes.values()].filter(n => n.pad <= 0).map(n => jointOf(w, n));
+    ok('starter walkways join without octagon landings', joints.includes('through') && joints.includes('square') && !joints.includes('landing'));
+  }
   ok('starter connects several houses', villagerHomes(w).length >= 5);
   for (const [label, kind] of [['Fjord', 'fjord'], ['Islets', 'islets'], ['Estuary', 'estuary']]) {
     const before = heights();
