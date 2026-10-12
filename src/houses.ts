@@ -391,7 +391,9 @@ function wallBay(mb: MeshBuilder, bay: Bay, wm: number, wc: V3, trim: V3, wood: 
     }
     // sill
     mb.paint(hexRGB("#e8dcc2"), M.plain);
-    mb.box(minV(P(s0 - 0.06, y0 + v0 - 0.05, -0.02), P(s1 + 0.06, y0 + v0, 0.08)), maxV(P(s0 - 0.06, y0 + v0 - 0.05, -0.02), P(s1 + 0.06, y0 + v0, 0.08)));
+    // top sits just proud of the reveal floor so the two never share a plane
+    const st = y0 + v0 + 0.012;
+    mb.box(minV(P(s0 - 0.06, y0 + v0 - 0.05, -0.02), P(s1 + 0.06, st, 0.08)), maxV(P(s0 - 0.06, y0 + v0 - 0.05, -0.02), P(s1 + 0.06, st, 0.08)));
     if (h.boxes && hsh(ax * 3.1 + az * 5.7 + bay.floor) < 0.55) flowerBox(mb, P(s0, y0 + v0 - 0.05, 0), P(s1, y0 + v0 - 0.05, 0), n, r);
   }
   // chunky frame
