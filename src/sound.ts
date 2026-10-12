@@ -55,25 +55,30 @@ export class Ambience {
     const len = ctx.sampleRate * 4, buf = this.noise = ctx.createBuffer(2, len, ctx.sampleRate);
     for (let ch = 0; ch < 2; ch++) {
       const d = buf.getChannelData(ch); let b = 0;
-      for (let i = 0; i < len; i++) { b = b * 0.97 + (Math.random() * 2 - 1) * 0.03; d[i] = b * 3.5 + (Math.random() * 2 - 1) * 0.04; }
+      for (let i = 0; i < len; i++) { b = b * 0.97 + (Math.random() * 2 - 1) * 0.03; d[i] = b * 3.5; }
     }
     // surf: low noise breathing on two slow swells
-    const surf = this.bed(ctx, "lowpass", 620, 0.7);
-    this.surf = surf.level; this.lfo(ctx, 0.09, 0.45, surf.swell.gain); this.lfo(ctx, 0.053, 0.25, surf.swell.gain);
-    // wind: a wandering band of noise
-    const wind = this.bed(ctx, "bandpass", 700, 0.6, f => this.lfo(ctx, 0.04, 380, f.frequency));
-    this.wind = wind.level; this.lfo(ctx, 0.07, 0.3, wind.swell.gain);
+    const surf = this.bed(ctx, "lowpass", 480, 0.7, undefined, 0.55);
+    this.surf = surf.level; this.lfo(ctx, 0.09, 0.3, surf.swell.gain); this.lfo(ctx, 0.053, 0.2, surf.swell.gain);
+    // wind: a narrow, low band that gusts now and then and is mostly quiet in between
+    const wind = this.bed(ctx, "bandpass", 420, 2.2, f => this.lfo(ctx, 0.03, 120, f.frequency), 0);
+    this.wind = wind.level;
+    const gust = ctx.createWaveShaper(); gust.curve = new Float32Array([0, 0, 0, 0.15, 1]); // only the tops of the swell come through
+    const slow = ctx.createOscillator(); slow.frequency.value = 0.045 * rand(0.85, 1.15);
+    const slow2 = ctx.createOscillator(); slow2.frequency.value = 0.017 * rand(0.85, 1.15);
+    const sum = ctx.createGain(); sum.gain.value = 0.5;
+    slow.connect(sum); slow2.connect(sum); sum.connect(gust).connect(wind.swell.gain); slow.start(); slow2.start();
     // night insects: a high trill, gated by scheduled chirps
     this.insects = ctx.createGain(); this.insects.gain.value = 0; this.insects.connect(this.master);
   }
 
-  private bed(ctx: AudioContext, type: BiquadFilterType, freq: number, q: number, mod?: (f: BiquadFilterNode) => void) {
+  private bed(ctx: AudioContext, type: BiquadFilterType, freq: number, q: number, mod?: (f: BiquadFilterNode) => void, base = 1) {
     const src = ctx.createBufferSource(); src.buffer = this.noise; src.loop = true;
     src.start(0, Math.random() * 3);
     const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
     mod?.(f);
     const level = ctx.createGain(); level.gain.value = 0;
-    const g = ctx.createGain(); g.gain.value = 1;
+    const g = ctx.createGain(); g.gain.value = base;
     src.connect(f).connect(g).connect(level).connect(this.master);
     // the swell LFOs modulate `swell`; `level` follows the mix
     return { level, swell: g };
@@ -90,8 +95,8 @@ export class Ambience {
     const ctx = this.ctx;
     if (!ctx || !this.on || ctx.state !== "running") return;
     const t = ctx.currentTime;
-    this.surf.gain.setTargetAtTime(mix.surf * 0.5, t, 0.8);
-    this.wind.gain.setTargetAtTime(mix.wind * 0.16, t, 1.2);
+    this.surf.gain.setTargetAtTime(mix.surf * 0.42, t, 0.8);
+    this.wind.gain.setTargetAtTime(mix.wind * 0.07, t, 1.2);
     this.insects.gain.setTargetAtTime(mix.insects * 0.05, t, 1.5);
     for (const k of Object.keys(this.timers)) this.timers[k] -= dt;
     const due = (k: keyof Mix | "cricket", level: number, every: [number, number]) => {

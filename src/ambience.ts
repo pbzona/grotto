@@ -64,7 +64,7 @@ export function ambienceMix(world: World, l: Listener): Mix {
   const day = 1 - l.night;
   return {
     surf: clamp01((0.25 + 0.75 * shore + 0.35 * water) * (0.55 + 0.45 * close)),
-    wind: clamp01(0.18 + 0.55 * high + 0.15 * l.night),
+    wind: clamp01(0.08 + 0.5 * high + 0.1 * l.night),
     insects: clamp01(l.night * Math.min(1, green / 3) * (0.3 + 0.7 * close)),
     gulls: clamp01(day * (0.25 + 0.6 * water) * (0.4 + 0.6 * close)),
     creaks: clamp01((Math.min(1, decks / 12) + Math.min(1, boats) * 0.5 + (l.sailing ?? 0) * 0.15) * close),
