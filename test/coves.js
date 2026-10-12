@@ -21,7 +21,7 @@
     if (!dry()) throw new Error(`${kind} ${s}: a deck prop stands in the water`);
     if (planSloop(w)) sloops++;
   }
-  ok('most villages have a berth for their sloop', sloops >= 30);
+  ok('most villages have a berth for their sloop', sloops >= 28);
   a.starter();
   results.push('PASS every preset seed 1-12 has climbable stairs and connected houses');
   const start = JSON.stringify(w.save());

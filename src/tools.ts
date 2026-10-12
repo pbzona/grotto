@@ -2,7 +2,7 @@ import * as THREE from "three/webgpu";
 import type { App } from "./app";
 import { World, N, snap, House, Volume, newVolume, uid, FLOOR_H, MAX_LEVEL, PaintType, PropType, WalkNode, WalkEdge, RoofType, WATER_Y, DECK_Y, Prop, isLandmark, hullDims, grottoDims, grottoTies, grottoTieAt, GROTTO_OPTS, propOpt } from "./world";
 import { MeshBuilder } from "./mesh";
-import { buildHouse, houseLayout, makeHouse, nodeWall, nearWalls, sideLine, HouseBuild, Bay } from "./houses";
+import { buildHouse, houseLayout, makeHouse, siteDrop, MAX_SITE_DROP, nodeWall, nearWalls, sideLine, HouseBuild, Bay } from "./houses";
 import { defaultDeckY, landingRadius, WALK_W, MAX_STAIR, slopeOf, clampStair } from "./walks";
 import { buildOneProp, buildBoat, PROP_INFO, boatFreeboard, isGreenery, palmPierces } from "./props";
 import { fitLandmark, Fit } from "./landmarks";
@@ -429,6 +429,7 @@ export class Tools {
       else this.propRot += Math.PI / 4;
       this.updateGhost(); this.onChange?.(); return;
     }
+    if (this.tool === "house") { this.houseTurn = !this.houseTurn; this.updateGhost(); return; }
     const s = this.sel;
     if (s?.kind === "prop") { const p = this.world.props.get(s.id); if (p && p.type !== "grotto") { this.app.begin(); p.rot += p.type === "hull" ? Math.PI : Math.PI / 4; this.app.changed({ structures: true }); } }
     else if (s?.kind === "house") this.houseEdit("ridge");
@@ -461,7 +462,7 @@ export class Tools {
     const P = HOUSE_PRESETS[this.preset];
     let x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x), z0 = Math.min(a.z, b.z), z1 = Math.max(a.z, b.z);
     if (!moved || x1 - x0 < 1 || z1 - z0 < 1) {
-      const w = (this.propRot / (Math.PI / 2)) % 2 ? P.d : P.w, dd = (this.propRot / (Math.PI / 2)) % 2 ? P.w : P.d;
+      const w = this.houseTurn ? P.d : P.w, dd = this.houseTurn ? P.w : P.d;
       x0 = snap(a.x - w / 2); z0 = snap(a.z - dd / 2); x1 = x0 + w; z1 = z0 + dd;
     }
     return { x0, z0, x1, z1 };
@@ -473,11 +474,19 @@ export class Tools {
     return makeHouse("ghost", this.ghostSeed, [v]);
   }
   private ghostSeed = Math.random();
+  /** placing turned a quarter: the preset's width and depth swap */
+  private houseTurn = false;
+  /** Would this house hang off a drop too steep to stand on? A house already there may still move to somewhere no worse. */
+  private steep(h: House, before?: number) {
+    const d = siteDrop(this.world, h);
+    return d > MAX_SITE_DROP + 1e-6 && (before === undefined || d > before + 1e-6);
+  }
   private commitHouse(a: THREE.Vector3, b: THREE.Vector3, moved: boolean) {
     const r = this.rectFrom(a, b, moved);
     if (!this.world.footprintFree(r.x0, r.z0, r.x1, r.z1)) { this.toast("Not enough room there"); this.updateGhost(); return; }
-    this.app.begin();
     const h = this.previewHouse(r);
+    if (this.steep(h)) { this.toast("Too steep here"); this.updateGhost(); return; }
+    this.app.begin();
     h.id = uid("h");
     this.world.houses.set(h.id, h);
     this.ghostSeed = Math.random();
@@ -551,6 +560,7 @@ export class Tools {
         if (!this.world.footprintFree(r.x0, r.z0, r.x1, r.z1)) continue;
         if (h.volumes.some(o => r.x0 < o.x1 - 0.01 && r.x1 > o.x0 + 0.01 && r.z0 < o.z1 - 0.01 && r.z1 > o.z0 + 0.01)) continue;
         const v = newVolume(r.x0, r.z0, r.x1, r.z1, kind === "shed" ? 1 : kind === "room" ? Math.max(1, main.floors - 1) : main.floors + 1, kind === "shed" ? "shed" : kind === "room" ? "gable" : "hip");
+        if (this.steep({ ...h, volumes: [...h.volumes, v] }, siteDrop(this.world, h))) continue;
         if (kind === "shed") v.ridgeX = !alongX;
         if (kind === "tower" || kind === "lookout") v.kind = kind;
         h.volumes.push(v);
@@ -795,6 +805,7 @@ export class Tools {
       const nv = newVolume(r.x0, r.z0, r.x1, r.z1, par.floors, par.roof === "flat" ? "flat" : par.roof === "shed" ? "shed" : "gable");
       nv.ridgeX = d.side % 2 === 1; // gable end faces out
       nv.pitch = par.pitch; nv.curve = par.curve; nv.overhang = Math.min(par.overhang, 0.18);
+      if (this.steep({ ...h, volumes: [...vols, nv] }, siteDrop(this.world, base))) return;
       vols.push(nv);
     }
     const key = JSON.stringify(vols);
@@ -890,6 +901,7 @@ export class Tools {
     if (test.x1 - test.x0 > 9 || test.z1 - test.z0 > 9) return;
     if (!this.world.footprintFree(test.x0, test.z0, test.x1, test.z1, h)) return;
     if (h.volumes.some((o, oi) => oi !== vi && test.x0 < o.x1 - 0.01 && test.x1 > o.x0 + 0.01 && test.z0 < o.z1 - 0.01 && test.z1 > o.z0 + 0.01)) return;
+    if (this.steep({ ...h, volumes: h.volumes.map((o, oi) => (oi === vi ? { ...o, ...test } : o)) }, siteDrop(this.world, h))) return;
     // wings attached to the moving side ride along with it
     if (!d.extrude) {
       const oldC = side === 0 ? v.z1 : side === 1 ? v.x1 : side === 2 ? v.z0 : v.x0;
@@ -916,6 +928,7 @@ export class Tools {
     const vols = d.orig.volumes.map(v => ({ ...v, x0: v.x0 + dx, x1: v.x1 + dx, z0: v.z0 + dz, z1: v.z1 + dz }));
     if (vols.every((v, i) => v.x0 === h.volumes[i].x0 && v.z0 === h.volumes[i].z0)) return;
     if (!vols.every(v => this.world.footprintFree(v.x0, v.z0, v.x1, v.z1, h))) return;
+    if (this.steep({ ...h, volumes: vols }, siteDrop(this.world, d.orig))) return;
     h.volumes = vols;
     this.followDoors(h, d.orig, d.doors);
     this.housesChanged = true;
@@ -1268,7 +1281,7 @@ export class Tools {
       const mb = new MeshBuilder();
       const out: HouseBuild = { mb, lights: [], anchors: [], foam: [] };
       buildHouse(w, h, out);
-      return setG(mb.toGeometry(), !w.footprintFree(r.x0, r.z0, r.x1, r.z1), { rect: [r.x0, r.z0, r.x1, r.z1], y: houseLayout(w, h).base + 0.03 });
+      return setG(mb.toGeometry(), !w.footprintFree(r.x0, r.z0, r.x1, r.z1) || this.steep(h), { rect: [r.x0, r.z0, r.x1, r.z1], y: houseLayout(w, h).base + 0.03 });
     }
     if (this.tool === "prop" && this.hover) {
       if (isLandmark(this.propType)) {

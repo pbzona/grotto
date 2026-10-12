@@ -44,5 +44,20 @@
   ok('lift split the volume', L.volumes.length > before && L.volumes.some(v => v.roof === 'flat'), fl);
   // terrace door exists?
   const hb = { mb: null }; 
+  // --- placing: R turns the footprint, cliffs refuse
+  t.setTool('house'); t.preset = 'cottage';
+  const V = g.camera.position.constructor;
+  const r0 = t.rectFrom(new V(24, 0, 20), new V(24, 0, 20), false); t.rotate();
+  const r1 = t.rectFrom(new V(24, 0, 20), new V(24, 0, 20), false); t.rotate();
+  ok('R turns the house being placed', (r0.x1 - r0.x0) === (r1.z1 - r1.z0) && (r0.z1 - r0.z0) === (r1.x1 - r1.x0), JSON.stringify([r0, r1]));
+  let cliff = null;
+  for (let x = 3; x < 45 && !cliff; x += 0.5) for (let z = 3; z < 45 && !cliff; z += 0.5) {
+    const r = t.rectFrom(new V(x, 0, z), new V(x, 0, z), false);
+    if (w.footprintFree(r.x0, r.z0, r.x1, r.z1) && t.steep(t.previewHouse(r))) cliff = new V(x, 0, z);
+  }
+  const nh = w.houses.size;
+  if (cliff) t.commitHouse(cliff, cliff, false);
+  ok('a house will not straddle a cliff', cliff && w.houses.size === nh, cliff ? `${cliff.x},${cliff.z}` : 'no cliff found');
+  t.setTool('select');
   return R.join('\n');
 })()

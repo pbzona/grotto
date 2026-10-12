@@ -54,6 +54,14 @@ export function houseGround(world: World, h: House) {
   return { gmin, gmax, over };
 }
 
+/** Steepest drop a new or moved house may straddle: past this it hangs off a cliff on a pillar. */
+export const MAX_SITE_DROP = 3;
+/** How far the ground falls away across the footprint, counting water as the floor of the drop. */
+export function siteDrop(world: World, h: House) {
+  const { gmin, gmax } = houseGround(world, h);
+  return gmax - Math.max(gmin, WATER_Y);
+}
+
 /** Doors forced by walkways ending against a wall: returns `vi:side:floor` → the point along the wall. */
 export function walkDoors(world: World, h: House, base: number): Map<string, number> {
   const out = new Map<string, number>();
@@ -138,7 +146,9 @@ export function houseLayout(world: World, h: House): Layout {
   if (h.foundation === "stilts") { base = Math.max(DECK_Y, gmax + 0.8); stilts = true; }
   else if (h.foundation === "rock" || (h.foundation === "auto" && !over && gmax - gmin > 1.1)) {
     // perched on a sandstone outcrop, keyed into the slope: the floor sits a little below the high side
-    base = Math.max(gmin + PLINTH, gmax - Math.min(1.6, (gmax - gmin) * 0.55)); rock = true;
+    // never so deep the hill climbs past the lowest storey's windows
+    const sink = Math.min(1.6, Math.min(...h.volumes.map(v => v.floors)) * FLOOR_H - 0.75);
+    base = Math.max(gmin + PLINTH, gmax - Math.min(sink, (gmax - gmin) * 0.55)); rock = true;
     if (over) base = Math.max(base, DECK_Y);
   }
   else if (h.foundation === "keyed") { base = Math.max(gmin + PLINTH, over ? DECK_Y : -99); plinth = true; stilts = over; }
