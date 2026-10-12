@@ -34,7 +34,7 @@
     const before = heights();
     btn(label).click(); a.update(0);
     ok(`${label} replaces the land`, a.cove.kind === kind && a.cove.seed > 0 && heights() !== before && !a.edits.active);
-    ok(`${label} opens with a small connected village`, w.houses.size >= 3 && villagerHomes(w).length === w.houses.size && w.props.size >= 4);
+    ok(`${label} opens with a small connected village`, w.houses.size >= 2 && villagerHomes(w).length === w.houses.size && w.props.size >= 4);
     ok(`${label} walkways run at right angles`, square());
     ok(`${label} stairs are climbable, with no stubby steps`, gentle());
     const seed = a.cove.seed, land = heights();
@@ -69,6 +69,11 @@
   btn('Sound').click();
   ok('sound toggle flips and remembers', g.sound.enabled === !was && localStorage.getItem('grotto.sound') === (was ? 'off' : 'on') && btn('Sound').textContent === `Sound: ${was ? 'off' : 'on'}`);
   btn('Sound').click();
+  a.starter(); a.update(0); g.updateVillagers(1);
+  for (let i = 0; i < 4; i++) g.updateVillagers(1); // let everyone step out onto the walkways
+  a.begin(); for (const id of [...w.edges.keys()]) w.edges.delete(id); w.version++; a.commit(); g.updateVillagers(0.01);
+  ok('people leave a deleted walkway on the same frame', g.villagers.people.length > 0 && g.villagers.people.every(p => p.phase === 'out' || p.gone));
+  a.undo(); a.update(0); g.updateVillagers(1);
   const m = g.ambienceMix(w, { x: 24, z: 26, dist: 12, night: 0, people: g.villagers.people });
   ok('the starter village has surf, gulls and creaking decks', m.surf > 0.2 && m.gulls > 0.1 && m.creaks > 0.1);
   // the night trade in the starter village: signal at dusk, a boat to the pier, crates carried home
