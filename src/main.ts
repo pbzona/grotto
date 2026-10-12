@@ -156,16 +156,20 @@ async function boot() {
   // the village sloop: out past the map edge by day, alongside the pier head at night
   const sloop = new VillageSloop(mats.building);
   scene.add(sloop.group);
-  let seenVersion = -1, sinceSync = 1;
+  let seenVersion = -1, walkedVersion = -1, sinceSync = 1;
   let paths: Paths = world;
   function updateVillagers(dt: number) {
     sinceSync += dt;
     const density = CROWDS[app.settings.crowd].density;
-    if (density !== villagers.density) { villagers.density = density; seenVersion = -1; sinceSync = 1; }
+    if (density !== villagers.density) { villagers.density = density; seenVersion = walkedVersion = -1; sinceSync = 1; }
+    // people re-route straight away (cheap), so nobody walks a deleted plank;
+    // the boat planners are heavier and wait for edits to settle
+    if (world.version !== walkedVersion) { walkedVersion = world.version;
+      paths = walkGraph(world);
+      villagers.sync(paths, villagerHomes(world));
+    }
     if (world.version !== seenVersion && sinceSync > 0.3) { seenVersion = world.version; sinceSync = 0;
       const homes = villagerHomes(world);
-      paths = walkGraph(world);
-      villagers.sync(paths, homes);
       sloop.replan(world);
       smuggling.replan(world, lookoutLanterns(world), homes, sloop.berth);
       fish.plan(planSchools(world, seagrassCells(world)));
