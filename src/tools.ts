@@ -114,7 +114,12 @@ export class Tools {
     for (const g of [this.ghost, this.ghostBad, this.ghostX, this.ghostBadX, this.foot]) { g.frustumCulled = false; g.visible = false; }
     this.handles.renderOrder = 10;
     app.d.scene.add(this.ghostX, this.ghostBadX, this.ghost, this.ghostBad, this.foot, this.handles);
-    dom.addEventListener("pointerdown", e => this.down(e));
+    dom.addEventListener("pointerdown", e => {
+      // Clicking the world takes focus back from any panel control.
+      const f = document.activeElement as HTMLElement | null;
+      if (f && f !== document.body) f.blur();
+      this.down(e);
+    });
     dom.addEventListener("pointermove", e => this.move(e));
     dom.addEventListener("pointerup", e => this.up(e));
     dom.addEventListener("pointercancel", () => this.cancelDrag());
@@ -122,8 +127,22 @@ export class Tools {
     dom.addEventListener("dblclick", () => { if (this.tool === "walk") this.endChain(); });
     dom.addEventListener("wheel", e => this.wheel(e), { passive: false });
     dom.addEventListener("contextmenu", e => { if (this.tool === "walk" && this.chain) { e.preventDefault(); this.endChain(); } });
-    window.addEventListener("keydown", e => { this.shift = e.shiftKey; this.keys.add(e.key.toLowerCase()); });
-    window.addEventListener("keyup", e => { this.shift = e.shiftKey; this.keys.delete(e.key.toLowerCase()); });
+    // Held pan keys, by physical code. macOS never sends keyup for keys
+    // released while Cmd is down, and Cmd+Tab swallows Cmd's own keyup, so
+    // a chord never latches a key and losing focus forgets everything.
+    window.addEventListener("keydown", e => {
+      this.shift = e.shiftKey;
+      if (e.metaKey || e.ctrlKey || e.altKey) { this.keys.clear(); return; }
+      if (PAN_KEYS.has(e.code)) this.keys.add(e.code);
+    });
+    window.addEventListener("keyup", e => {
+      this.shift = e.shiftKey;
+      if (e.key === "Meta" || e.key === "Control" || e.key === "Alt") this.keys.clear();
+      else this.keys.delete(e.code);
+    });
+    const forget = () => { this.keys.clear(); this.shift = false; };
+    window.addEventListener("blur", forget);
+    document.addEventListener("visibilitychange", () => { if (document.hidden) forget(); });
   }
 
   get world(): World { return this.app.world; }
@@ -1235,13 +1254,16 @@ export class Tools {
   /** WASD / arrow keys pan the camera target; called every frame. */
   panCamera(dt: number) {
     const k = this.keys;
-    if (document.activeElement && (document.activeElement as HTMLElement).tagName === "INPUT") return;
-    if (k.has("control") || k.has("meta")) return;
+    if (!k.size) return;
+    const typing = typingIn(document.activeElement);
+    if (typing === "text") return;
+    // A focused slider or dial keeps its arrow keys; WASD still pans.
+    const arrows = typing === null;
     let fx = 0, fz = 0;
-    if (k.has("w") || k.has("arrowup")) fz -= 1;
-    if (k.has("s") || k.has("arrowdown")) fz += 1;
-    if (k.has("a") || k.has("arrowleft")) fx -= 1;
-    if (k.has("d") || k.has("arrowright")) fx += 1;
+    if (k.has("KeyW") || (arrows && k.has("ArrowUp"))) fz -= 1;
+    if (k.has("KeyS") || (arrows && k.has("ArrowDown"))) fz += 1;
+    if (k.has("KeyA") || (arrows && k.has("ArrowLeft"))) fx -= 1;
+    if (k.has("KeyD") || (arrows && k.has("ArrowRight"))) fx += 1;
     if (!fx && !fz) return;
     const cam = this.app.d.camera, ctl = this.app.d.controls;
     const fwd = new THREE.Vector3().subVectors(ctl.target, cam.position); fwd.y = 0; fwd.normalize();
@@ -1253,6 +1275,21 @@ export class Tools {
   }
 }
 void DECK_Y;
+
+const PAN_KEYS = new Set(["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
+
+/** What the focused element does with keys: "text" swallows everything,
+ *  "control" (sliders, the dial) swallows arrows, null leaves them to us. */
+function typingIn(el: Element | null): "text" | "control" | null {
+  if (!el || el === document.body) return null;
+  const h = el as HTMLElement;
+  if (h.isContentEditable || h.tagName === "TEXTAREA" || h.tagName === "SELECT") return "text";
+  if (h.tagName === "INPUT") {
+    const t = (h as HTMLInputElement).type;
+    return t === "range" || t === "checkbox" || t === "button" || t === "color" ? "control" : "text";
+  }
+  return h.getAttribute("role") === "slider" ? "control" : null;
+}
 
 /** Outline of a landmark's footprint for the placement ghost. */
 function landmarkOutline(p: Prop): [number, number][] {

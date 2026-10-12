@@ -184,6 +184,38 @@
     ok('the village sloop sails out past the map edge over deep water', edge && worst > 0.4, `depth ${worst.toFixed(2)}`);
     a.hour = hour; g.updateVillagers(0); reset();
   }
+  {
+    // WASD panning survives Cmd chords, lost focus and a focused slider
+    const key = (type, code, extra = {}) => window.dispatchEvent(new KeyboardEvent(type, { code, key: extra.key ?? code, bubbles: true, ...extra }));
+    const moved = () => { const z0 = g.controls.target.z; t.panCamera(0.1); return Math.abs(g.controls.target.z - z0) > 1e-4; };
+    const home = g.controls.target.clone(), cam0 = g.camera.position.clone();
+    key('keydown', 'KeyW', { key: 'w' });
+    ok('W pans the camera', moved());
+    key('keyup', 'KeyW', { key: 'w' });
+    ok('releasing W stops it', !moved());
+    key('keydown', 'MetaLeft', { key: 'Meta', metaKey: true });
+    key('keydown', 'KeyW', { key: 'w', metaKey: true });
+    key('keyup', 'MetaLeft', { key: 'Meta' });   // macOS: no keyup for W
+    ok('a Cmd chord does not latch a pan key', !moved());
+    key('keydown', 'MetaLeft', { key: 'Meta', metaKey: true });
+    window.dispatchEvent(new Event('blur'));      // Cmd+Tab away and back
+    key('keydown', 'KeyS', { key: 's' });
+    ok('panning works after switching away with Cmd held', moved());
+    key('keyup', 'KeyS', { key: 's' });
+    key('keydown', 'KeyD', { key: 'd' });
+    window.dispatchEvent(new Event('blur'));
+    ok('losing focus forgets held keys', !moved());
+    const slider = document.querySelector('input[type=range]') ?? Object.assign(document.body.appendChild(document.createElement('input')), { type: 'range' });
+    slider.focus();
+    key('keydown', 'KeyW', { key: 'w' });
+    ok('W pans even with a slider focused', moved());
+    key('keyup', 'KeyW', { key: 'w' });
+    key('keydown', 'KeyW', { key: 'w' });
+    ev('pointerdown', scr(24, 0, 22)); ev('pointerup', scr(24, 0, 22));
+    ok('clicking the world takes focus off the slider', document.activeElement !== slider);
+    key('keyup', 'KeyW', { key: 'w' });
+    g.controls.target.copy(home); g.camera.position.copy(cam0); g.controls.update(); reset();
+  }
   results.push(`PERF warmed unchanged structure rebuild median=${samples[4].toFixed(1)}ms max=${samples.at(-1).toFixed(1)}ms`);
   return results.join('\n');
 })()
