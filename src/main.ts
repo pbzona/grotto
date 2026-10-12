@@ -235,12 +235,13 @@ async function boot() {
     updateSound(step);
     controls.update();
     keepAboveGround();
+    tools.frame();
     pipeline.render();
   }
   if (params.has("test")) {
     (window as any).__grotto.snap = async (hour?: number) => {
       if (hour !== undefined) app.hour = hour;
-      app.update(0); applySky(app.hour); gulls.update(app.time + 3, U.night.value); updateVillagers(0); fish.update(app.time + 3, U.night.value); controls.update(); keepAboveGround();
+      app.update(0); applySky(app.hour); gulls.update(app.time + 3, U.night.value); updateVillagers(0); fish.update(app.time + 3, U.night.value); controls.update(); keepAboveGround(); tools.frame();
       await renderer.compileAsync(scene, camera).catch(() => {});
       pipeline.render();
       return renderer.domElement.toDataURL("image/png");

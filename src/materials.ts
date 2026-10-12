@@ -254,9 +254,15 @@ export function createMaterials(tex: { paint: THREE.Texture; water: THREE.Textur
   const footBad = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: false });
   footBad.colorNode = hex("#ff6f5a"); footBad.opacityNode = float(0.9);
 
-  const handle = new THREE.MeshBasicNodeMaterial({ depthTest: false, transparent: true });
+  // edit handles hide behind whatever is in front of them; a held or hovered one brightens
+  const handle = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide });
   handle.colorNode = attribute("color", "vec3");
-  handle.opacityNode = float(0.95);
+  const handleHot = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide });
+  handleHot.colorNode = mix(attribute("color", "vec3"), vec3(1, 1, 1), 0.3);
+  const handleLine = new THREE.LineBasicNodeMaterial({ transparent: true, depthWrite: false });
+  handleLine.colorNode = hex("#fff1c9"); handleLine.opacityNode = float(0.85);
+  const handleWash = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide });
+  handleWash.colorNode = hex("#8ff0dc"); handleWash.opacityNode = float(0.22);
 
   // ---------------- sky ----------------
   const background = Fn(() => {
@@ -272,6 +278,6 @@ export function createMaterials(tex: { paint: THREE.Texture; water: THREE.Textur
   })();
 
   void exp; void cos; void select; void vec4;
-  return { terrain, water, building, ghost, ghostBad, ghostX, ghostBadX, footOk, footBad, handle, background };
+  return { terrain, water, building, ghost, ghostBad, ghostX, ghostBadX, footOk, footBad, handle, handleHot, handleLine, handleWash, background };
 }
 export type Materials = ReturnType<typeof createMaterials>;

@@ -53,6 +53,7 @@ export function injectStyles() {
     --body: "Alegreya Sans", "Gill Sans", "Trebuchet MS", sans-serif; --small: "Alegreya Sans SC", "Gill Sans", sans-serif;
   }
   * { box-sizing: border-box; }
+  .hlabel { position: fixed; display: none; z-index: 20; pointer-events: none; padding: 2px 7px 3px; background: rgba(42,36,32,.86); color: #fff1c9; border-radius: 2px; font: 500 13px var(--body); white-space: nowrap; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #0b2a36; font-family: var(--body); color: var(--ink); -webkit-user-select: none; user-select: none; }
   canvas { display: block; touch-action: none; }
   #loading, #fallback { position: fixed; inset: 0; display: grid; place-items: center; font: italic 22px var(--display); color: var(--ink); background: ${GRAIN}, radial-gradient(#f1e7cf, #d9c69f); z-index: 50; text-align: center; }
@@ -400,7 +401,7 @@ export class UI {
     const t = this.tools;
     const k = (x: string) => `<kbd>${x}</kbd>`;
     switch (t.tool) {
-      case "select": return t.sel ? `${k("Del")} remove · ${k("Esc")} done` : `click to edit · right-drag to orbit · ${k("?")} help`;
+      case "select": return t.sel?.kind === "house" ? `hover a wall to add a wing, the roof to lift · ${k("Esc")} done` : t.sel ? `${k("Del")} remove · ${k("Esc")} done` : `click to edit · right-drag to orbit · ${k("?")} help`;
       case "house": return `drag or click · ${k("R")} turn`;
       case "walk": return t.chain ? `click to add · ${k("[")}${k("]")} height · ${k("Esc")} finish` : `click to start · snaps to docks & walls`;
       case "terrain": case "paint": return `drag to ${t.tool === "paint" ? "paint" : t.terrainOp} · ${k("[")}${k("]")} size`;
@@ -472,7 +473,7 @@ export class UI {
         const v = h.volumes[s.vi] ?? h.volumes[0];
         const kind = v.kind ?? "room";
         title((kind === "lookout" ? "Lookout" : kind === "tower" ? "Tower" : "House") + (h.volumes.length > 1 ? ` <small>${s.vi + 1}/${h.volumes.length}</small>` : ""),
-          [["#fff1c9", "stretch"], ["#6fdcc9", "wing"], ["#f2a65a", "lift"]]);
+          [["#fff1c9", "stretch"], ["#8fd3f0", "move"], ["#e6a676", "floors"]]);
         const g = document.createElement("div"); g.className = "sws";
         PALETTES.forEach((pal, i) => {
           const d = document.createElement("div"); d.className = "sw" + (h.palette === i ? " on" : ""); d.title = pal.name;
@@ -503,13 +504,13 @@ export class UI {
         actions([[h.volumes.length > 1 && s.vi > 0 ? "Remove part" : "Remove", () => t.deleteSelection(), "warn"]]);
       } else if (s.kind === "node") {
         const n = app.world.nodes.get(s.id); if (!n) return;
-        title("Post", [["#6fdcc9", "move"], ["#e6a676", "height"], ["#fff1c9", "extend"]]);
+        title("Post", [["#8fd3f0", "move"], ["#e6a676", "height"], ["#fff1c9", "extend"]]);
         stepper(row("Height"), n.y.toFixed(2), () => this.nodeEdit(s.id, "y", -0.25), () => this.nodeEdit(s.id, "y", 0.25));
         seg(row("Landing"), [["0", "None"], ["1", "S"], ["1.5", "L"]], String(n.pad), v2 => this.nodeEdit(s.id, "pad", +v2));
         actions([["Remove", () => t.deleteSelection(), "warn"]]);
       } else if (s.kind === "edge") {
         const e = app.world.edges.get(s.id); if (!e) return;
-        title("Walkway", [["#6fdcc9", "move ends"]]);
+        title("Walkway", [["#8fd3f0", "move ends"]]);
         seg(row("Style"), [["deck", "Deck"], ["rope", "Rope"]], e.style, v2 => this.edgeEdit(s.id, "style", v2));
         slider(row("Width"), 0.7, 2, 0.1, e.width, x => this.edgeEdit(s.id, "width", x));
         chip(row("Rail"), e.rail ? "On" : "Off", e.rail, () => this.edgeEdit(s.id, "rail", !e.rail));

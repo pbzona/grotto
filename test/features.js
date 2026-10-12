@@ -5,7 +5,8 @@
   const ev = (type, [x, y], o = {}) => c.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, button: 0, buttons: 1, pointerId: 3, bubbles: true, ...o }));
   const drag = (p, q) => { ev('pointermove', p); ev('pointerdown', p); for (let i = 1; i <= 8; i++) ev('pointermove', [p[0] + (q[0] - p[0]) * i / 8, p[1] + (q[1] - p[1]) * i / 8]); ev('pointerup', q); };
   const ok = (n, cond, x = '') => R.push((cond ? 'PASS ' : 'FAIL ') + n + ' ' + x);
-  const handle = (pred) => t.handles.children.find(m => pred(m.userData.handle));
+  const hs = () => t.handles.children.filter(m => m.userData.handle);
+  const handle = (pred) => hs().find(m => pred(m.userData.handle));
   g.camera.position.set(24, 22, 38); g.controls.target.set(24, 1, 22); g.controls.update(); a.update(0);
   // --- terminal node drag: pier end east of the T-head
   const ends = [...w.nodes.values()].filter(n => w.edgesOf(n.id).length === 1 && n.x > 28 && n.z > 27);
@@ -19,16 +20,22 @@
   // --- segment extrude on the stepped west house's hi part? use the east hip stilt house
   const h = [...w.houses.values()].find(h => h.volumes[0].x0 === 30.5);
   t.select({ kind: 'house', id: h.id, vi: 0 }); a.update(0);
-  const segs = t.handles.children.filter(m => m.userData.handle.t === 'seg');
-  ok('segment handles shown', segs.length >= 4, String(segs.length));
-  const sg = segs.find(m => m.userData.handle.side === 2); // north wall
+  const rest = hs().map(m => m.userData.handle.t).sort().join(',');
+  ok('house at rest shows six handles', rest === 'floors,move,side,side,side,side', rest);
+  const far = handle(x => x.t === 'side' && x.side === 2); t.frame();
+  ev('pointermove', scr(far.position.x, far.position.y, far.position.z), { buttons: 0 });
+  ok('handle behind the house is not pickable', t.layer.hot !== far);
+  t.revealFor(0);
+  const segs = hs().filter(m => m.userData.handle.t === 'seg');
+  ok('segment handles revealed on one wall', segs.length >= 2 && segs.every(m => m.userData.handle.side === 0), String(segs.length));
+  const sg = segs[0]; // south wall, facing the camera
   const nv = h.volumes.length;
-  drag(scr(sg.position.x, sg.position.y, sg.position.z), scr(sg.position.x, sg.position.y, sg.position.z - 1.6)); a.update(0);
+  drag(scr(sg.position.x, sg.position.y, sg.position.z), scr(sg.position.x, sg.position.y, sg.position.z + 1.6)); a.update(0);
   ok('segment extruded into a wing', h.volumes.length === nv + 1, JSON.stringify(h.volumes[h.volumes.length - 1] && [h.volumes.at(-1).x0, h.volumes.at(-1).z0, h.volumes.at(-1).x1, h.volumes.at(-1).z1]));
   // --- lift part of the longhouse-like main volume
   const L = [...w.houses.values()].find(h => h.volumes[0].x0 === 19.5 && h.volumes[0].z0 === 11);
-  t.select({ kind: 'house', id: L.id, vi: 0 }); a.update(0);
-  const lifts = t.handles.children.filter(m => m.userData.handle.t === 'lift');
+  t.select({ kind: 'house', id: L.id, vi: 0 }); a.update(0); t.revealFor('roof');
+  const lifts = hs().filter(m => m.userData.handle.t === 'lift');
   ok('lift handles shown', lifts.length >= 2, String(lifts.length));
   const lf = lifts[0]; const before = L.volumes.length;
   const p0 = scr(lf.position.x, lf.position.y, lf.position.z);

@@ -7,6 +7,7 @@ import { defaultDeckY, landingRadius, WALK_W, MAX_STAIR, slopeOf, clampStair } f
 import { buildOneProp, buildBoat, PROP_INFO, boatFreeboard, isGreenery, palmPierces } from "./props";
 import { fitLandmark, Fit } from "./landmarks";
 import { U } from "./materials";
+import { HandleLayer } from "./handles";
 
 export type ToolId = "select" | "house" | "walk" | "terrain" | "paint" | "prop" | "erase";
 export type TerrainOp = "raise" | "lower" | "flatten" | "smooth";
@@ -98,7 +99,10 @@ export class Tools {
   private ghostX: THREE.Mesh;
   private ghostBadX: THREE.Mesh;
   private foot: THREE.Mesh;
-  private handles = new THREE.Group();
+  private layer: HandleLayer;
+  /** for tests and the panel: the live handle group */
+  get handles() { return this.layer.group; }
+  private label = document.createElement("div");
   private pointerId = -1;
   private downAt = { x: 0, y: 0 };
   private keys = new Set<string>();
@@ -115,8 +119,9 @@ export class Tools {
     this.ghost.renderOrder = this.ghostBad.renderOrder = 8;
     this.foot.renderOrder = 9;
     for (const g of [this.ghost, this.ghostBad, this.ghostX, this.ghostBadX, this.foot]) { g.frustumCulled = false; g.visible = false; }
-    this.handles.renderOrder = 10;
-    app.d.scene.add(this.ghostX, this.ghostBadX, this.ghost, this.ghostBad, this.foot, this.handles);
+    this.layer = new HandleLayer(m.handle, m.handleHot, m.handleLine, m.handleWash);
+    app.d.scene.add(this.ghostX, this.ghostBadX, this.ghost, this.ghostBad, this.foot, this.layer.group);
+    this.label.className = "hlabel"; document.body.appendChild(this.label);
     dom.addEventListener("pointerdown", e => {
       // Clicking the world takes focus back from any panel control.
       const f = document.activeElement as HTMLElement | null;
@@ -158,7 +163,9 @@ export class Tools {
     this.updateGhost(); this.onChange?.();
   }
   select(s: Selection | null) {
+    const same = JSON.stringify(s) === JSON.stringify(this.sel);
     this.sel = s;
+    if (!same) { clearTimeout(this.revealTimer); this.revealTimer = 0; this.reveal = null; }
     this.refreshHandles(); this.refreshHighlight(); this.onChange?.();
   }
 
@@ -204,11 +211,16 @@ export class Tools {
     if (k === "p") return { kind: "prop", id: a };
     return null;
   }
+  /** The handle under the pointer, unless something stands in front of it. */
   private pickHandle(): THREE.Object3D | null {
-    this.handles.updateMatrixWorld(true);
-    const hits = this.ray.intersectObjects(this.handles.children, true);
-    for (const h of hits) { let o: THREE.Object3D | null = h.object; while (o && !o.userData.handle) o = o.parent; if (o) return o; }
-    return null;
+    const hs = this.layer.handles; if (!hs.length) return null;
+    this.frame(); this.layer.group.updateMatrixWorld(true);
+    const hit = this.ray.intersectObjects(hs, false)[0]; if (!hit) return null;
+    const g = this.ground();
+    if (g && g.distanceTo(this.ray.ray.origin) < hit.distance) return null;
+    const wall = this.ray.intersectObject(this.app.structures, false)[0];
+    if (wall && wall.distance < hit.distance) return null;
+    return hit.object;
   }
 
   // ---------- pointer ----------
@@ -290,7 +302,7 @@ export class Tools {
     const d = this.drag;
     if (d && d.t !== "walk" && d.t !== "rect") this.app.interacting = true;
     if (!d) {
-      if (this.tool === "select") { this.dom.style.cursor = this.pickHandle() ? "grab" : ""; return; }
+      if (this.tool === "select") { this.hoverHandles(); return; }
       this.hover = this.tool === "walk" || this.tool === "prop" ? this.surface() : this.ground();
       this.updateGhost();
       return;
@@ -333,12 +345,32 @@ export class Tools {
         break;
       }
     }
+    this.showLabel(e);
+  }
+  /** A small readout by the pointer while a handle is held: size, floors, height. */
+  private showLabel(e: PointerEvent) {
+    const d = this.drag, s = this.sel, L = this.label;
+    let txt = "";
+    const m = (x: number) => String(+x.toFixed(2));
+    if (d && s?.kind === "house") {
+      const h = this.world.houses.get(s.id), v = h?.volumes[s.vi];
+      if (h && v) {
+        if (d.t === "side" || d.t === "move") txt = `${m(v.x1 - v.x0)} × ${m(v.z1 - v.z0)}`;
+        else if (d.t === "floors") txt = `${v.floors} floor${v.floors > 1 ? "s" : ""}`;
+        else if (d.t === "lift") txt = d.df === 0 ? "drag up or down" : `${d.df > 0 ? "+" : ""}${d.df} floor${Math.abs(d.df) > 1 ? "s" : ""}`;
+        else if (d.t === "seg") { const w = h.volumes.length > d.orig.volumes.length ? h.volumes.at(-1)! : null; txt = w ? `wing ${m(w.x1 - w.x0)} × ${m(w.z1 - w.z0)}` : "pull out a wing"; }
+      }
+    } else if (d?.t === "nodeY") { const n = this.world.nodes.get(d.id); if (n) txt = `height ${n.y.toFixed(2)}`; }
+    L.textContent = txt;
+    L.style.display = txt ? "block" : "none";
+    if (txt) { L.style.left = e.clientX + 16 + "px"; L.style.top = e.clientY + 14 + "px"; }
   }
 
   private up(e: PointerEvent) {
     if (e.button !== 0 && e.pointerType === "mouse") return;
     const d = this.drag;
     this.drag = null;
+    this.layer.held = null; this.label.style.display = "none";
     this.app.endInteraction();
     try { this.dom.releasePointerCapture(this.pointerId); } catch { /* not captured */ }
     if (!d) return;
@@ -395,6 +427,7 @@ export class Tools {
     if (!this.drag) return;
     if (this.drag.t === "walk") { this.chain = null; this.chainTemp = null; this.walkLift = 0; }
     this.drag = null; this.housesChanged = false;
+    this.layer.held = null; this.label.style.display = "none";
     try { this.dom.releasePointerCapture(this.pointerId); } catch { /* not captured */ }
     this.app.cancel(); this.pointerId = -1;
     if (this.sel?.kind === "house") { const h = this.world.houses.get(this.sel.id); if (h && this.sel.vi >= h.volumes.length) this.sel.vi = 0; }
@@ -551,91 +584,135 @@ export class Tools {
   }
 
   // ---------- handles ----------
+  /** Which part of the selected house the pointer is over: a wall reveals its wing handles, the roof its lift handles. */
+  reveal: { side: number } | { roof: true } | null = null;
+  private revealTimer = 0;
+  /** Show the wing (side) or lift ("roof") handles of a selected volume, as hovering would. */
+  revealFor(part: number | "roof" | null) { clearTimeout(this.revealTimer); this.revealTimer = 0; this.reveal = part === null ? null : part === "roof" ? { roof: true } : { side: part }; this.refreshHandles(); }
+  private setReveal(r: Tools["reveal"]) {
+    if (r === null && this.reveal) {
+      // a short grace so moving from the wall to a handle doesn't drop it
+      if (!this.revealTimer) this.revealTimer = window.setTimeout(() => { this.revealTimer = 0; this.reveal = null; this.refreshHandles(); }, 300);
+      return;
+    }
+    clearTimeout(this.revealTimer); this.revealTimer = 0;
+    if (JSON.stringify(r) === JSON.stringify(this.reveal)) return;
+    this.reveal = r; this.refreshHandles();
+  }
+  /** Hover tracking for the select tool: light the handle under the pointer, reveal wing/lift handles for the wall or roof under it. */
+  private hoverHandles() {
+    const hnd = this.pickHandle();
+    this.layer.setHot(hnd);
+    this.dom.style.cursor = hnd ? "grab" : "";
+    const s = this.sel;
+    if (s?.kind !== "house") return;
+    if (hnd) { this.setReveal(this.reveal); return; }
+    const p = this.pick();
+    const o = p && this.ownerToSel(p.owner);
+    const h = this.world.houses.get(s.id), v = h?.volumes[s.vi];
+    if (!p || !h || !v || o?.kind !== "house" || o.id !== s.id || o.vi !== s.vi) { this.setReveal(null); return; }
+    const eave = houseLayout(this.world, h).base + v.floors * FLOOR_H;
+    if (p.point.y > eave - 0.05) { this.setReveal({ roof: true }); return; }
+    const d = [v.z1 - p.point.z, v.x1 - p.point.x, p.point.z - v.z0, p.point.x - v.x0].map(Math.abs);
+    this.setReveal({ side: d.indexOf(Math.min(...d)) });
+  }
+  frame() {
+    const c = this.app.d.camera as THREE.PerspectiveCamera;
+    this.layer.frame(c, this.dom.clientHeight || window.innerHeight, this.dom.clientWidth || window.innerWidth);
+  }
   refreshHandles() {
-    for (const c of [...this.handles.children]) { this.handles.remove(c); (c as THREE.Mesh).geometry?.dispose(); }
-    const s = this.sel; if (!s) return;
-    const mat = this.app.d.mats.handle;
-    const mk = (geo: THREE.BufferGeometry, col: string, pos: THREE.Vector3, data: any) => {
-      const c = new THREE.Color(col);
-      const cols = new Float32Array(geo.getAttribute("position").count * 3);
-      for (let i = 0; i < cols.length; i += 3) { cols[i] = c.r; cols[i + 1] = c.g; cols[i + 2] = c.b; }
-      geo.setAttribute("color", new THREE.BufferAttribute(cols, 3));
-      const m = new THREE.Mesh(geo, mat);
-      m.position.copy(pos); m.userData.handle = data; m.renderOrder = 10;
-      this.handles.add(m); return m;
-    };
+    const L = this.layer;
+    const held = L.held?.userData.handle ? JSON.stringify(L.held.userData.handle) : null;
+    L.clear();
+    const s = this.sel;
+    if (s) this.buildHandles(s);
+    if (held && this.drag) L.held = L.handles.find(m => JSON.stringify(m.userData.handle) === held) ?? null;
+    this.frame();
+  }
+  private buildHandles(s: Selection) {
+    const L = this.layer, V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+    const C = { stretch: "#fff1c9", wing: "#6fdcc9", lift: "#f2a65a", move: "#8fd3f0", height: "#e6a676" };
+    const cam = this.app.d.camera.position;
     if (s.kind === "house") {
       const h = this.world.houses.get(s.id); if (!h) return;
       const v = h.volumes[s.vi] ?? h.volumes[0];
       const lay = houseLayout(this.world, h);
-      const yMid = lay.base + Math.min(v.floors, 2) * FLOOR_H * 0.5;
+      const base = lay.base, eave = base + v.floors * FLOOR_H;
+      // outline of the selected part
+      const e = 0.12, x0 = v.x0 - e, x1 = v.x1 + e, z0 = v.z0 - e, z1 = v.z1 + e;
+      const ring = (y: number) => [V(x0, y, z0), V(x1, y, z0), V(x1, y, z0), V(x1, y, z1), V(x1, y, z1), V(x0, y, z1), V(x0, y, z1), V(x0, y, z0)];
+      L.setLines([...ring(base), ...ring(eave), ...[[x0, z0], [x1, z0], [x1, z1], [x0, z1]].flatMap(([x, z]) => [V(x, base, z), V(x, eave, z)])]);
+      // stretch: one arrow per wall
+      const yMid = base + Math.min(v.floors, 2) * FLOOR_H * 0.5;
       for (let side = 0; side < 4; side++) {
-        const L = sideLine(v, side);
-        const cx = (L.a[0] + L.b[0]) / 2 + L.n[0] * 0.55, cz = (L.a[1] + L.b[1]) / 2 + L.n[1] * 0.55;
-        const g = new THREE.ConeGeometry(0.2, 0.42, 12);
-        g.rotateX(Math.PI / 2);
-        const m = mk(g, "#fff1c9", new THREE.Vector3(cx, yMid, cz), { t: "side", side });
-        m.lookAt(cx + L.n[0], yMid, cz + L.n[1]);
+        const S = sideLine(v, side);
+        // sit on a stretch of wall that another part of the house does not cover
+        const at = (f: number, out: number) => [S.a[0] + (S.b[0] - S.a[0]) * f + S.n[0] * out, S.a[1] + (S.b[1] - S.a[1]) * f + S.n[1] * out];
+        const covers = (f: number) => h.volumes.filter((o, oi) => { const [x, z] = at(f, 0.1); return oi !== s.vi && x > o.x0 && x < o.x1 && z > o.z0 && z < o.z1; });
+        const f = [0.5, 0.35, 0.65, 0.2, 0.8, 0.08, 0.92].find(f => !covers(f).length);
+        const [cx, cz] = at(f ?? 0.5, 0.55);
+        const y = f !== undefined ? yMid : Math.max(...covers(0.5).map(o => base + o.floors * FLOOR_H)) + 0.5;
+        L.add(V(cx, y, cz), { t: "side", side }, { glyph: "arrow", color: C.stretch, dir: V(S.n[0], 0, S.n[1]) });
       }
-      // segment handles: pull one stretch of wall out into a new wing
-      for (let side = 0; side < 4; side++) {
-        const L = sideLine(v, side);
-        const along = side % 2 === 0;
-        const lo = along ? v.x0 : v.z0, hi = along ? v.x1 : v.z1;
+      const rv = this.reveal;
+      // wing: each stretch of the hovered wall can be pulled out
+      if (rv && "side" in rv) {
+        const side = rv.side, S = sideLine(v, side), along = side % 2 === 0;
+        const lo = along ? v.x0 : v.z0, hi = along ? v.x1 : v.z1, yT = base + 0.28;
         for (const [a, b] of segments(lo, hi)) {
           const c = (a + b) / 2;
-          const ox = along ? c : L.a[0] + L.n[0] * 0.1, oz = along ? L.a[1] + L.n[1] * 0.1 : c;
+          const ox = along ? c : S.a[0] + S.n[0] * 0.1, oz = along ? S.a[1] + S.n[1] * 0.1 : c;
           if (h.volumes.some((o, oi) => oi !== s.vi && ox > o.x0 && ox < o.x1 && oz > o.z0 && oz < o.z1)) continue;
-          const px = along ? c : L.a[0] + L.n[0] * 0.32, pz = along ? L.a[1] + L.n[1] * 0.32 : c;
-          const g = new THREE.ConeGeometry(0.11, 0.24, 10); g.rotateX(Math.PI / 2);
-          const m = mk(g, "#6fdcc9", new THREE.Vector3(px, lay.base + 0.28, pz), { t: "seg", side, a, b });
-          m.lookAt(px + L.n[0], lay.base + 0.28, pz + L.n[1]);
+          const px = along ? c : S.a[0] + S.n[0] * 0.32, pz = along ? S.a[1] + S.n[1] * 0.32 : c;
+          L.add(V(px, yT, pz), { t: "seg", side, a, b }, { glyph: "plus", color: C.wing, px: 9 });
         }
+        const o = 0.04, [ax, az] = [S.a[0] + S.n[0] * o, S.a[1] + S.n[1] * o], [bx, bz] = [S.b[0] + S.n[0] * o, S.b[1] + S.n[1] * o];
+        L.setWash([[V(ax, base, az), V(bx, base, bz), V(bx, eave, bz), V(ax, eave, az)]]);
       }
-      // lift handles: raise (or lower) one stretch of the house along its length
-      if ((v.kind ?? "room") === "room") {
+      // lift: each stretch along the ridge can be raised, from the eave nearest the camera
+      if (rv && "roof" in rv && (v.kind ?? "room") === "room") {
         const alongX = v.x1 - v.x0 >= v.z1 - v.z0;
         const lo = alongX ? v.x0 : v.z0, hi = alongX ? v.x1 : v.z1;
         const segs = segments(lo, hi);
+        const near = alongX ? (cam.z > (v.z0 + v.z1) / 2 ? v.z1 + 0.3 : v.z0 - 0.3) : (cam.x > (v.x0 + v.x1) / 2 ? v.x1 + 0.3 : v.x0 - 0.3);
         if (segs.length > 1) for (const [a, b] of segs) {
           const c = (a + b) / 2;
-          const yTop = lay.base + v.floors * FLOOR_H + 0.25;
-          const px = alongX ? c : v.x1 + 0.3, pz = alongX ? v.z1 + 0.3 : c;
-          mk(new THREE.ConeGeometry(0.12, 0.28, 10), "#f2a65a", new THREE.Vector3(px, yTop, pz), { t: "lift", alongX, a, b });
+          L.add(alongX ? V(c, eave + 0.25, near) : V(near, eave + 0.25, c), { t: "lift", alongX, a, b }, { glyph: "updown", color: C.lift, px: 9 });
         }
       }
-      const top = lay.base + v.floors * FLOOR_H + 1.6;
-      const cx = (v.x0 + v.x1) / 2, cz = (v.z0 + v.z1) / 2;
-      mk(new THREE.OctahedronGeometry(0.24), "#e6a676", new THREE.Vector3(cx, top + 0.7, cz), { t: "floors" });
-      const ring = new THREE.TorusGeometry(0.3, 0.07, 8, 20); ring.rotateX(Math.PI / 2);
-      mk(ring, "#6fdcc9", new THREE.Vector3(cx, top, cz), { t: "move" });
+      // move and floors sit just over the roof
+      const kind = v.kind ?? "room", w = v.x1 - v.x0, d = v.z1 - v.z0;
+      const span = (v.ridgeX ?? w >= d) ? d : w, pitch = kind === "tower" ? Math.max(1.4, v.pitch) : v.pitch;
+      const rise = v.roof === "flat" && kind !== "tower" ? 0.2 : span * (v.roof === "shed" && kind !== "tower" ? 0.42 : 0.5) * 0.95 * pitch + 0.06;
+      const top = V((v.x0 + v.x1) / 2, eave + rise + 0.3, (v.z0 + v.z1) / 2);
+      L.add(top, { t: "move" }, { glyph: "move", color: C.move });
+      L.add(top, { t: "floors" }, { glyph: "floors", color: C.height, slot: 1 });
     } else if (s.kind === "node") {
       const n = this.world.nodes.get(s.id); if (!n) return;
-      const g = new THREE.ConeGeometry(0.18, 0.4, 12);
-      mk(g, "#e6a676", new THREE.Vector3(n.x, n.y + 1.1, n.z), { t: "nodeY" });
-      const g2 = new THREE.ConeGeometry(0.18, 0.4, 12); g2.rotateX(Math.PI);
-      mk(g2, "#e6a676", new THREE.Vector3(n.x, n.y + 0.6, n.z), { t: "nodeY" });
-      const ring = new THREE.TorusGeometry(0.34, 0.07, 8, 24); ring.rotateX(Math.PI / 2);
-      mk(ring, "#6fdcc9", new THREE.Vector3(n.x, n.y + 0.15, n.z), { t: "nodeXZ", id: n.id });
+      const at = V(n.x, n.y + 0.2, n.z);
+      L.add(at, { t: "nodeXZ", id: n.id }, { glyph: "move", color: C.move });
+      L.add(at, { t: "nodeY" }, { glyph: "updown", color: C.height, slot: 1 });
       // a dead end can be pulled onward
       const es = this.world.edgesOf(n.id);
       if (es.length === 1) {
         const o = this.world.nodes.get(es[0].a === n.id ? es[0].b : es[0].a);
         if (o) {
           const dx = n.x - o.x, dz = n.z - o.z, l = Math.hypot(dx, dz) || 1;
-          const px = n.x + dx / l * 0.9, pz = n.z + dz / l * 0.9;
-          const ga = new THREE.ConeGeometry(0.16, 0.36, 12); ga.rotateX(Math.PI / 2);
-          const m = mk(ga, "#fff1c9", new THREE.Vector3(px, n.y + 0.2, pz), { t: "extend", id: n.id });
-          m.lookAt(px + dx, n.y + 0.2, pz + dz);
+          L.add(V(n.x + dx / l * 0.55, n.y + 0.2, n.z + dz / l * 0.55), { t: "extend", id: n.id }, { glyph: "arrow", color: C.stretch, dir: V(dx, 0, dz) });
         }
       }
     } else if (s.kind === "edge") {
       const e = this.world.edges.get(s.id); if (!e) return;
       for (const id of [e.a, e.b]) {
         const n = this.world.nodes.get(id); if (!n) continue;
-        const ring = new THREE.TorusGeometry(0.34, 0.07, 8, 24); ring.rotateX(Math.PI / 2);
-        mk(ring, "#6fdcc9", new THREE.Vector3(n.x, n.y + 0.15, n.z), { t: "nodeXZ", id: n.id });
+        L.add(V(n.x, n.y + 0.2, n.z), { t: "nodeXZ", id: n.id }, { glyph: "move", color: C.move });
       }
+    } else if (s.kind === "prop") {
+      const p = this.world.props.get(s.id); if (!p) return;
+      // in front of the prop, toward the camera, so the prop itself never hides it
+      const r = PROP_INFO[p.type].r + 0.2, dx = cam.x - p.x, dz = cam.z - p.z, l = Math.hypot(dx, dz) || 1;
+      const x = p.x + dx / l * r, z = p.z + dz / l * r;
+      L.add(V(x, Math.max(this.world.height(x, z), WATER_Y) + 0.25, z), { t: "propXZ", id: p.id }, { glyph: "move", color: C.move });
     }
   }
   private refreshHighlight() {
@@ -652,10 +729,15 @@ export class Tools {
     const s = this.sel!;
     this.app.begin(true);
     this.housesChanged = false;
+    this.layer.held = o;
     const hd = o.userData.handle as { t: string; id?: string; side?: number; a?: number; b?: number; alongX?: boolean };
     if (hd.t === "nodeXZ") {
       const n = this.world.nodes.get(hd.id!)!; const g = this.surface() ?? new THREE.Vector3(n.x, n.y, n.z);
       this.drag = { t: "nodeMove", id: n.id, start: g.clone(), ox: n.x, oz: n.z, changed: false }; return;
+    }
+    if (hd.t === "propXZ") {
+      const pr = this.world.props.get(hd.id!)!; const g = this.surface() ?? new THREE.Vector3(pr.x, 0, pr.z);
+      this.drag = { t: "propMove", id: pr.id, start: g.clone(), ox: pr.x, oz: pr.z, changed: false }; return;
     }
     if (hd.t === "extend") { this.drag = { t: "extend", from: hd.id!, node: null, changed: false }; return; }
     if (s.kind === "node") { const n = this.world.nodes.get(s.id)!; this.drag = { t: "nodeY", id: s.id, y0: n.y, oy: e.clientY, changed: false }; return; }
