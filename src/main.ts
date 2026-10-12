@@ -9,7 +9,7 @@ import { skyAt, LightMap } from "./lighting";
 import { App } from "./app";
 import { Gulls, People, Fish, planSchools } from "./life";
 import { seagrassCells } from "./props";
-import { Villagers, CROWDS } from "./villagers";
+import { Villagers, CROWDS, walkGraph, type Paths } from "./villagers";
 import { villagerHomes, lookoutLanterns } from "./houses";
 import { Contraband } from "./contraband";
 import { VillageSloop } from "./sloop";
@@ -157,18 +157,20 @@ async function boot() {
   const sloop = new VillageSloop(mats.building);
   scene.add(sloop.group);
   let seenVersion = -1, sinceSync = 1;
+  let paths: Paths = world;
   function updateVillagers(dt: number) {
     sinceSync += dt;
     const density = CROWDS[app.settings.crowd].density;
     if (density !== villagers.density) { villagers.density = density; seenVersion = -1; sinceSync = 1; }
     if (world.version !== seenVersion && sinceSync > 0.3) { seenVersion = world.version; sinceSync = 0;
       const homes = villagerHomes(world);
-      villagers.sync(world, homes);
+      paths = walkGraph(world);
+      villagers.sync(paths, homes);
       sloop.replan(world);
       smuggling.replan(world, lookoutLanterns(world), homes, sloop.berth);
       fish.plan(planSchools(world, seagrassCells(world)));
     }
-    villagers.update(world, dt);
+    villagers.update(paths, dt);
     people.update(villagers.people, app.time);
     smuggling.update(app.hour, app.time);
     sloop.update(app.hour, app.time);

@@ -1,4 +1,7 @@
-import type { World, WalkNode } from "./world";
+import { DECK_Y, grottoTies, grottoTieAt, grottoDockWalk, type World, type WalkNode, type WalkEdge } from "./world.ts";
+
+/** The walkable network: walkway nodes and edges, plus any grotto docks they tie on to. */
+export type Paths = Pick<World, "nodes" | "edges">;
 
 /**
  * Villagers: a few people per house, living only on the walkway network. They are derived from the
@@ -54,7 +57,7 @@ const byId = (a: Home, b: Home) => (a.house < b.house ? -1 : a.house > b.house ?
  * stretch of walkway holds at most `density` people per unit of its length (at least one),
  * and the whole town at most MAX_VILLAGERS. Earliest house ids win, so counts stay stable.
  */
-export function headcount(homes: Home[], world?: World, density = Infinity) {
+export function headcount(homes: Home[], world?: Paths, density = Infinity) {
   const out = new Map<string, number>();
   const groups = new Map<string, { room: number; homes: Home[] }>();
   if (world && Number.isFinite(density)) {
@@ -101,7 +104,7 @@ export class Villagers {
   density: number = CROWDS[DEFAULT_CROWD].density;
 
   /** Reconcile with the world: new houses send someone out, removed ones fade, broken paths reset. */
-  sync(world: World, homes: Home[]) {
+  sync(world: Paths, homes: Home[]) {
     this.homes = new Map(homes.map(h => [h.house, h]));
     const want = headcount(homes, world, this.density);
     const have = new Map<string, number>();
@@ -119,7 +122,7 @@ export class Villagers {
     }
   }
 
-  private spawn(world: World, home: Home, k: number): Villager {
+  private spawn(world: Paths, home: Home, k: number): Villager {
     const r = rand(home.seed * 13.7 + k * 3.1);
     const n = world.nodes.get(home.node)!;
     const v: Villager = {
@@ -131,7 +134,7 @@ export class Villagers {
   }
 
   /** Still standing on walkway that exists and reaches home? */
-  private valid(world: World, v: Villager, home: Home) {
+  private valid(world: Paths, v: Villager, home: Home) {
     if (v.phase === "home" || v.phase === "out") return true;
     if (!world.nodes.has(v.from)) return false;
     const reach = component(world, home.node);
@@ -148,13 +151,13 @@ export class Villagers {
     if (v.phase !== "home") v.phase = "out";
   }
 
-  update(world: World, dt: number) {
+  update(world: Paths, dt: number) {
     dt = Math.min(dt, 0.25);
     for (const v of this.people) this.step(world, v, dt);
     this.people = this.people.filter(v => !(v.gone && v.phase === "home"));
   }
 
-  private step(world: World, v: Villager, dt: number) {
+  private step(world: Paths, v: Villager, dt: number) {
     const home = this.homes.get(v.house);
     switch (v.phase) {
       case "out":
@@ -185,7 +188,7 @@ export class Villagers {
   }
 
   /** Choose somewhere to go: another node on the network, or back to the door to go in. */
-  private plan(world: World, v: Villager) {
+  private plan(world: Paths, v: Villager) {
     const home = this.homes.get(v.house);
     if (!home) { this.leave(v, true); return; }
     const reach = [...component(world, home.node)];
@@ -202,7 +205,7 @@ export class Villagers {
     v.path = path; v.d = 0; v.phase = "walk";
   }
 
-  private walk(world: World, v: Villager, dt: number) {
+  private walk(world: Paths, v: Villager, dt: number) {
     let left = v.speed * dt;
     while (left > 0 && v.path.length) {
       const a = world.nodes.get(v.from), b = world.nodes.get(v.path[0]);
@@ -221,7 +224,7 @@ export class Villagers {
   }
 
   /** World position on the current leg, offset into the villager's lane, following rope-bridge sag. */
-  private place(world: World, v: Villager) {
+  private place(world: Paths, v: Villager) {
     const a = world.nodes.get(v.from)!;
     const b = v.path.length ? world.nodes.get(v.path[0]) : undefined;
     if (!b) { v.x = a.x; v.y = a.y; v.z = a.z; return; }
@@ -237,12 +240,12 @@ export class Villagers {
   }
 }
 
-export function edgeBetween(world: World, a: string, b: string) {
+export function edgeBetween(world: Paths, a: string, b: string) {
   for (const e of world.edges.values()) if ((e.a === a && e.b === b) || (e.a === b && e.b === a)) return e;
   return undefined;
 }
 
-function adjacency(world: World) {
+function adjacency(world: Paths) {
   const adj = new Map<string, string[]>();
   for (const e of world.edges.values()) {
     if (!world.nodes.has(e.a) || !world.nodes.has(e.b)) continue;
@@ -252,7 +255,7 @@ function adjacency(world: World) {
   return adj;
 }
 
-export function component(world: World, start: string) {
+export function component(world: Paths, start: string) {
   const adj = adjacency(world);
   const seen = new Set<string>([start]), q = [start];
   while (q.length) for (const n of adj.get(q.pop()!) ?? []) if (!seen.has(n)) { seen.add(n); q.push(n); }
@@ -260,7 +263,7 @@ export function component(world: World, start: string) {
 }
 
 /** Shortest walk (by length) from a to b, excluding a; null if unreachable. */
-export function route(world: World, a: string, b: string): string[] | null {
+export function route(world: Paths, a: string, b: string): string[] | null {
   if (a === b) return [];
   const adj = adjacency(world);
   const dist = new Map<string, number>([[a, 0]]), prev = new Map<string, string>();
@@ -280,4 +283,27 @@ export function route(world: World, a: string, b: string): string[] | null {
   const out: string[] = [];
   for (let c = b; c !== a; c = prev.get(c)!) out.unshift(c);
   return out;
+}
+
+/**
+ * The walkways as people walk them: where a walkway ties on to a grotto's dock, the dock carries on
+ * in under the arch as a couple of extra stops. Built per sync; shares the real nodes.
+ */
+export function walkGraph(world: World): Paths {
+  const grottos = [...world.props.values()].filter(p => p.type === "grotto");
+  if (!grottos.length) return world;
+  const nodes = new Map(world.nodes), edges = new Map(world.edges);
+  for (const p of grottos) for (const tp of grottoTies(p)) {
+    let tie: WalkNode | undefined;
+    for (const n of world.nodes.values()) if (Math.hypot(n.x - tp.x, n.z - tp.z) < 0.35 && world.edgesOf(n.id).length) { tie = n; break; }
+    const t = tie && grottoTieAt(world, tie.x, tie.z);
+    if (!tie || !t) continue;
+    let prev = tie;
+    grottoDockWalk(t).forEach((q, k) => {
+      const n: WalkNode = { id: `${tie.id}~dock${k}`, x: q.x, z: q.z, y: DECK_Y, pad: 0 };
+      const e: WalkEdge = { id: `${n.id}~e`, a: prev.id, b: n.id, width: 0.5, style: "deck", rail: false };
+      nodes.set(n.id, n); edges.set(e.id, e); prev = n;
+    });
+  }
+  return { nodes, edges };
 }
