@@ -92,4 +92,6 @@ test("a connected pier beats an unconnected cave; a connected cave beats both", 
   assert.equal(tied.landing?.kind, "grotto");
   assert.equal(tied.home, "h1");
   assert.ok(Math.hypot(tied.landing!.x - 32, tied.landing!.z - 30.4) < 1.5, "berths inside the mouth");
+  const end = tied.walk[tied.walk.length - 1];
+  assert.ok(end.bz < tie.z - 0.6 && Math.abs(end.bz - tied.landing!.z) < 0.4, "carriers load from the dock beside the boat, not out at the tie");
 });

@@ -10,7 +10,7 @@
 //   landing, no lookout:                               nobody comes
 import { World, WATER_Y, DECK_Y, grottoDims, grottoDocks, GROTTO_TIE_Z, type Prop } from "./world.ts";
 import { seaRoute } from "./voyages.ts";
-import { route, edgeBetween, type Home } from "./villagers.ts";
+import { route, edgeBetween, walkGraph, type Home, type Paths } from "./villagers.ts";
 
 type Pt = [number, number];
 export interface Lookout { house: string; x: number; y: number; z: number }
@@ -90,7 +90,7 @@ function pierBerth(world: World, x: number, z: number, pad: number, moored: Pt[]
 }
 
 /** The way from a landing node to the nearest house door, as walkable segments (door first). */
-function walkHome(world: World, from: string, homes: Home[]) {
+function walkHome(world: Paths, from: string, homes: Home[]) {
   let best: { home: Home; nodes: string[]; L: number } | null = null;
   for (const h of homes) {
     const r = route(world, from, h.node);
@@ -111,6 +111,8 @@ export function planRun(world: World, lookouts: Lookout[], homes: Home[], moored
     travel: 0, arrive: 0, leave: 0, home: null, walk: [], walkLength: 0, speed: WALK_SPEED, crates: CRATES, carriers: [], stack: null,
   };
   if (!lookouts.length) return plan;
+  // people walk grotto docks in under the arch, so the carriers load from the dock beside the boat
+  const paths = walkGraph(world);
   // landings: smugglers want a cave; a pier head will do when no cave has a way home
   const tries: { landing: Landing; path: Pt[] }[] = [];
   const grottos = [...world.props.values()].filter(p => p.type === "grotto").sort((a, b) => (a.id < b.id ? -1 : 1));
@@ -120,7 +122,8 @@ export function planRun(world: World, lookouts: Lookout[], homes: Home[], moored
       const sd = Math.sign(lx) || 1, bx = sd * Math.max(0, g.chan - 0.45);
       const [ax, az] = local(p, bx, 3), berth = local(p, bx, 0.1), [tx, tz] = local(p, lx, GROTTO_TIE_Z);
       const path = seaRoute(world, false, ax, az, [berth]);
-      if (path) tries.push({ landing: { kind: "grotto", id: p.id, node: nodeAt(world, tx, tz), x: berth[0], z: berth[1] }, path });
+      const tie = nodeAt(world, tx, tz), dock = tie && paths.nodes.has(`${tie}~dock0`) ? `${tie}~dock0` : tie;
+      if (path) tries.push({ landing: { kind: "grotto", id: p.id, node: dock, x: berth[0], z: berth[1] }, path });
     }
   }
   {
@@ -136,7 +139,7 @@ export function planRun(world: World, lookouts: Lookout[], homes: Home[], moored
   // cave anyway and waits there: the hint that its dock wants a walkway
   let pick: (typeof tries)[number] | null = null, walk: ReturnType<typeof walkHome> = null;
   for (const t of tries) {
-    const w = t.landing.node ? walkHome(world, t.landing.node, homes) : null;
+    const w = t.landing.node ? walkHome(paths, t.landing.node, homes) : null;
     if (!w) continue;
     const better = !walk || (t.landing.kind === "grotto" && pick!.landing.kind === "pier") || (t.landing.kind === pick!.landing.kind && w.L < walk.L);
     if (better) { pick = t; walk = w; }
@@ -153,8 +156,8 @@ export function planRun(world: World, lookouts: Lookout[], homes: Home[], moored
   // the carriers' walk, door first, with rope bridges sagging as they do for everyone else
   plan.home = walk.home.house;
   for (let i = 1; i < walk.nodes.length; i++) {
-    const a = world.nodes.get(walk.nodes[i - 1])!, b = world.nodes.get(walk.nodes[i])!;
-    plan.walk.push({ ax: a.x, ay: a.y, az: a.z, bx: b.x, by: b.y, bz: b.z, L: Math.hypot(b.x - a.x, b.z - a.z), rope: edgeBetween(world, a.id, b.id)?.style === "rope" });
+    const a = paths.nodes.get(walk.nodes[i - 1])!, b = paths.nodes.get(walk.nodes[i])!;
+    plan.walk.push({ ax: a.x, ay: a.y, az: a.z, bx: b.x, by: b.y, bz: b.z, L: Math.hypot(b.x - a.x, b.z - a.z), rope: edgeBetween(paths, a.id, b.id)?.style === "rope" });
   }
   const L = plan.walkLength = walk.L, trips = Math.ceil(CRATES / CARRIERS);
   const schedule = (v: number) => Math.max(SIGNAL + 0.6, plan.arrive - L / v);
