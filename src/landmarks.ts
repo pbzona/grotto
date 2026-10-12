@@ -198,9 +198,11 @@ export function buildGrotto(mb: MeshBuilder, w: World, p: Prop, L: Light[]) {
     const x0 = Math.min(xa, xb), x1 = Math.max(xa, xb), xin = sd < 0 ? x0 : x1, xout = sd < 0 ? x1 : x0;
     mb.paint(hexRGB("#9c7b58"), M.plank);
     // planks run out past the mouth to where a walkway can tie on
-    const z0 = GROTTO_TIE_Z + 0.2, nb = Math.floor((D * 0.85 + z0) / 0.24);
+    const z0 = GROTTO_TIE_Z, nb = Math.floor((D * 0.85 + z0) / 0.24);
     for (let k = 0; k < nb; k++) { const z = z0 - 0.1 - k * 0.24; const v = Math.max(0, -z / D), xw = sd * Math.min(Math.abs(xa), Math.abs(wallX(sd, deckY, v)) - 0.06); mb.box([Math.min(xw, xb), deckY - 0.06, z - 0.1], [Math.max(xw, xb), deckY, z + 0.1]); }
     mb.paint(hexRGB("#4c3b2e"), M.plank);
+    // a header across the end, where a walkway butts up head-on
+    mb.box([x0, deckY - 0.16, z0 - 0.08], [x1, deckY - 0.02, z0]);
     for (let k = 0; k < 5; k++) for (const x of [x0 + 0.1, x1 - 0.1]) mb.cyl(x, GROTTO_TIE_Z - k * (GROTTO_TIE_Z + D * 0.84) / 4, -1.5, deckY - 0.05, 0.07, 0.07, 6);
     // bollards along the channel edge
     for (const z of [0.0, -D * 0.5]) mb.cyl(xout - sd * 0.12, z, deckY, deckY + 0.22, 0.06, 0.07, 6);

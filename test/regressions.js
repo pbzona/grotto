@@ -149,6 +149,27 @@
     const A = a.addNode(ox, oz, DECK_Y);
     t.chain = A; t.walkLift = 0; t['walkTo'](new V(tie.x + 0.4, 0.2, tie.z - 0.3)); t.escape(); a.update(0);
     ok('a walkway ties on to the grotto dock', [...w.nodes.values()].some(n => Math.hypot(n.x - tie.x, n.z - tie.z) < 1e-6 && Math.abs(n.y - DECK_Y) < 1e-6));
+    {
+      const { walkGraph, route } = await import('/src/villagers.ts');
+      const tn = [...w.nodes.values()].find(n => Math.hypot(n.x - tie.x, n.z - tie.z) < 1e-6);
+      const pg = walkGraph(w), dock = [...pg.nodes.keys()].filter(id => !w.nodes.has(id));
+      const te = w.edgesOf(tn.id);
+      ok('coming in dead ahead needs no extra post', te.length === 1 && (te[0].a === A.id || te[0].b === A.id));
+      ok('people can walk on in along the dock', dock.length === 2 && !!route(pg, A.id, dock[1]));
+      const far = pg.nodes.get(dock[1]), fl = (far.x - p.x) * c + (far.z - p.z) * s, fz = -(far.x - p.x) * s + (far.z - p.z) * c;
+      ok('the dock walk goes in under the arch', fz < -1 && Math.abs(fl) < Math.abs(lx) + 0.5 && Math.sign(fl) === Math.sign(lx));
+    }
+    // from off to the side, the last stretch still comes in straight along the dock
+    reset(); t.setTool('walk');
+    {
+      const [sx, sz] = W(lx - Math.sign(lx) * 3, 4);
+      const B = a.addNode(sx, sz, DECK_Y);
+      t.chain = B; t.walkLift = 0; t['walkTo'](new V(tie.x, 0.2, tie.z)); t.escape(); a.update(0);
+      const tn = [...w.nodes.values()].find(n => Math.hypot(n.x - tie.x, n.z - tie.z) < 1e-6);
+      const es = tn ? w.edgesOf(tn.id) : [], o = es.length === 1 ? w.nodes.get(es[0].a === tn.id ? es[0].b : es[0].a) : null;
+      const ol = o && (o.x - p.x) * c + (o.z - p.z) * s;
+      ok('a side approach gets a post straight out in front of the dock', !!o && Math.abs(ol - lx) < 0.05 && Math.hypot(o.x - tie.x, o.z - tie.z) > 1);
+    }
     const { D } = grottoDims(p), terr = a.d.terrain;
     const [bx, bz] = W(0, -D - 0.6), back = terr.surface(bx, bz);
     ok('ground behind the vault keeps its height', Math.abs(back.y - w.height(bx, bz, true)) < 1e-6);

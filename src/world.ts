@@ -120,6 +120,22 @@ export function grottoTies(p: Prop): { x: number; z: number }[] {
   const c = Math.cos(p.rot), s = Math.sin(p.rot);
   return grottoDocks(p).map(lx => ({ x: p.x + lx * c - GROTTO_TIE_Z * s, z: p.z + lx * s + GROTTO_TIE_Z * c }));
 }
+/** A grotto tie point with the dock it belongs to and the outward direction along that dock. */
+export interface GrottoTie { prop: Prop; lx: number; x: number; z: number; ox: number; oz: number }
+export function grottoTieAt(world: World, x: number, z: number, r = 0.35): GrottoTie | null {
+  for (const p of world.props.values()) {
+    if (p.type !== "grotto" || Math.hypot(p.x - x, p.z - z) > 8) continue;
+    const c = Math.cos(p.rot), s = Math.sin(p.rot), docks = grottoDocks(p), ties = grottoTies(p);
+    for (let k = 0; k < ties.length; k++) if (Math.hypot(ties[k].x - x, ties[k].z - z) < r) return { prop: p, lx: docks[k], x: ties[k].x, z: ties[k].z, ox: -s, oz: c };
+  }
+  return null;
+}
+/** Where someone walking in from a tie point goes along the dock: in under the arch, then halfway back. */
+export function grottoDockWalk(t: GrottoTie): { x: number; z: number }[] {
+  const g = grottoDims(t.prop), c = Math.cos(t.prop.rot), s = Math.sin(t.prop.rot);
+  const sd = Math.sign(t.lx), lx = sd * (g.chan + (Math.abs(t.lx) - g.chan) * 0.7);
+  return [0.15, -g.D * 0.36].map(lz => ({ x: t.prop.x + lx * c - lz * s, z: t.prop.z + lx * s + lz * c }));
+}
 /** Flooded channel and lowered lip; these caps never overwrite editable base terrain. */
 export function grottoCells(p: Prop): { i: number; j: number; cap: number; under: boolean }[] {
   const { a: R, H, D, T } = grottoDims(p);

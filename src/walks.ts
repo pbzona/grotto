@@ -1,4 +1,4 @@
-import { World, WalkEdge, WalkNode, WATER_Y, DECK_Y, N } from "./world";
+import { World, WalkEdge, WalkNode, WATER_Y, DECK_Y, N, grottoTieAt } from "./world";
 import { MeshBuilder, V3, M, hexRGB, hsh, add, scl, lerp3 } from "./mesh";
 import type { Light } from "./houses";
 
@@ -242,6 +242,8 @@ function nodeMesh(world: World, mb: MeshBuilder, n: WalkNode, out: WalkBuild) {
     return;
   }
   if (deg === 1) {
+    // tied on to a grotto dock: the walkway simply carries on as the dock's planks
+    if (grottoTieAt(world, n.x, n.z)) return;
     const o = other[0];
     const g = world.height(n.x, n.z);
     const ux = Math.cos(ang), uz = Math.sin(ang);

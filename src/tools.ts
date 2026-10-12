@@ -1,6 +1,6 @@
 import * as THREE from "three/webgpu";
 import type { App } from "./app";
-import { World, N, snap, House, Volume, newVolume, uid, FLOOR_H, MAX_LEVEL, PaintType, PropType, WalkNode, WalkEdge, RoofType, WATER_Y, DECK_Y, Prop, isLandmark, hullDims, grottoDims, grottoTies, GROTTO_OPTS, propOpt } from "./world";
+import { World, N, snap, House, Volume, newVolume, uid, FLOOR_H, MAX_LEVEL, PaintType, PropType, WalkNode, WalkEdge, RoofType, WATER_Y, DECK_Y, Prop, isLandmark, hullDims, grottoDims, grottoTies, grottoTieAt, GROTTO_OPTS, propOpt } from "./world";
 import { MeshBuilder } from "./mesh";
 import { buildHouse, houseLayout, makeHouse, nodeWall, sideLine, HouseBuild, Bay } from "./houses";
 import { defaultDeckY, landingRadius, WALK_W, MAX_STAIR, slopeOf, clampStair } from "./walks";
@@ -1004,6 +1004,19 @@ export class Tools {
     }
     return false;
   }
+  /**
+   * A walkway meeting a grotto's dock comes in straight along it: if `from` isn't already dead ahead,
+   * put a post out in front of the tie and lay the last stretch head-on. Returns the post to join to.
+   */
+  private headOn(tie: WalkNode, from: WalkNode): WalkNode {
+    const t = grottoTieAt(this.world, tie.x, tie.z);
+    if (!t || this.world.edgesOf(tie.id).length) return tie;
+    const dx = from.x - tie.x, dz = from.z - tie.z, along = dx * t.ox + dz * t.oz, side = Math.abs(dx * t.oz - dz * t.ox);
+    if (along > 0.5 && side < 0.12 * along) return tie;
+    const a = this.app.addNode(tie.x + t.ox * 1.25, tie.z + t.oz * 1.25, tie.y);
+    this.app.addEdge(a, tie, "deck", WALK_W);
+    return a;
+  }
   private walkTo(p: THREE.Vector3) {
     if (!this.chain) return;
     if (!this.app.edits.active) this.app.begin(true);
@@ -1017,7 +1030,8 @@ export class Tools {
     const dup = this.world.edgesOf(this.chain.id).some(e => e.a === r.node.id || e.b === r.node.id);
     if (!dup) {
       const before = new Set(this.world.edges.keys());
-      this.joinWalk(this.chain, r.node);
+      const start = this.headOn(this.chain, r.node), end = this.headOn(r.node, this.chain);
+      this.joinWalk(start, end);
       if (this.tooSteep(before)) {
         this.app.cancel(); this.chain = null; this.chainTemp = null; this.walkLift = 0;
         this.toast("Too steep for stairs — start them further out, or lift the post with [ ]"); return;
