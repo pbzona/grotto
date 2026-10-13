@@ -6,7 +6,7 @@ import type { Materials } from "./materials";
 import { LightMap } from "./lighting";
 import { MeshBuilder, Part, mergeParts, rng } from "./mesh";
 import { buildHouse, makeHouse, houseLayout, doorOf, HouseBuild, Light, Face } from "./houses";
-import { seedCove } from "./seed";
+import { seedCove, linkGrotto } from "./seed";
 import { fitLandmark } from "./landmarks";
 import { buildWalks, defaultDeckY, WALK_W, MAX_STAIR, slopeOf, isStairs } from "./walks";
 import { buildProps, buildBoat, updateBoat, Boat, stringLights, washingLines, PROP_INFO, buildScatter, isGreenery } from "./props";
@@ -264,7 +264,8 @@ export class App {
       if (worst < 0.06) return;
       // never right against an end: that makes stubby sawtooth steps (or a post on top of a post)
       const t = Math.min(1 - 0.4 / L, Math.max(0.4 / L, wt));
-      const x = Math.round((A.x + (B.x - A.x) * t) * 4) / 4, z = Math.round((A.z + (B.z - A.z) * t) * 4) / 4;
+      const q = (a: number, b: number) => Math.abs(a - b) < 1e-6 ? a : Math.round((a + (b - a) * t) * 4) / 4; // a straight run stays on its line
+      const x = q(A.x, B.x), z = q(A.z, B.z);
       if (Math.hypot(x - A.x, z - A.z) < 0.24 || Math.hypot(x - B.x, z - B.z) < 0.24) return;
       let g = wg;
       for (const o of [-hw, 0, hw]) g = Math.max(g, Hc(x - uz * o, z + ux * o));
@@ -484,7 +485,7 @@ export class App {
       const f = fitLandmark(w, type, x, z, seed, { ...opts }, false);
       const p = this.addProp(type, f.ok ? f.x : x, f.ok ? f.z : z, f.ok ? f.rot : 0, seed);
       p.opts = { ...opts };
-      if (type === "grotto") this.carveGrotto(p);
+      if (type === "grotto") { this.carveGrotto(p); linkGrotto(this, p); }
     }
     // rowboats tied up alongside the pier (the village sloop berths at the head by itself)
     this.addProp("rowboat", 26.1, 26.3, 0.05, 0.17);

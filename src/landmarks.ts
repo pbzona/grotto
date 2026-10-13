@@ -117,6 +117,35 @@ export function fitLandmark(w: World, type: PropType, hx: number, hz: number, se
   return best;
 }
 
+/**
+ * Search the whole map for grotto sites: cliffs with open water in front, clear of everything else.
+ * Best first; `near` (when given) pulls the ranking toward a point, e.g. the village.
+ */
+export function grottoSites(w: World, seed: number, opts: Prop["opts"], near?: [number, number], limit = 12): Fit[] {
+  const probe: Prop = { id: "ghost", type: "grotto", x: 0, z: 0, rot: 0, seed, opts };
+  const found: (Fit & { s: number })[] = [];
+  for (let z = 1.5; z < N - 1.5; z += 1) for (let x = 1.5; x < N - 1.5; x += 1) for (let i = 0; i < 16; i++) {
+    const rot = (i / 16) * Math.PI * 2, c = Math.cos(rot), sn = Math.sin(rot);
+    // cheap gate: dry behind, wet in front
+    const G = (lx: number, lz: number) => w.height(clampN(x + lx * c - lz * sn), clampN(z + lx * sn + lz * c), true);
+    if (G(0, -1.6) < WATER_Y + 0.9 || G(0, 2.5) > WATER_Y - 0.3) continue;
+    probe.x = x; probe.z = z; probe.rot = rot;
+    const sc = siteScore(w, probe);
+    if (sc.s === -Infinity) continue;
+    found.push({ x, z, rot, ok: true, s: sc.s - (near ? Math.hypot(x - near[0], z - near[1]) * 0.25 : 0) });
+  }
+  found.sort((a, b) => b.s - a.s);
+  const out: Fit[] = [];
+  for (const f of found) {
+    if (out.length >= limit) break;
+    if (out.some(o => Math.hypot(o.x - f.x, o.z - f.z) < 2.5)) continue;
+    probe.x = f.x; probe.z = f.z; probe.rot = f.rot;
+    if (landmarkClash(w, probe)) continue;
+    out.push({ x: f.x, z: f.z, rot: f.rot, ok: true });
+  }
+  return out;
+}
+
 // ---------------- sea grotto ----------------
 const sstep = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 export { grottoCells } from "./world";

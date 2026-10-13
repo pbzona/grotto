@@ -8,15 +8,17 @@
   const hs = () => t.handles.children.filter(m => m.userData.handle);
   const handle = (pred) => hs().find(m => pred(m.userData.handle));
   g.camera.position.set(24, 22, 38); g.controls.target.set(24, 1, 22); g.controls.update(); a.update(0);
-  // --- terminal node drag: pier end east of the T-head
-  const ends = [...w.nodes.values()].filter(n => w.edgesOf(n.id).length === 1 && n.x > 28 && n.z > 27);
-  const pe = ends[0]; const ox = pe.x;
-  drag(scr(pe.x - 0.3, pe.y, pe.z), scr(pe.x + 1.7, pe.y, pe.z + 0.5)); a.update(0);
-  ok('drag pier end without preselect', Math.abs(pe.x - ox) > 1, `${ox} -> ${pe.x}`);
+  // --- terminal node drag: west end of the pier cross-walk
+  const ends = [...w.nodes.values()].filter(n => w.edgesOf(n.id).length === 1 && n.x < 21 && n.z > 23 && n.z < 30);
+  const pe = ends[0]; const ox = pe.x, oz = pe.z;
+  drag(scr(pe.x + 0.3, pe.y, pe.z), scr(pe.x + 0.8, pe.y, pe.z - 1.7)); a.update(0);
+  ok('drag pier end without preselect', Math.hypot(pe.x - ox, pe.z - oz) > 1, `${ox},${oz} -> ${pe.x},${pe.z}`);
   // --- extend arrow on a dead end
+  g.camera.position.set(pe.x, 20, pe.z + 3); g.controls.target.set(pe.x, 0.5, pe.z - 1); g.controls.update(); a.update(0);
   t.select({ kind: 'node', id: pe.id }); const ext = handle(h => h.t === 'extend'); const ne = w.edges.size;
-  drag(scr(ext.position.x, ext.position.y, ext.position.z), scr(pe.x + 3, pe.y, pe.z + 2)); a.update(0);
+  drag(scr(ext.position.x, ext.position.y, ext.position.z), scr(pe.x - 0.5, pe.y, pe.z - 3)); a.update(0);
   ok('extend arrow adds a stretch', w.edges.size === ne + 1);
+  g.camera.position.set(24, 22, 38); g.controls.target.set(24, 1, 22); g.controls.update(); a.update(0);
   // --- segment extrude on the stepped west house's hi part? use the east hip stilt house
   const h = [...w.houses.values()].find(h => h.volumes[0].x0 === 30.5);
   t.select({ kind: 'house', id: h.id, vi: 0 }); a.update(0);

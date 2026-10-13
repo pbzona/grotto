@@ -20,10 +20,14 @@
     if (!gentle() || villagerHomes(w).length !== w.houses.size || w.houses.size < 3) throw new Error(`${kind} ${s}: steep stairs or a stranded house`);
     if (!dry()) throw new Error(`${kind} ${s}: a deck prop stands in the water`);
     if (planSloop(w)) sloops++;
+    a.update(0); g.updateVillagers(1);
+    const run = g.smuggling.plan;
+    if (![...w.props.values()].some(p => p.type === 'grotto') || run.signal !== 'run' || !run.home || run.landing.kind !== 'grotto') throw new Error(`${kind} ${s}: no grotto with a walkway to the village`);
   }
   ok('most villages have a berth for their sloop', sloops >= 28);
   a.starter();
   results.push('PASS every preset seed 1-12 has climbable stairs and connected houses');
+  results.push('PASS every preset seed 1-12 has a grotto tied to the village by walkway');
   const start = JSON.stringify(w.save());
   ok('starter stairs are climbable, with no stubby steps', gentle());
   ok('starter deck props stand on decks or land', dry());
@@ -81,10 +85,10 @@
   a.undo(); a.update(0); g.updateVillagers(1);
   const m = g.ambienceMix(w, { x: 24, z: 26, dist: 12, night: 0, people: g.villagers.people });
   ok('the starter village has surf, gulls and creaking decks', m.surf > 0.2 && m.gulls > 0.1 && m.creaks > 0.1);
-  // the night trade in the starter village: signal at dusk, a boat to the pier, crates carried home
+  // the night trade in the starter village: signal at dusk, a boat into the grotto, crates carried home
   a.starter(); a.update(0); g.updateVillagers(1);
   const sm = g.smuggling, plan = sm.plan;
-  ok('starter lookouts call a boat to a connected landing', plan.signal === 'run' && plan.home && plan.landing.kind === 'pier');
+  ok('starter lookouts call a boat to a connected landing', plan.signal === 'run' && plan.home && plan.landing.kind === 'grotto');
   const under = [...w.edges.values()].some(e => { const p = w.nodes.get(e.a), q = w.nodes.get(e.b); const dx = q.x - p.x, dz = q.z - p.z, t = Math.max(0, Math.min(1, ((plan.landing.x - p.x) * dx + (plan.landing.z - p.z) * dz) / (dx * dx + dz * dz))); return Math.hypot(plan.landing.x - p.x - dx * t, plan.landing.z - p.z - dz * t) < e.width / 2 + 0.3; });
   ok('the smuggler berths in open water, not under a deck', !under);
   const at = h => { a.hour = h; g.updateVillagers(0); return sm.state; };

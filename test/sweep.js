@@ -24,7 +24,7 @@
   // erase
   flush(); key('7'); np = w.props.size; click(scr(22, 0.3, 35)); ok('erase boat', w.props.size === np - 1, `${np}->${w.props.size}`);
   // walkway rope bridge via tool
-  key('3'); t.walkStyle = 'rope'; const ne = w.edges.size; t.nudgeLift(8); click(scr(33, 0.2, 30)); t.nudgeLift(8); click(scr(33, 0.2, 36)); key('Escape'); ok('rope edge laid', w.edges.size === ne + 1 && [...w.edges.values()].some(e => e.style === 'rope'));
+  key('3'); t.walkStyle = 'rope'; const ne = w.edges.size; t.nudgeLift(8); click(scr(33, 0.2, 30.6)); t.nudgeLift(8); click(scr(33, 0.2, 36)); key('Escape'); ok('rope edge laid', w.edges.size === ne + 1 && [...w.edges.values()].some(e => e.style === 'rope'));
   // select house + panel edit
   key('1'); const h = [...w.houses.values()][0], v = h.volumes[0];
   t.select({ kind: 'house', id: h.id, vi: 0 }); t.houseEdit('roof', 'flat'); ok('roof edit', v.roof === 'flat'); t.houseEdit('palette', 3); ok('palette edit', h.palette === 3);

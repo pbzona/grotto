@@ -218,7 +218,8 @@ export class Tools {
     const g = this.ground();
     if (g && g.distanceTo(this.ray.ray.origin) < hit.distance) return null;
     const wall = this.ray.intersectObject(this.app.structures, false)[0];
-    if (wall && wall.distance < hit.distance) return null;
+    // a post just in front of the disc (its own walkway's end post, say) shouldn't swallow the click
+    if (wall && wall.distance < hit.distance - hit.object.scale.x) return null;
     return hit.object;
   }
 

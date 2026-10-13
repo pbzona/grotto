@@ -144,6 +144,8 @@
     const p = [...w.props.values()].find(p => p.type === 'grotto');
     const c = Math.cos(p.rot), s = Math.sin(p.rot), W = (lx, lz) => [p.x + lx * c - lz * s, p.z + lx * s + lz * c];
     const tie = grottoTies(p)[0], V = g.camera.position.constructor;
+    const untie = () => { for (const n of [...w.nodes.values()]) if (Math.hypot(n.x - tie.x, n.z - tie.z) < 1e-6) w.removeNode(n.id); w.pruneNodes(); a.changed({ structures: true }); };
+    untie();
     t.setTool('walk');
     const lx = (tie.x - p.x) * c + (tie.z - p.z) * s, [ox, oz] = W(lx, 4.5);
     const A = a.addNode(ox, oz, DECK_Y);
@@ -160,7 +162,7 @@
       ok('the dock walk goes in under the arch', fz < -1 && Math.abs(fl) < Math.abs(lx) + 0.5 && Math.sign(fl) === Math.sign(lx));
     }
     // from off to the side, the walkway runs straight onto the quay: no approach post
-    reset(); t.setTool('walk');
+    reset(); untie(); t.setTool('walk');
     {
       const [sx, sz] = W(lx - Math.sign(lx) * 3, 4);
       const B = a.addNode(sx, sz, DECK_Y);

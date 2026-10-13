@@ -1,7 +1,8 @@
 import type { App } from "./app";
-import { N, DECK_Y, WATER_Y, newVolume, uid, isLandmark, landmarkSamples, type RoofType, type PropType, type WalkNode } from "./world";
-import { doorOf, houseLayout, makeHouse } from "./houses";
-import { fitLandmark } from "./landmarks";
+import { N, DECK_Y, WATER_Y, STEP, levelY, newVolume, uid, isLandmark, landmarkSamples, grottoDims, grottoDocks, grottoTies, grottoTieAt, World, type Prop, type RoofType, type PropType, type WalkNode } from "./world";
+import { doorOf, houseLayout, makeHouse, villagerHomes } from "./houses";
+import { fitLandmark, grottoSites, landmarkClash } from "./landmarks";
+import { planSloop, seaRoute } from "./voyages";
 import { rng } from "./mesh";
 import { defaultDeckY, MAX_STAIR, slopeOf } from "./walks";
 
@@ -11,8 +12,15 @@ import { defaultDeckY, MAX_STAIR, slopeOf } from "./walks";
  * a scatter of greenery. Every walkway runs along an axis; every house gets a door onto one.
  */
 export function seedCove(app: App, seed: number) {
-  const r = rng(seed * 7.31 + 0.13);
-  seedVillage(app, r);
+  // a pier that reaches the far shore can shut boats out of the grotto: if so, build the village again with it stopping short
+  let r = rng(0), grotto: Prop | null = null;
+  for (const gap of [0, 3]) {
+    r = rng(seed * 7.31 + 0.13);
+    seedVillage(app, r, gap);
+    grotto = seedGrotto(app, r);
+    if (grotto || gap) break;
+    app.clearBuildings();
+  }
   seedProps(app, r);
   app.settleWalks(); app.easeStairs(); app.mergeInline();
   const w = app.world;
@@ -29,6 +37,7 @@ export function seedCove(app: App, seed: number) {
     for (const o of [...w.props.values()]) if (!isLandmark(o.type) && pts.some(([x, z]) => Math.hypot(x - o.x, z - o.z) < 0.7)) w.props.delete(o.id);
   }
   w.pruneNodes();
+  if (grotto) seedLookout(app, grotto);
 }
 
 const DIRS: [number, number][] = [[0, 1], [1, 0], [0, -1], [-1, 0]];
@@ -36,7 +45,7 @@ const ROOFS: RoofType[] = ["gable", "hip", "gable", "flat", "shed"];
 
 interface Site { i: number; j: number; d: number; run: number; s: number }
 
-function seedVillage(app: App, r: () => number) {
+function seedVillage(app: App, r: () => number, gap = 0) {
   const w = app.world;
   const lv = (i: number, j: number) => (i < 0 || j < 0 || i >= N || j >= N ? 0 : w.level(i, j));
   const wet = (i: number, j: number) => lv(i, j) <= 5;
@@ -53,6 +62,8 @@ function seedVillage(app: App, r: () => number) {
         if (ii < 2 || jj < 2 || ii > N - 3 || jj > N - 3) break;
         run++;
       }
+      // a run that ends on the far shore: stop well short of it so the pier doesn't close the channel when asked
+      if (gap && run < 14 && !wet(i + dx * (run + 1), j + dz * (run + 1))) run -= gap;
       if (run < 5) continue;
       // sheltered water (land around the pier head) and open beach to either side of the root
       let shelter = 0;
@@ -191,6 +202,268 @@ function buildVillage(app: App, site: Site, r: () => number, dress: boolean): nu
     if (w.height(x, z) > WATER_Y + 0.1 && !w.houseAt(x, z, 0.3)) { app.addProp("lantern", x, z, 0, r()); break; }
   }
   return count;
+}
+
+// ---------------- the grotto: every cove gets one, with a walkway home and a lookout ----------------
+
+const toW = (p: Prop, lx: number, lz: number): [number, number] => {
+  const c = Math.cos(p.rot), s = Math.sin(p.rot);
+  return [p.x + lx * c - lz * s, p.z + lx * s + lz * c];
+};
+const toL = (p: Prop, x: number, z: number): [number, number] => {
+  const c = Math.cos(p.rot), s = Math.sin(p.rot), dx = x - p.x, dz = z - p.z;
+  return [dx * c + dz * s, -dx * s + dz * c];
+};
+
+/** Can a rowboat come in from the open sea to every dock? */
+function seaReach(w: World, p: Prop) {
+  const g = grottoDims(p);
+  return grottoDocks(p).every(lx => {
+    const bx = (Math.sign(lx) || 1) * Math.max(0, g.chan - 0.45), [ax, az] = toW(p, bx, 3);
+    return !!seaRoute(w, false, ax, az, [toW(p, bx, 0.1)]);
+  });
+}
+
+/** Where the village is (its walkways), or the map centre for an empty cove. */
+function villageCentre(w: World): [number, number] {
+  const ns = [...w.nodes.values()].filter(n => w.edgesOf(n.id).length);
+  if (!ns.length) return [N / 2, N / 2];
+  return [ns.reduce((a, n) => a + n.x, 0) / ns.length, ns.reduce((a, n) => a + n.z, 0) / ns.length];
+}
+
+/**
+ * Put a grotto in the cove, tied to the village by a walkway: the best cliff near the village, else a
+ * headland raised for it. Returns null when nothing works, leaving the cove as it was.
+ */
+export function seedGrotto(app: App, r: () => number): Prop | null {
+  const w = app.world, near = villageCentre(w), seed = 0.2 + r() * 0.6;
+  keepSloop = !!planSloop(w); keepHomes = villagerHomes(w).length;
+  for (const size of [1, 0] as const) {
+    const opts = { size, dock: "left" as const };
+    for (const f of grottoSites(w, seed, opts, near)) {
+      const p = placeGrotto(app, f, seed, opts, near);
+      if (p) return p;
+    }
+  }
+  return raiseHeadland(app, seed, near);
+}
+
+/** Set while seeding: the village sloop has a berth, and the grotto must not take it away. */
+let keepSloop = false;
+/** Set while seeding: carving the ledge or raising a headland can drop a house away from its door, and none may lose its walkway. */
+let keepHomes = 0;
+
+/** Tie the grotto on, and keep the walkway only if boats still reach the docks; prefer one that stays off the water. */
+function tieOn(app: App, p: Prop, homes: number): boolean {
+  const w = app.world;
+  for (const water of [true, false]) {
+    const nodes = new Set(w.nodes.keys()), edges = new Set(w.edges.keys()), ys = new Map([...w.nodes.values()].map(n => [n.id, n.y]));
+    // every new stretch climbable, square to the map, and not a stub
+    const fair = () => [...w.edges.values()].every(e => {
+      if (edges.has(e.id)) return true;
+      const A = w.nodes.get(e.a)!, B = w.nodes.get(e.b)!;
+      return slopeOf(A, B) <= MAX_STAIR + 1e-6 && Math.hypot(A.x - B.x, A.z - B.z) >= 0.3 && (Math.abs(A.x - B.x) < 1e-6 || Math.abs(A.z - B.z) < 1e-6);
+    });
+    // settle the new stretch now: ground under it can push a post up past what a flight from the quay can climb
+    if (linkGrotto(app, p, water)) app.settleWalks(new Set([...w.nodes.keys()].filter(id => !nodes.has(id))));
+    if (fair() && [...w.edges.keys()].some(id => !edges.has(id)) && seaReach(w, p) && (!keepSloop || !!planSloop(w)) && villagerHomes(w).length >= homes) return true;
+    for (const [id, y] of ys) { const n = w.nodes.get(id); if (n) n.y = y; }
+    for (const id of [...w.edges.keys()]) if (!edges.has(id)) w.edges.delete(id);
+    for (const id of [...w.nodes.keys()]) if (!nodes.has(id)) w.nodes.delete(id);
+  }
+  return false;
+}
+
+/** Try a site: face the dock toward the village, and keep the grotto only if boats can reach it. */
+function placeGrotto(app: App, f: { x: number; z: number; rot: number }, seed: number, opts: Prop["opts"], near: [number, number]): Prop | null {
+  const w = app.world;
+  const probe: Prop = { id: "ghost", type: "grotto", x: f.x, z: f.z, rot: f.rot, seed, opts };
+  const toward: "left" | "right" = toL(probe, near[0], near[1])[0] < 0 ? "left" : "right";
+  for (const dock of [toward, toward === "left" ? "right" : "left"] as const) {
+    probe.opts = { ...opts, dock };
+    if (landmarkClash(w, probe)) continue;
+    const p = app.addProp("grotto", f.x, f.z, f.rot, seed);
+    p.opts = { ...probe.opts }; app.carveGrotto(p);
+    if (seaReach(w, p) && tieOn(app, p, keepHomes)) return p;
+    w.props.delete(p.id); app.carveGrotto(p);
+  }
+  return null;
+}
+
+/**
+ * No cliff will take a grotto: pick a stretch of shore with open, reachable water in front and raise
+ * a rocky headland behind it, stepped down to the ground around so it reads as part of the coast.
+ */
+function raiseHeadland(app: App, seed: number, near: [number, number]): Prop | null {
+  const w = app.world, opts = { size: 0 as const, dock: "left" as const };
+  const probe: Prop = { id: "ghost", type: "grotto", x: 0, z: 0, rot: 0, seed, opts };
+  const g = grottoDims(probe), R = g.W + g.T + 1.4, back = g.D + 1.6;
+  const top = Math.ceil((g.H + g.T + 0.9 - levelY(0)) / STEP);
+  const cands: { x: number; z: number; rot: number; s: number }[] = [];
+  for (let z = 4.5; z < N - 4.5; z += 1) for (let x = 4.5; x < N - 4.5; x += 1) for (let i = 0; i < 16; i++) {
+    const rot = (i / 16) * Math.PI * 2, c = Math.cos(rot), sn = Math.sin(rot);
+    const G = (lx: number, lz: number) => w.height(x + lx * c - lz * sn, z + lx * sn + lz * c, true);
+    let wet = 0, n = 0;
+    for (let lx = -g.W - 0.6; lx <= g.W + 0.6 + 1e-6; lx += (g.W + 0.6) / 2) for (let lz = 1; lz <= 5.6; lz += 0.9) { n++; if (G(lx, lz) < WATER_Y - 0.3) wet++; }
+    if (wet < n) continue;
+    // the shore: dry ground right behind the mouth, so the raised rock joins the land
+    if (G(0, -1) < WATER_Y || G(0, -back) < WATER_Y) continue;
+    cands.push({ x, z, rot, s: -Math.abs(Math.hypot(x - near[0], z - near[1]) - 9) });
+  }
+  cands.sort((a, b) => b.s - a.s);
+  const tried: [number, number][] = [];
+  for (const cd of cands) {
+    if (tried.length >= 30) break;
+    if (tried.some(([x, z]) => Math.hypot(x - cd.x, z - cd.z) < 3)) continue;
+    Object.assign(probe, { x: cd.x, z: cd.z, rot: cd.rot });
+    const [fx, fz] = toW(probe, 0, 3);
+    if (!seaRoute(w, false, fx, fz, [], 1.5)) continue;
+    tried.push([cd.x, cd.z]);
+    // the cells the headland covers, with the level each should reach
+    const lift: [number, number, number][] = [];
+    let blocked = false;
+    for (let j = 0; j < N && !blocked; j++) for (let i = 0; i < N; i++) {
+      const [lx, lz] = toL(probe, i + 0.5, j + 0.5);
+      if (lz > 0.2) continue;
+      const out = Math.max(Math.abs(lx) - R, -lz - back, 0);
+      const l = Math.round(top - out * 3.5);
+      if (l <= w.baseLevel(i, j)) continue;
+      if (i < 1 || j < 1 || i > N - 2 || j > N - 2 || w.houseAt(i + 0.5, j + 0.5, 0.8)) { blocked = true; break; }
+      if ([...w.nodes.values()].some(n => Math.abs(n.x - i - 0.5) < 1.3 && Math.abs(n.z - j - 0.5) < 1.3)) { blocked = true; break; }
+      lift.push([i, j, l]);
+    }
+    if (blocked) continue;
+    const was = lift.map(([i, j]) => w.baseLevel(i, j));
+    for (const [i, j, l] of lift) w.setLevel(i, j, l);
+    const fit = fitLandmark(w, "grotto", cd.x, cd.z, seed, opts, false);
+    const p = fit.ok ? placeGrotto(app, fit, seed, opts, near) : null;
+    if (p) { app.changed({ terrain: true }); return p; }
+    lift.forEach(([i, j], k) => w.setLevel(i, j, was[k]));
+  }
+  return null;
+}
+
+/**
+ * Lay a walkway from the grotto's quay to the village: a shortest square-cornered route over land and
+ * water that keeps out of the mouth's boat lane, off houses and other walkways, and climbs no steeper
+ * than stairs. Returns whether it reached.
+ */
+export function linkGrotto(app: App, p: Prop, water = true): boolean {
+  const w = app.world, g = grottoDims(p), lane = g.W + 0.9;
+  const goals = new Map<number, WalkNode>();
+  const cell = (x: number, z: number) => Math.floor(z) * N + Math.floor(x);
+  for (const n of w.nodes.values()) {
+    const deg = w.edgesOf(n.id).length;
+    if (!deg || grottoTieAt(w, n.x, n.z) || (deg === 1 && doorOf(w, n))) continue;
+    goals.set(cell(n.x, n.z), n);
+  }
+  if (!goals.size) return false;
+  const others = [...w.props.values()].filter(o => isLandmark(o.type) && o.id !== p.id).flatMap(o => landmarkSamples(o));
+  const own = landmarkSamples(p);
+  // walkways already laid are in the way, except right beside a node the link may join
+  const gnodes = [...goals.values()];
+  const edgeNear = (x: number, z: number, d: number) => {
+    const g = gnodes.find(n => Math.hypot(n.x - x, n.z - z) < 1.5);
+    return [...w.edges.values()].some(e => {
+      const a = w.nodes.get(e.a)!, b = w.nodes.get(e.b)!, ex = b.x - a.x, ez = b.z - a.z, L2 = ex * ex + ez * ez || 1;
+      const u = Math.max(0, Math.min(1, ((x - a.x) * ex + (z - a.z) * ez) / L2)), off = Math.hypot(a.x + ex * u - x, a.z + ez * u - z);
+      if (g && (e.a === g.id || e.b === g.id)) return off < 0.6 && Math.hypot(ex * u + a.x - g.x, ez * u + a.z - g.z) > 0.3;
+      return off < d + e.width / 2;
+    });
+  };
+  const [cx, cz] = villageCentre(w);
+  const tie = grottoTies(p).sort((a, b) => Math.hypot(a.x - cx, a.z - cz) - Math.hypot(b.x - cx, b.z - cz))[0];
+  if (!tie) return false;
+  const deck = new Float32Array(N * N), open = new Uint8Array(N * N);
+  for (let j = 1; j < N - 1; j++) for (let i = 1; i < N - 1; i++) {
+    const k = j * N + i, x = i + 0.5, z = j + 0.5;
+    deck[k] = defaultDeckY(w, x, z);
+    if (goals.has(k)) { open[k] = 1; continue; }
+    const [lx, lz] = toL(p, x, z);
+    if (Math.abs(lx) < lane && lz > -0.5 && lz < 6.5) continue; // the boat lane and the mouth
+    if (!water && deck[k] <= DECK_Y + 1e-3 && Math.hypot(x - tie.x, z - tie.z) > 2.5) continue;
+    if (w.houseAt(x, z, 0.75) || edgeNear(x, z, 0.75)) continue;
+    if (others.some(([sx, sz]) => Math.hypot(sx - x, sz - z) < 1) || (Math.hypot(x - tie.x, z - tie.z) > 1.6 && own.some(([sx, sz]) => Math.hypot(sx - x, sz - z) < 0.8))) continue;
+    open[k] = 1;
+  }
+  // Dijkstra over (cell, heading); a turn costs extra so the walkway runs in long straight stretches
+  const D4: [number, number][] = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+  const S = N * N * 4, dist = new Float64Array(S).fill(Infinity), from = new Int32Array(S).fill(-1);
+  const heap: [number, number][] = [];
+  const push = (d: number, s: number) => {
+    heap.push([d, s]); let c = heap.length - 1;
+    while (c > 0) { const pa = (c - 1) >> 1; if (heap[pa][0] <= heap[c][0]) break; [heap[pa], heap[c]] = [heap[c], heap[pa]]; c = pa; }
+  };
+  const pop = () => {
+    const top = heap[0], last = heap.pop()!;
+    if (heap.length) {
+      heap[0] = last; let c = 0;
+      for (;;) { const l = c * 2 + 1, r2 = l + 1; let m = c; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r2 < heap.length && heap[r2][0] < heap[m][0]) m = r2; if (m === c) break; [heap[m], heap[c]] = [heap[c], heap[m]]; c = m; }
+    }
+    return top;
+  };
+  // start from the cells just off the quay
+  for (let j = Math.floor(tie.z) - 2; j <= Math.floor(tie.z) + 2; j++) for (let i = Math.floor(tie.x) - 2; i <= Math.floor(tie.x) + 2; i++) {
+    const k = j * N + i, ex = i + 0.5 - tie.x, ez = j + 0.5 - tie.z, L = Math.hypot(ex, ez);
+    if (i < 1 || j < 1 || i > N - 2 || j > N - 2 || L > 1.3 || !open[k] || Math.abs(deck[k] - DECK_Y) > MAX_STAIR * Math.max(L, 0.5)) continue;
+    const d = Math.abs(ex) > Math.abs(ez) ? (ex > 0 ? 0 : 2) : (ez > 0 ? 1 : 3);
+    if (L < dist[k * 4 + d]) { dist[k * 4 + d] = L; push(L, k * 4 + d); }
+  }
+  let end = -1;
+  while (heap.length) {
+    const [d0, s] = pop(); if (d0 > dist[s]) continue;
+    const k = s >> 2, h = s & 3;
+    if (goals.has(k)) { end = s; break; }
+    const i = k % N, j = (k / N) | 0;
+    for (let nd = 0; nd < 4; nd++) {
+      if (nd === (h + 2) % 4) continue;
+      const ni = i + D4[nd][0], nj = j + D4[nd][1]; if (ni < 1 || nj < 1 || ni > N - 2 || nj > N - 2) continue;
+      const nk = nj * N + ni; if (!open[nk] || Math.abs(deck[nk] - deck[k]) > MAX_STAIR) continue;
+      const cost = d0 + 1 + (deck[nk] <= DECK_Y + 1e-3 ? 0.35 : 0) + (nd !== h ? 1.5 : 0) + Math.abs(deck[nk] - deck[k]) * 0.8;
+      const ns = nk * 4 + nd;
+      if (cost < dist[ns]) { dist[ns] = cost; from[ns] = s; push(cost, ns); }
+    }
+  }
+  if (end < 0) return false;
+  // walk back to the corners
+  const cells: number[] = [];
+  for (let s = end; s >= 0; s = from[s]) cells.push(s);
+  cells.reverse();
+  const goal = goals.get(end >> 2)!;
+  // corners where the heading changes (a turn on the very first cell just bends off the quay)
+  const qs: number[] = [];
+  for (let q = 1; q < cells.length - 1; q++) if ((cells[q] & 3) !== (cells[q + 1] & 3)) qs.push(q);
+  // square the first leg off the quay and the last onto the node it joins
+  const along = (s: number) => (s & 3) % 2 === 0;
+  let prev = app.addNode(tie.x, tie.z, DECK_Y);
+  for (const [o, q] of qs.entries()) {
+    const k = cells[q] >> 2;
+    let x = (k % N) + 0.5, z = ((k / N) | 0) + 0.5;
+    if (o === 0) { if (along(cells[q])) z = tie.z; else x = tie.x; }
+    if (o === qs.length - 1) { if (along(cells[cells.length - 1])) z = goal.z; else x = goal.x; }
+    const n = app.addNode(x, z, deck[k]);
+    app.addEdge(prev, n); prev = n;
+  }
+  // a straight run that lands off-line from the node it joins turns once to meet it square
+  if (!qs.length && Math.abs(prev.x - goal.x) > 1e-6 && Math.abs(prev.z - goal.z) > 1e-6) {
+    const [x, z] = along(cells[cells.length - 1]) ? [goal.x, prev.z] : [prev.x, goal.z];
+    const n = app.addNode(x, z, Math.max(DECK_Y, defaultDeckY(w, x, z)));
+    app.addEdge(prev, n); prev = n;
+  }
+  app.addEdge(prev, goal);
+  return true;
+}
+
+/** Make the connected house nearest the grotto a lookout, unless the village already has one. */
+export function seedLookout(app: App, p: Prop) {
+  const w = app.world;
+  if ([...w.houses.values()].some(h => h.volumes.some(v => v.kind === "lookout"))) return;
+  const homes = villagerHomes(w).map(hm => w.houses.get(hm.house)!).filter(Boolean);
+  const dist = (h: (typeof homes)[number]) => Math.min(...h.volumes.map(v => Math.hypot((v.x0 + v.x1) / 2 - p.x, (v.z0 + v.z1) / 2 - p.z)));
+  const h = homes.sort((a, b) => dist(a) - dist(b))[0];
+  if (!h) return;
+  const v = h.volumes[0];
+  v.kind = "lookout"; v.floors = Math.max(2, v.floors);
 }
 
 /** A handful of palms, scrub, rocks, a rowboat and (where it fits) a lighthouse, clear of the village. */
