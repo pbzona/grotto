@@ -238,7 +238,7 @@ export class App {
     let changed = false;
     const touched = new Set<string>();
     const Hc = (x: number, z: number) => w.height(Math.min(N - 0.01, Math.max(0.01, x)), Math.min(N - 0.01, Math.max(0.01, z)));
-    const nearHouse = (n: WalkNode) => !!doorOf(w, n);
+    const nearHouse = (n: WalkNode) => !!doorOf(w, n) || !!grottoTieAt(w, n.x, n.z);
     // posts: a deck sitting in a side slope comes up to clear the ground under its footprint
     for (const n of w.nodes.values()) {
       if (only && !only.has(n.id)) continue;
@@ -293,6 +293,7 @@ export class App {
         if (slopeOf(A, B) <= MAX_STAIR + 1e-6) continue;
         const [lo, hi] = A.y < B.y ? [A, B] : [B, A];
         if (w.edgesOf(lo.id).length === 1 && doorOf(w, lo)) continue; // a door: the floor sets it
+        if (grottoTieAt(w, lo.x, lo.z)) continue; // a grotto quay sits at deck height
         lo.y = Math.ceil((hi.y - MAX_STAIR * L) * 20 - 1e-6) / 20;
         next.add(lo.id);
       }

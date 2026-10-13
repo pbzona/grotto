@@ -1,4 +1,4 @@
-import { DECK_Y, grottoTies, grottoTieAt, grottoDockWalk, type World, type WalkNode, type WalkEdge } from "./world.ts";
+import { DECK_Y, grottoTieAt, grottoDockWalk, type World, type WalkNode, type WalkEdge } from "./world.ts";
 
 /** The walkable network: walkway nodes and edges, plus any grotto docks they tie on to. */
 export type Paths = Pick<World, "nodes" | "edges">;
@@ -293,14 +293,15 @@ export function walkGraph(world: World): Paths {
   const grottos = [...world.props.values()].filter(p => p.type === "grotto");
   if (!grottos.length) return world;
   const nodes = new Map(world.nodes), edges = new Map(world.edges);
-  for (const p of grottos) for (const tp of grottoTies(p)) {
-    let tie: WalkNode | undefined;
-    for (const n of world.nodes.values()) if (Math.hypot(n.x - tp.x, n.z - tp.z) < 0.35 && world.edgesOf(n.id).length) { tie = n; break; }
-    const t = tie && grottoTieAt(world, tie.x, tie.z);
-    if (!tie || !t) continue;
+  for (const tie of world.nodes.values()) {
+    if (!world.edgesOf(tie.id).length) continue;
+    const t = grottoTieAt(world, tie.x, tie.z);
+    if (!t) continue;
     let prev = tie;
-    grottoDockWalk(t).forEach((q, k) => {
-      const n: WalkNode = { id: `${tie.id}~dock${k}`, x: q.x, z: q.z, y: DECK_Y, pad: 0 };
+    // the arm along the cliff foot (quays only), then dock0 just inside the mouth and dock1 under the arch
+    const stops = grottoDockWalk(t), names = t.legacy ? ["dock0", "dock1"] : ["arm", "dock0", "dock1"];
+    stops.forEach((q, k) => {
+      const n: WalkNode = { id: `${tie.id}~${names[k]}`, x: q.x, z: q.z, y: DECK_Y, pad: 0 };
       const e: WalkEdge = { id: `${n.id}~e`, a: prev.id, b: n.id, width: 0.5, style: "deck", rail: false };
       nodes.set(n.id, n); edges.set(e.id, e); prev = n;
     });

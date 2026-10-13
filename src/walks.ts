@@ -134,7 +134,18 @@ function junctionHull(world: World, n: WalkNode) {
   return { trims, hull: lo.slice(0, -1).concat(hi.slice(0, -1)) };
 }
 
+/** Where the deck from n toward `to` reaches the edge of a grotto quay n sits on (null if n isn't on one). */
+function quayTrim(world: World, n: WalkNode, to: WalkNode | undefined) {
+  const t = grottoTieAt(world, n.x, n.z); if (!t) return null;
+  if (t.legacy || !to) return 0;
+  const L = Math.hypot(to.x - n.x, to.z - n.z) || 1, ux = (to.x - n.x) / L, uz = (to.z - n.z) / L;
+  const c = Math.cos(t.rot), s = Math.sin(t.rot), a = Math.abs(ux * c + uz * s), b = Math.abs(-ux * s + uz * c);
+  return t.half / Math.max(a, b, 1e-3) - 0.03;
+}
+
 function trimFor(world: World, n: WalkNode, w: number, e?: WalkEdge) {
+  const q = quayTrim(world, n, e && world.nodes.get(e.a === n.id ? e.b : e.a));
+  if (q !== null) return q;
   if (e && n.pad <= 0 && jointOf(world, n) === "landing") return junctionHull(world, n).trims.get(e.id)! - 0.01;
   if (n.pad > 0) return n.pad * 0.92;
   const j = jointOf(world, n);
@@ -280,6 +291,8 @@ function edgeMesh(world: World, mb: MeshBuilder, e: WalkEdge, A: WalkNode, B: Wa
 function nodeMesh(world: World, mb: MeshBuilder, n: WalkNode, out: WalkBuild) {
   const es = world.edgesOf(n.id);
   if (!es.length && n.pad <= 0) return;
+  // tied on to a grotto quay: the quay is the landing
+  if (grottoTieAt(world, n.x, n.z)) return;
   const w = es.reduce((m, e) => Math.max(m, e.width), WALK_W);
   const deg = es.length;
   const other = es.map(e => world.nodes.get(e.a === n.id ? e.b : e.a)).filter(Boolean) as WalkNode[];
@@ -333,8 +346,6 @@ function nodeMesh(world: World, mb: MeshBuilder, n: WalkNode, out: WalkBuild) {
     return;
   }
   if (deg === 1) {
-    // tied on to a grotto dock: the walkway simply carries on as the dock's planks
-    if (grottoTieAt(world, n.x, n.z)) return;
     const o = other[0];
     const g = world.height(n.x, n.z);
     const ux = Math.cos(ang), uz = Math.sin(ang);

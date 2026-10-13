@@ -1,4 +1,4 @@
-import { World, Prop, PropType, WATER_Y, N, levelY, propOpt, HULL_OPTS, GROTTO_OPTS, GROTTO_SINK, GROTTO_DECK, GROTTO_TIE_Z, grottoProfile, grottoWall, hullDims, grottoDims, landmarkSamples, isLandmark, fbm } from "./world";
+import { World, Prop, PropType, WATER_Y, N, levelY, propOpt, HULL_OPTS, GROTTO_OPTS, GROTTO_SINK, GROTTO_DECK, ARM_Z0, ARM_Z1, grottoQuays, grottoProfile, grottoWall, hullDims, grottoDims, landmarkSamples, quaySamples, grottoTies, isLandmark, fbm } from "./world";
 import { MeshBuilder, V3, M, hexRGB, rng, lerp3, add } from "./mesh";
 import type { Light } from "./houses";
 import { PALETTES } from "./houses";
@@ -22,8 +22,20 @@ export function landmarkClash(w: World, p: Prop): string | null {
     if (x < 0.4 || z < 0.4 || x > N - 0.4 || z > N - 0.4) return "Too close to the edge";
     if (w.houseAt(x, z, 0.2)) return "A house is in the way";
   }
+  const quay = p.type === "grotto" ? quaySamples(p) : [];
+  for (const [x, z] of quay) {
+    if (x < 0.4 || z < 0.4 || x > N - 0.4 || z > N - 0.4) return "The quay would run off the edge";
+    if (w.houseAt(x, z, 0.1)) return "A house is in the way of the quay";
+  }
+  // walkways may already be tied onto the quay; anything else crossing it is in the way
+  const ties = p.type === "grotto" ? grottoTies(p) : [];
+  const tied = (n: { x: number; z: number }) => ties.some(t => Math.hypot(t.x - n.x, t.z - n.z) < 0.35);
   for (const e of w.edges.values()) {
     const a = w.nodes.get(e.a), b = w.nodes.get(e.b); if (!a || !b) continue;
+    if (quay.length && !tied(a) && !tied(b)) for (const [x, z] of quay) {
+      const dx = b.x - a.x, dz = b.z - a.z, L2 = dx * dx + dz * dz || 1e-6, t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / L2));
+      if (Math.hypot(a.x + dx * t - x, a.z + dz * t - z) < e.width / 2 + 0.1) return "A walkway is in the way of the quay";
+    }
     const dx = b.x - a.x, dz = b.z - a.z, L2 = dx * dx + dz * dz || 1e-6;
     for (const [x, z] of pts) {
       const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / L2));
@@ -197,13 +209,25 @@ export function buildGrotto(mb: MeshBuilder, w: World, p: Prop, L: Light[]) {
     const xa = sd * wallAtDeck, xb = sd * chan;
     const x0 = Math.min(xa, xb), x1 = Math.max(xa, xb), xin = sd < 0 ? x0 : x1, xout = sd < 0 ? x1 : x0;
     mb.paint(hexRGB("#9c7b58"), M.plank);
-    // planks run out past the mouth to where a walkway can tie on
-    const z0 = GROTTO_TIE_Z, nb = Math.floor((D * 0.85 + z0) / 0.24);
+    // planks run out past the mouth and turn along the cliff foot to the quay
+    const z0 = ARM_Z1, nb = Math.floor((D * 0.85 + z0) / 0.24);
     for (let k = 0; k < nb; k++) { const z = z0 - 0.1 - k * 0.24; const v = Math.max(0, -z / D), xw = sd * Math.min(Math.abs(xa), Math.abs(wallX(sd, deckY, v)) - 0.06); mb.box([Math.min(xw, xb), deckY - 0.06, z - 0.1], [Math.max(xw, xb), deckY, z + 0.1]); }
     mb.paint(hexRGB("#4c3b2e"), M.plank);
-    // a header across the end, where a walkway butts up head-on
-    mb.box([x0, deckY - 0.16, z0 - 0.08], [x1, deckY - 0.02, z0]);
-    for (let k = 0; k < 5; k++) for (const x of [x0 + 0.1, x1 - 0.1]) mb.cyl(x, GROTTO_TIE_Z - k * (GROTTO_TIE_Z + D * 0.84) / 4, -1.5, deckY - 0.05, 0.07, 0.07, 6);
+    for (let k = 0; k < 5; k++) for (const x of [x0 + 0.1, x1 - 0.1]) mb.cyl(x, z0 - 0.1 - k * (z0 + D * 0.84) / 4, -1.5, deckY - 0.05, 0.07, 0.07, 6);
+    const q = grottoQuays(p).find(o => Math.sign(o.lx) === sd)!;
+    const qa = Math.abs(q.qx) - q.half, qb = Math.abs(q.qx) + q.half, za = q.qz - q.half, zb2 = q.qz + q.half;
+    const pile = (x: number, z: number) => { const gy = w.height(clampN(p.x + x * c - z * s), clampN(p.z + x * s + z * c)) - WATER_Y; if (deckY - 0.05 - gy > 0.1) mb.cyl(x, z, Math.max(-1.5, gy - 0.1), deckY - 0.05, 0.07, 0.07, 6); };
+    mb.paint(hexRGB("#9c7b58"), M.plank);
+    for (let x = Math.abs(xa) - 0.02; x < qa; x += 0.24) { const e = Math.min(qa, x + 0.22); mb.box([Math.min(sd * x, sd * e), deckY - 0.06, ARM_Z0], [Math.max(sd * x, sd * e), deckY, ARM_Z1]); }
+    for (let z = za; z < zb2 - 0.01; z += 0.235) mb.box([Math.min(sd * qa, sd * qb), deckY - 0.06, z], [Math.max(sd * qa, sd * qb), deckY, Math.min(zb2, z + 0.215)]);
+    mb.paint(hexRGB("#4c3b2e"), M.plank);
+    for (const z of [za, zb2]) mb.box([Math.min(sd * qa, sd * qb), deckY - 0.18, z - 0.05], [Math.max(sd * qa, sd * qb), deckY - 0.06, z + 0.05]);
+    for (const x of [qa, qb]) mb.box([sd * x - 0.05, deckY - 0.18, za], [sd * x + 0.05, deckY - 0.06, zb2]);
+    for (let x = Math.abs(xa) + 0.4; x < qa - 0.2; x += 0.9) for (const z of [ARM_Z0 + 0.08, ARM_Z1 - 0.08]) pile(sd * x, z);
+    for (const x of [qa + 0.08, qb - 0.08]) for (const z of [za + 0.08, zb2 - 0.08]) pile(sd * x, z);
+    // a lamp on the quay's outer corner, against the cliff
+    { const lx2 = sd * (qb - 0.12), lz2 = za + 0.12; mb.cyl(lx2, lz2, deckY, deckY + 1.5, 0.045, 0.05, 6); mb.beam([lx2, deckY + 1.45, lz2], [lx2, deckY + 1.45, lz2 + 0.3], [1, 0, 0], 0.02, 0.02);
+      mb.paint(hexRGB("#ffd08a"), M.lamp); mb.box([lx2 - 0.07, deckY + 1.15, lz2 + 0.24], [lx2 + 0.07, deckY + 1.38, lz2 + 0.38]); L.push({ x: lx2, y: deckY + 1.3, z: lz2 + 0.3, r: 2.6, i: 0.7 }); }
     // bollards along the channel edge
     for (const z of [0.0, -D * 0.5]) mb.cyl(xout - sd * 0.12, z, deckY, deckY + 0.22, 0.06, 0.07, 6);
     const zb = -D * 0.72, xw = xin - sd * 0.1;

@@ -115,39 +115,75 @@ export function grottoDocks(p: Pick<Prop, "seed" | "opts">): number[] {
   const mid = (grottoWall(g, GROTTO_DECK) - 0.08 + g.chan) / 2;
   return dock === "both" ? [-mid, mid] : dock === "left" ? [-mid] : [mid];
 }
-/** World positions where walkways meet the grotto's docks. */
-export function grottoTies(p: Prop): { x: number; z: number }[] {
-  const c = Math.cos(p.rot), s = Math.sin(p.rot);
-  return grottoDocks(p).map(lx => ({ x: p.x + lx * c - GROTTO_TIE_Z * s, z: p.z + lx * s + GROTTO_TIE_Z * c }));
+/**
+ * Each dock carries out of the mouth and along the cliff foot to a small quay beside it, clear of the boats'
+ * channel: walkways tie on there, from whichever side suits them. Local frame: lx across, lz out of the mouth.
+ */
+export const QUAY_HALF = 0.7, QUAY_Z = 0.8, ARM_Z0 = 0.35, ARM_Z1 = 1.05;
+export interface GrottoQuay { lx: number; qx: number; qz: number; half: number }
+export function grottoQuays(p: Pick<Prop, "seed" | "opts">): GrottoQuay[] {
+  const g = grottoDims(p);
+  return grottoDocks(p).map(lx => ({ lx, qx: Math.sign(lx) * (g.W + g.T + 0.45), qz: QUAY_Z, half: QUAY_HALF }));
 }
-/** A grotto tie point with the dock it belongs to and the outward direction along that dock. */
-export interface GrottoTie { prop: Prop; lx: number; x: number; z: number; ox: number; oz: number }
+const toWorld = (p: Prop, lx: number, lz: number) => { const c = Math.cos(p.rot), s = Math.sin(p.rot); return { x: p.x + lx * c - lz * s, z: p.z + lx * s + lz * c }; };
+/** World positions where walkways meet the grotto: the middle of each quay. */
+export function grottoTies(p: Prop): { x: number; z: number }[] {
+  return grottoQuays(p).map(q => toWorld(p, q.qx, q.qz));
+}
+/** Ground points a grotto's quays and their arms cover (world x,z). */
+export function quaySamples(p: Prop): [number, number][] {
+  const out: [number, number][] = [];
+  for (const q of grottoQuays(p)) {
+    for (let a = -q.half; a <= q.half + 1e-6; a += q.half / 2) for (let b = -q.half; b <= q.half + 1e-6; b += q.half / 2) { const w = toWorld(p, q.qx + a, q.qz + b); out.push([w.x, w.z]); }
+    const sd = Math.sign(q.lx);
+    for (let x = Math.abs(q.lx); x < Math.abs(q.qx) - q.half; x += 0.5) { const w = toWorld(p, sd * x, (ARM_Z0 + ARM_Z1) / 2); out.push([w.x, w.z]); }
+  }
+  return out;
+}
+/** A grotto tie point: its quay (world centre, half size, heading) and the dock it serves. */
+export interface GrottoTie { prop: Prop; lx: number; x: number; z: number; half: number; rot: number; ox: number; oz: number; legacy: boolean }
 export function grottoTieAt(world: World, x: number, z: number, r = 0.35): GrottoTie | null {
   for (const p of world.props.values()) {
-    if (p.type !== "grotto" || Math.hypot(p.x - x, p.z - z) > 8) continue;
-    const c = Math.cos(p.rot), s = Math.sin(p.rot), docks = grottoDocks(p), ties = grottoTies(p);
-    for (let k = 0; k < ties.length; k++) if (Math.hypot(ties[k].x - x, ties[k].z - z) < r) return { prop: p, lx: docks[k], x: ties[k].x, z: ties[k].z, ox: -s, oz: c };
+    if (p.type !== "grotto" || Math.hypot(p.x - x, p.z - z) > 10) continue;
+    const c = Math.cos(p.rot), s = Math.sin(p.rot);
+    for (const q of grottoQuays(p)) {
+      const t = toWorld(p, q.qx, q.qz), old = toWorld(p, q.lx, GROTTO_TIE_Z);
+      // walkways saved before quays tied on at the end of the dock itself
+      const legacy = Math.hypot(old.x - x, old.z - z) < r;
+      if (legacy || Math.hypot(t.x - x, t.z - z) < r) return { prop: p, lx: q.lx, x: legacy ? old.x : t.x, z: legacy ? old.z : t.z, half: q.half, rot: p.rot, ox: -s, oz: c, legacy };
+    }
   }
   return null;
 }
-/** Where someone walking in from a tie point goes along the dock: in under the arch, then halfway back. */
+/** Where someone walking in from a tie point goes: across the quay arm, in under the arch, then halfway back. */
 export function grottoDockWalk(t: GrottoTie): { x: number; z: number }[] {
-  const g = grottoDims(t.prop), c = Math.cos(t.prop.rot), s = Math.sin(t.prop.rot);
-  const sd = Math.sign(t.lx), lx = sd * (g.chan + (Math.abs(t.lx) - g.chan) * 0.7);
-  return [0.15, -g.D * 0.36].map(lz => ({ x: t.prop.x + lx * c - lz * s, z: t.prop.z + lx * s + lz * c }));
+  const g = grottoDims(t.prop), sd = Math.sign(t.lx), lx = sd * (g.chan + (Math.abs(t.lx) - g.chan) * 0.7);
+  const pts: [number, number][] = [[lx, 0.15], [lx, -g.D * 0.36]];
+  if (!t.legacy) pts.unshift([t.lx, (ARM_Z0 + ARM_Z1) / 2]);
+  return pts.map(([a, b]) => toWorld(t.prop, a, b));
 }
 /** Flooded channel and lowered lip; these caps never overwrite editable base terrain. */
 export function grottoCells(p: Prop): { i: number; j: number; cap: number; under: boolean }[] {
   const { a: R, H, D, T } = grottoDims(p);
   const c = Math.cos(p.rot), s = Math.sin(p.rot), out: { i: number; j: number; cap: number; under: boolean }[] = [];
   const lip = Math.round((H + T + WATER_Y - levelY(0)) / STEP);
+  const ledge = Math.floor((DECK_Y - 0.3 - levelY(0)) / STEP), quays = grottoQuays(p);
   for (let j = Math.floor(p.z - D - 5); j <= Math.ceil(p.z + D + 5); j++) for (let i = Math.floor(p.x - D - 5); i <= Math.ceil(p.x + D + 5); i++) {
     if (i < 0 || j < 0 || i >= N || j >= N) continue;
     const dx = i + 0.5 - p.x, dz = j + 0.5 - p.z;
     const lx = dx * c + dz * s, lz = -dx * s + dz * c, ax = Math.abs(lx);
     if (lz > 5 || lz < -D - 0.6) continue;
-    if (ax < R + T * 0.8 + Math.min(Math.max(0, lz), 2.5) * 0.4) out.push({ i, j, cap: 3, under: lz < -0.3 });
-    else if (ax < R + T + 0.9 && lz > -0.9 && lz < 0.7) out.push({ i, j, cap: lip, under: false });
+    let cap = Infinity, under = false;
+    if (ax < R + T * 0.8 + Math.min(Math.max(0, lz), 2.5) * 0.4) { cap = 3; under = lz < -0.3; }
+    else if (ax < R + T + 0.9 && lz > -0.9 && lz < 0.7) cap = lip;
+    // a ledge cut at the cliff foot for each quay and its arm
+    for (const q of quays) {
+      const sx = lx * Math.sign(q.lx), qx = Math.abs(q.qx);
+      const onQuay = Math.abs(sx - qx) < q.half + 0.55 && lz > 0 && lz < q.qz + q.half + 0.55;
+      const onArm = sx > Math.abs(q.lx) - 0.3 && sx < qx && lz > 0 && lz < ARM_Z1 + 0.5;
+      if (onQuay || onArm) cap = Math.min(cap, ledge);
+    }
+    if (cap < Infinity) out.push({ i, j, cap, under });
   }
   return out;
 }

@@ -4,7 +4,7 @@
 // the dial slides them along their routes. Routes run on a half-unit water grid that keeps each hull
 // clear of land, shallows, houses, posts, landmarks and moored boats. Rowboats may slip under
 // walkways with real headroom; sloops never go under a deck. Placed boats are plain props and stay put.
-import { World, N, WATER_Y, isLandmark, landmarkSamples, grottoDims, type Prop } from "./world.ts";
+import { World, N, WATER_Y, isLandmark, landmarkSamples, quaySamples, grottoDims, type Prop } from "./world.ts";
 
 const RES = 2;                 // grid cells per unit
 const G = N * RES;
@@ -57,6 +57,7 @@ export function navGrid(world: World, big: boolean, skip?: string): NavGrid {
         const lz = -(x - p.x) * s + (z - p.z) * c;
         if (lz <= lim) disc(x, z, p.type === "grotto" ? Math.min(0.6, grottoDims(p).T) : 0.55);
       }
+      if (p.type === "grotto") for (const [x, z] of quaySamples(p)) disc(x, z, 0.45);
     } else if (isBoat(p) && p.id !== skip) {
       const k = p.type === "sloop" ? SLOOP : ROW, fx = -Math.sin(p.rot) * k.halfLen, fz = Math.cos(p.rot) * k.halfLen;
       capsule(p.x - fx, p.z - fz, p.x + fx, p.z + fz, k.beam);

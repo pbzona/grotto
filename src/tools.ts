@@ -1,6 +1,6 @@
 import * as THREE from "three/webgpu";
 import type { App } from "./app";
-import { World, N, snap, House, Volume, newVolume, uid, FLOOR_H, MAX_LEVEL, PaintType, PropType, WalkNode, WalkEdge, RoofType, WATER_Y, DECK_Y, Prop, isLandmark, hullDims, grottoDims, grottoTies, grottoTieAt, GROTTO_OPTS, propOpt } from "./world";
+import { World, N, snap, House, Volume, newVolume, uid, FLOOR_H, MAX_LEVEL, PaintType, PropType, WalkNode, WalkEdge, RoofType, WATER_Y, DECK_Y, Prop, isLandmark, hullDims, grottoDims, grottoTies, grottoTieAt, QUAY_HALF, GROTTO_OPTS, propOpt } from "./world";
 import { MeshBuilder } from "./mesh";
 import { buildHouse, houseLayout, makeHouse, siteDrop, MAX_SITE_DROP, nodeWall, nearWalls, sideLine, HouseBuild, Bay } from "./houses";
 import { defaultDeckY, landingRadius, WALK_W, MAX_STAIR, slopeOf, clampStair } from "./walks";
@@ -1006,15 +1006,13 @@ export class Tools {
     const w = this.world;
     const sn = this.snapWalk(p, prev);
     if (sn?.kind === "node") return { node: sn.node, created: false };
+    // anywhere on (or just off) a grotto's quay ties on at its middle
+    const q = this.quayAt(p);
+    if (q) return { node: this.app.addNode(q.x, q.z, DECK_Y), created: true };
     if (sn?.kind === "edge") {
       const n = this.app.addNode(sn.x, sn.z, sn.y);
       w.splitEdge(sn.edge.id, n);
       return { node: n, created: true };
-    }
-    // tie on to a grotto's dock where its planks run out of the mouth
-    for (const g of w.props.values()) {
-      if (g.type !== "grotto") continue;
-      for (const t of grottoTies(g)) if (Math.hypot(p.x - t.x, p.z - t.z) < 1.1) return { node: this.app.addNode(t.x, t.z, DECK_Y), created: true };
     }
     // dock against a house wall, at the storey nearest the walkway's height
     const dock = this.wallDock(p, (base) => prev ? prev.y + this.walkLift : base + this.walkLift);
@@ -1023,6 +1021,18 @@ export class Tools {
     let y = defaultDeckY(w, x, z) + this.walkLift;
     if (prev && Math.abs(this.walkLift) < 1e-3 && prev.y > y && Math.hypot(prev.x - x, prev.z - z) < 8 && this.walkStyle === "rope") y = prev.y;
     return { node: this.app.addNode(x, z, Math.max(y, Math.max(w.height(x, z), WATER_Y) + 0.2), this.walkPad ? 1.2 : 0), created: true };
+  }
+  /** The tie point of the grotto quay p is on or just beside, if any. */
+  quayAt(p: { x: number; z: number }, margin = 0.6): { x: number; z: number; prop: Prop; half: number } | null {
+    for (const g of this.world.props.values()) {
+      if (g.type !== "grotto" || Math.hypot(g.x - p.x, g.z - p.z) > 10) continue;
+      const ties = grottoTies(g);
+      for (const t of ties) {
+        const dx = p.x - t.x, dz = p.z - t.z, c = Math.cos(g.rot), s = Math.sin(g.rot);
+        if (Math.max(Math.abs(dx * c + dz * s), Math.abs(-dx * s + dz * c)) < QUAY_HALF + margin) return { x: t.x, z: t.z, prop: g, half: QUAY_HALF };
+      }
+    }
+    return null;
   }
   /** Where a walkway ending near p would open a door: 0.6 out from the nearest wall, at the storey nearest want(base). */
   private wallDock(p: { x: number; z: number }, want: (base: number) => number) {
@@ -1065,7 +1075,7 @@ export class Tools {
     const style = this.walkStyle, width = style === "rope" ? 0.9 : WALK_W;
     const bendAt = (j: WalkNode, far: WalkNode): WalkNode | null => {
       const t = this.tightest(j, far.x - j.x, far.z - j.z, far);
-      if (t.angle >= Tools.MIN_JOIN || !this.world.edgesOf(j.id).length) return null;
+      if (t.angle >= Tools.MIN_JOIN || !this.world.edgesOf(j.id).length || grottoTieAt(this.world, j.x, j.z)) return null;
       const L = Math.hypot(far.x - j.x, far.z - j.z);
       // the heading closest to where we're going that stays clear of every walkway already here
       const want = Math.atan2(far.z - j.z, far.x - j.x);
@@ -1102,7 +1112,7 @@ export class Tools {
       this.world.splitEdge(best.id, m);
       return m;
     };
-    const crowded = (j: WalkNode, far: WalkNode) => this.world.edgesOf(j.id).length >= 3 && this.tightest(j, far.x - j.x, far.z - j.z, far).angle < Tools.MIN_JOIN;
+    const crowded = (j: WalkNode, far: WalkNode) => !grottoTieAt(this.world, j.x, j.z) && this.world.edgesOf(j.id).length >= 3 && this.tightest(j, far.x - j.x, far.z - j.z, far).angle < Tools.MIN_JOIN;
     if (crowded(a, b)) a = offSide(a, b);
     if (crowded(b, a)) b = offSide(b, a);
     const ma = bendAt(a, b);
@@ -1126,19 +1136,6 @@ export class Tools {
     }
     return false;
   }
-  /**
-   * A walkway meeting a grotto's dock comes in straight along it: if `from` isn't already dead ahead,
-   * put a post out in front of the tie and lay the last stretch head-on. Returns the post to join to.
-   */
-  private headOn(tie: WalkNode, from: WalkNode): WalkNode {
-    const t = grottoTieAt(this.world, tie.x, tie.z);
-    if (!t || this.world.edgesOf(tie.id).length) return tie;
-    const dx = from.x - tie.x, dz = from.z - tie.z, along = dx * t.ox + dz * t.oz, side = Math.abs(dx * t.oz - dz * t.ox);
-    if (along > 0.5 && side < 0.12 * along) return tie;
-    const a = this.app.addNode(tie.x + t.ox * 1.25, tie.z + t.oz * 1.25, tie.y);
-    this.app.addEdge(a, tie, "deck", WALK_W);
-    return a;
-  }
   private walkTo(p: THREE.Vector3) {
     if (!this.chain) return;
     if (!this.app.edits.active) this.app.begin(true);
@@ -1153,8 +1150,7 @@ export class Tools {
     const dup = this.world.edgesOf(this.chain.id).some(e => e.a === r.node.id || e.b === r.node.id);
     if (!dup) {
       const before = new Set(this.world.edges.keys());
-      const start = this.headOn(this.chain, r.node), end = this.headOn(r.node, this.chain);
-      this.joinWalk(start, end);
+      this.joinWalk(this.chain, r.node);
       if (this.tooSteep(before)) {
         this.app.cancel(); this.chain = null; this.chainTemp = null; this.walkLift = 0;
         this.toast("Too steep for stairs — start them further out, or lift the post with [ ]"); return;
@@ -1310,10 +1306,23 @@ export class Tools {
     if (this.tool === "walk" && this.hover) {
       const mb = new MeshBuilder();
       const h0 = this.hover;
-      const sn = this.snapWalk(h0, this.chain);
-      const hx = sn ? sn.x : h0.x, hz = sn ? sn.z : h0.z;
-      const y = sn ? sn.y : defaultDeckY(w, hx, hz) + this.walkLift;
+      let sn = this.snapWalk(h0, this.chain);
+      // a grotto quay wins over splitting a walkway, as it does on click
+      const q = sn?.kind === "node" ? null : this.quayAt(h0);
+      if (q) sn = null;
+      const hx = q ? q.x : sn ? sn.x : h0.x, hz = q ? q.z : sn ? sn.z : h0.z;
+      const y = q ? DECK_Y : sn ? sn.y : defaultDeckY(w, hx, hz) + this.walkLift;
       mb.paint([1, 1, 1], 0);
+      // every quay in view gets a faint outline, so there's an obvious place to tie on
+      for (const p of w.props.values()) {
+        if (p.type !== "grotto") continue;
+        const c = Math.cos(p.rot), s = Math.sin(p.rot);
+        for (const t of grottoTies(p)) {
+          const k = QUAY_HALF + 0.12, sq: [number, number, number][] = [];
+          for (const [a, b] of [[-k, -k], [k, -k], [k, k], [-k, k], [-k, -k]]) sq.push([t.x + a * c - b * s, DECK_Y + 0.12, t.z + a * s + b * c]);
+          mb.tube(sq, q && Math.hypot(q.x - t.x, q.z - t.z) < 0.01 ? 0.05 : 0.025, 4);
+        }
+      }
       mb.cyl(hx, hz, Math.max(w.height(hx, hz), WATER_Y) - 0.05, y + 0.05, 0.12, 0.12, 8);
       mb.cyl(hx, hz, y, y + 0.08, 0.5, 0.5, 12);
       if (this.chain) {
@@ -1322,13 +1331,13 @@ export class Tools {
         if (Math.hypot(side[0], side[2]) > 0.05) mb.beam([a.x, a.y, a.z], [hx, y, hz], side, WALK_W / 2, 0.04);
       }
       // a snapped target gets a bigger ring around the post (or join point) it will connect to
-      const r = sn?.kind === "node" ? landingRadius(w, sn.node) + 0.3 : sn ? 0.85 : 0.55;
+      const r = q ? QUAY_HALF * 1.2 : sn?.kind === "node" ? landingRadius(w, sn.node) + 0.3 : sn ? 0.85 : 0.55;
       if (sn) { // a second, raised ring so a snap reads at a glance
         const ring: [number, number, number][] = [];
         for (let i = 0; i <= 32; i++) { const a = i / 32 * Math.PI * 2; ring.push([hx + Math.cos(a) * (r + 0.16), y + 0.1, hz + Math.sin(a) * (r + 0.16)]); }
         mb.tube(ring, 0.045, 4);
       }
-      this.snapped = !!sn;
+      this.snapped = !!sn || !!q;
       return setG(mb.toGeometry(), false, { circle: [hx, hz, r], y: y + 0.1 });
     }
     setG(null);

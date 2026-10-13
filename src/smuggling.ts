@@ -8,7 +8,7 @@
 //   lookout, no landing (or no way in from the sea): its lantern gutters and goes out at dusk
 //   landing, no walkway from it to a house:           the boat comes in, waits, leaves still loaded
 //   landing, no lookout:                               nobody comes
-import { World, WATER_Y, DECK_Y, grottoDims, grottoDocks, GROTTO_TIE_Z, type Prop } from "./world.ts";
+import { World, WATER_Y, DECK_Y, grottoDims, grottoDocks, grottoTieAt, type Prop } from "./world.ts";
 import { seaRoute } from "./voyages.ts";
 import { route, edgeBetween, walkGraph, type Home, type Paths } from "./villagers.ts";
 
@@ -58,8 +58,13 @@ const local = (p: Prop, lx: number, lz: number): Pt => {
   const c = Math.cos(p.rot), s = Math.sin(p.rot);
   return [p.x + lx * c - lz * s, p.z + lx * s + lz * c];
 };
-const nodeAt = (world: World, x: number, z: number, r = 0.35) => {
-  for (const n of world.nodes.values()) if (Math.hypot(n.x - x, n.z - z) < r && world.edgesOf(n.id).length) return n.id;
+/** The walkway node tied on to dock `lx` of grotto `p` (at its quay, or at the dock end in older saves). */
+const tieOf = (world: World, p: Prop, lx: number) => {
+  for (const n of world.nodes.values()) {
+    if (Math.hypot(n.x - p.x, n.z - p.z) > 10 || !world.edgesOf(n.id).length) continue;
+    const t = grottoTieAt(world, n.x, n.z);
+    if (t && t.prop.id === p.id && Math.abs(t.lx - lx) < 1e-6) return n.id;
+  }
   return null;
 };
 
@@ -120,9 +125,9 @@ export function planRun(world: World, lookouts: Lookout[], homes: Home[], moored
     const g = grottoDims(p);
     for (const lx of grottoDocks(p)) {
       const sd = Math.sign(lx) || 1, bx = sd * Math.max(0, g.chan - 0.45);
-      const [ax, az] = local(p, bx, 3), berth = local(p, bx, 0.1), [tx, tz] = local(p, lx, GROTTO_TIE_Z);
+      const [ax, az] = local(p, bx, 3), berth = local(p, bx, 0.1);
       const path = seaRoute(world, false, ax, az, [berth]);
-      const tie = nodeAt(world, tx, tz), dock = tie && paths.nodes.has(`${tie}~dock0`) ? `${tie}~dock0` : tie;
+      const tie = tieOf(world, p, lx), dock = tie && paths.nodes.has(`${tie}~dock0`) ? `${tie}~dock0` : tie;
       if (path) tries.push({ landing: { kind: "grotto", id: p.id, node: dock, x: berth[0], z: berth[1] }, path });
     }
   }
