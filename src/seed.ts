@@ -24,20 +24,26 @@ export function seedCove(app: App, seed: number) {
   seedProps(app, r);
   app.settleWalks(); app.easeStairs(); app.mergeInline();
   const w = app.world;
-  // a door the ground forced a too-steep flight onto: that house doesn't make the cut
-  for (const e of [...w.edges.values()]) {
-    const A = w.nodes.get(e.a), B = w.nodes.get(e.b); if (!A || !B || slopeOf(A, B) <= MAX_STAIR + 1e-6) continue;
-    for (const d of [A, B]) {
-      const h = w.edgesOf(d.id).length === 1 ? doorOf(w, d)?.house : null;
-      if (h) { w.houses.delete(h.id); w.edges.delete(e.id); break; }
-    }
-  }
+  dropSteepDoors(w);
   for (const lm of [...w.props.values()].filter(p => isLandmark(p.type))) {
     const pts = landmarkSamples(lm);
     for (const o of [...w.props.values()]) if (!isLandmark(o.type) && pts.some(([x, z]) => Math.hypot(x - o.x, z - o.z) < 0.7)) w.props.delete(o.id);
   }
   w.pruneNodes();
   if (grotto) seedLookout(app, grotto);
+}
+
+/** A door the ground forced a too-steep flight onto: that house doesn't make the cut. Returns how many went. */
+function dropSteepDoors(w: World) {
+  let gone = 0;
+  for (const e of [...w.edges.values()]) {
+    const A = w.nodes.get(e.a), B = w.nodes.get(e.b); if (!A || !B || slopeOf(A, B) <= MAX_STAIR + 1e-6) continue;
+    for (const d of [A, B]) {
+      const h = w.edgesOf(d.id).length === 1 ? doorOf(w, d)?.house : null;
+      if (h) { w.houses.delete(h.id); w.edges.delete(e.id); gone++; break; }
+    }
+  }
+  return gone;
 }
 
 const DIRS: [number, number][] = [[0, 1], [1, 0], [0, -1], [-1, 0]];
@@ -78,13 +84,18 @@ function seedVillage(app: App, r: () => number, gap = 0) {
   // try the most promising few and keep the one that fits the most houses
   const tried = new Set<string>();
   let best: Site | null = null, most = 0;
+  // each site lays out from its own stream, so the village kept is the one that was counted
+  const base = r(), from = (site: Site) => rng(base * 977 + site.i * 7.13 + site.j * 13.7 + site.d * 0.31);
   for (const site of sites) {
     if (tried.size >= 10) break;
     const key = `${site.d}:${Math.round(site.i / 3)}:${Math.round(site.j / 3)}`;
     if (tried.has(key)) continue;
     tried.add(key);
     const before = { h: new Set(w.houses.keys()), n: new Set(w.nodes.keys()), e: new Set(w.edges.keys()), p: new Set(w.props.keys()) };
-    const n = buildVillage(app, site, r, false) + site.s * 0.01;
+    // count what survives the walkways settling onto the ground
+    let n = buildVillage(app, site, from(site), false);
+    app.settleWalks(); app.easeStairs();
+    n -= dropSteepDoors(w); n += site.s * 0.01;
     for (const id of [...w.houses.keys()]) if (!before.h.has(id)) w.houses.delete(id);
     for (const id of [...w.edges.keys()]) if (!before.e.has(id)) w.edges.delete(id);
     for (const id of [...w.nodes.keys()]) if (!before.n.has(id)) w.nodes.delete(id);
@@ -92,7 +103,7 @@ function seedVillage(app: App, r: () => number, gap = 0) {
     if (n > most) { most = n; best = site; }
     if (n >= 5) break;
   }
-  if (best && most >= 1) buildVillage(app, best, r, true);
+  if (best && most >= 1) buildVillage(app, best, from(best), true);
 }
 
 /** Lay a village out from a pier site; returns how many houses it fitted. `dress` adds boats, clutter and paths. */
@@ -237,15 +248,22 @@ function villageCentre(w: World): [number, number] {
  */
 export function seedGrotto(app: App, r: () => number): Prop | null {
   const w = app.world, near = villageCentre(w), seed = 0.2 + r() * 0.6;
-  keepSloop = !!planSloop(w); keepHomes = villagerHomes(w).length;
-  for (const size of [1, 0] as const) {
-    const opts = { size, dock: "left" as const };
-    for (const f of grottoSites(w, seed, opts, near)) {
-      const p = placeGrotto(app, f, seed, opts, near);
-      if (p) return p;
+  const sloop = !!planSloop(w);
+  keepHomes = villagerHomes(w).length;
+  // spare the village sloop its berth if at all possible; a grotto matters more than the sloop
+  for (const strict of sloop ? [true, false] : [false]) {
+    keepSloop = strict;
+    for (const size of [1, 0] as const) {
+      const opts = { size, dock: "left" as const };
+      for (const f of grottoSites(w, seed, opts, near)) {
+        const p = placeGrotto(app, f, seed, opts, near);
+        if (p) return p;
+      }
     }
+    const p = raiseHeadland(app, seed, near);
+    if (p) return p;
   }
-  return raiseHeadland(app, seed, near);
+  return null;
 }
 
 /** Set while seeding: the village sloop has a berth, and the grotto must not take it away. */
@@ -328,8 +346,11 @@ function raiseHeadland(app: App, seed: number, near: [number, number]): Prop | n
       const out = Math.max(Math.abs(lx) - R, -lz - back, 0);
       const l = Math.round(top - out * 3.5);
       if (l <= w.baseLevel(i, j)) continue;
-      if (i < 1 || j < 1 || i > N - 2 || j > N - 2 || w.houseAt(i + 0.5, j + 0.5, 0.8)) { blocked = true; break; }
-      if ([...w.nodes.values()].some(n => Math.abs(n.x - i - 0.5) < 1.3 && Math.abs(n.z - j - 0.5) < 1.3)) { blocked = true; break; }
+      // the core must be clear; the slope down from it just stops short of anything in the way
+      const off = i < 1 || j < 1 || i > N - 2 || j > N - 2 || w.houseAt(i + 0.5, j + 0.5, 0.8)
+        || [...w.nodes.values()].some(n => Math.abs(n.x - i - 0.5) < 1.3 && Math.abs(n.z - j - 0.5) < 1.3);
+      if (off && out <= 0) { blocked = true; break; }
+      if (off) continue;
       lift.push([i, j, l]);
     }
     if (blocked) continue;
@@ -460,10 +481,13 @@ export function seedLookout(app: App, p: Prop) {
   if ([...w.houses.values()].some(h => h.volumes.some(v => v.kind === "lookout"))) return;
   const homes = villagerHomes(w).map(hm => w.houses.get(hm.house)!).filter(Boolean);
   const dist = (h: (typeof homes)[number]) => Math.min(...h.volumes.map(v => Math.hypot((v.x0 + v.x1) / 2 - p.x, (v.z0 + v.z1) / 2 - p.z)));
-  const h = homes.sort((a, b) => dist(a) - dist(b))[0];
-  if (!h) return;
-  const v = h.volumes[0];
-  v.kind = "lookout"; v.floors = Math.max(2, v.floors);
+  // the nearest house that still meets its walkway once it has grown a lookout storey
+  for (const h of homes.sort((a, b) => dist(a) - dist(b))) {
+    const v = h.volumes[0], was = { kind: v.kind, floors: v.floors };
+    v.kind = "lookout"; v.floors = Math.max(2, v.floors);
+    if (villagerHomes(w).some(hm => hm.house === h.id)) return;
+    Object.assign(v, was); if (was.kind === undefined) delete v.kind;
+  }
 }
 
 /** A handful of palms, scrub, rocks, a rowboat and (where it fits) a lighthouse, clear of the village. */
