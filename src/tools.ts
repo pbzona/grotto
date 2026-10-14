@@ -373,7 +373,6 @@ export class Tools {
           if (lone) this.world.nodes.delete(r.node.id);
           this.chainTemp = lone ? r.node : null;
           this.app.changed({ structures: true });
-          this.toast("Click to lay walkway · double-click or right-click to finish · [ ] to raise the next post");
         } else this.walkTo(g);
         this.updateGhost();
         break;
@@ -1057,79 +1056,10 @@ export class Tools {
     }
     return null;
   }
-  /** Tightest angle a new walkway may leave a junction at; sharper ones get a bend so the path stays walkable. */
-  static MIN_JOIN = Math.PI / 4;
-  /** Furthest a bend may turn the walkway off the line it was asked for; past that it branches off the side instead. */
-  static MAX_BEND = Math.PI * 0.22;
-  /** The existing walkway at n closest in angle to direction (dx,dz): that angle, its heading, and which side the new one is on. */
-  private tightest(n: WalkNode, dx: number, dz: number, skip?: WalkNode) {
-    const a = Math.atan2(dz, dx);
-    let angle = Math.PI, base = 0, sgn = 1;
-    for (const e of this.world.edgesOf(n.id)) {
-      const o = this.world.nodes.get(e.a === n.id ? e.b : e.a); if (!o || o === skip) continue;
-      const b = Math.atan2(o.z - n.z, o.x - n.x);
-      let d = a - b; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
-      if (Math.abs(d) < angle) { angle = Math.abs(d); base = b; sgn = d >= 0 ? 1 : -1; }
-    }
-    return { angle, base, sgn };
-  }
-  /** Join two posts; if the stretch would leave either end too sharply against an existing walkway, add a bend post. */
+  /** Join two posts; where it meets other walkways at a sharp angle the post simply becomes a landing. */
   joinWalk(a: WalkNode, b: WalkNode) {
     const style = this.walkStyle, width = style === "rope" ? 0.9 : WALK_W;
-    const bendAt = (j: WalkNode, far: WalkNode): WalkNode | null => {
-      const t = this.tightest(j, far.x - j.x, far.z - j.z, far);
-      if (t.angle >= Tools.MIN_JOIN || !this.world.edgesOf(j.id).length || grottoTieAt(this.world, j.x, j.z)) return null;
-      const L = Math.hypot(far.x - j.x, far.z - j.z);
-      // the heading closest to where we're going that stays clear of every walkway already here
-      const want = Math.atan2(far.z - j.z, far.x - j.x);
-      const dirs = this.world.edgesOf(j.id).map(e => this.world.nodes.get(e.a === j.id ? e.b : e.a)).filter((o): o is WalkNode => !!o && o !== far).map(o => Math.atan2(o.z - j.z, o.x - j.x));
-      const gap = (x: number, y: number) => { let d = Math.abs(x - y) % (2 * Math.PI); return d > Math.PI ? 2 * Math.PI - d : d; };
-      let out = NaN, dev = Infinity;
-      for (let k = 0; k < 72; k++) {
-        const cand = want + ((k % 2 ? 1 : -1) * Math.ceil(k / 2) * Math.PI) / 36;
-        if (dirs.every(dd => gap(cand, dd) >= Tools.MIN_JOIN + 0.05) && gap(cand, want) < dev) { dev = gap(cand, want); out = cand; }
-      }
-      // a crowded junction (nowhere walkable to turn), or a turn so wide the bend would swing the walkway out of its way
-      if (!isFinite(out) || dev > Tools.MAX_BEND || L < 3) return null;
-      void t;
-      // a short dog-leg just clear of the junction, then straight on to where we're going
-      const d = Math.min(1.8, L * 0.3);
-      const x = j.x + Math.cos(out) * d, z = j.z + Math.sin(out) * d;
-      if (x < 0.3 || z < 0.3 || x > N - 0.3 || z > N - 0.3) return null;
-      const yF = j.y + (far.y - j.y) * 0.25;
-      return this.app.addNode(Math.round(x * 4) / 4, Math.round(z * 4) / 4, Math.max(yF, Math.max(this.world.height(x, z), WATER_Y) + 0.2));
-    };
-    // a crowded junction with no walkable way out: branch off the side of the nearest walkway instead
-    const offSide = (j: WalkNode, far: WalkNode): WalkNode => {
-      const t = this.tightest(j, far.x - j.x, far.z - j.z, far);
-      if (t.angle >= Tools.MIN_JOIN) return j;
-      let best: WalkEdge | null = null, bo: WalkNode | null = null, bd = Infinity;
-      for (const e of this.world.edgesOf(j.id)) {
-        const o = this.world.nodes.get(e.a === j.id ? e.b : e.a); if (!o || o === far) continue;
-        const d = Math.abs(Math.atan2(Math.sin(Math.atan2(o.z - j.z, o.x - j.x) - Math.atan2(far.z - j.z, far.x - j.x)), Math.cos(Math.atan2(o.z - j.z, o.x - j.x) - Math.atan2(far.z - j.z, far.x - j.x))));
-        if (d < bd) { bd = d; best = e; bo = o; }
-      }
-      if (!best || !bo) return j;
-      const L = Math.hypot(bo.x - j.x, bo.z - j.z);
-      if (L < 2.4) return j;
-      const tt = Math.min(1.9, L * 0.45) / L;
-      const m = this.app.addNode(j.x + (bo.x - j.x) * tt, j.z + (bo.z - j.z) * tt, j.y + (bo.y - j.y) * tt);
-      this.world.splitEdge(best.id, m);
-      return m;
-    };
-    // a junction left too sharply: a small bend if one clears it, else branch off the side of the walkway it would run along
-    const tight = (j: WalkNode, far: WalkNode) => !grottoTieAt(this.world, j.x, j.z) && this.world.edgesOf(j.id).length > 0 && this.tightest(j, far.x - j.x, far.z - j.z, far).angle < Tools.MIN_JOIN;
-    const leave = (j: WalkNode, far: WalkNode): [WalkNode, WalkNode | null] => {
-      if (!tight(j, far)) return [j, null];
-      const m = this.world.edgesOf(j.id).length >= 3 ? null : bendAt(j, far);
-      return m ? [j, m] : [offSide(j, far), null];
-    };
-    let ma: WalkNode | null, mb: WalkNode | null;
-    [a, ma] = leave(a, b);
-    [b, mb] = leave(b, ma ?? a);
-    const chain = [a, ma, mb, b].filter(Boolean) as WalkNode[];
-    for (let i = 0; i < chain.length - 1; i++) this.addFollowing(chain[i], chain[i + 1], style, width, 0);
-    if (ma || mb) this.toast("Added a bend so the walkway meets at a walkable angle");
+    this.addFollowing(a, b, style, width, 0);
   }
   /** Add a stretch; if the ground rises through its deck line, put a post on the high point so it rides over instead of through. */
   /** Add a stretch, then let it settle over any ground it would cut through. */

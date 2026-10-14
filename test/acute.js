@@ -1,16 +1,15 @@
 (async () => {
   const g = window.__grotto, t = g.tools, w = g.world, a = g.app, R = [];
   const ok = (n, c, x = '') => R.push((c ? 'PASS ' : 'FAIL ') + n + ' ' + x);
-  const { junctionAngle } = await import('/src/walks.ts');
+  const { jointOf } = await import('/src/walks.ts');
   // pier head (25,29) ← hub (25,24): branch off the hub heading 15° from the pier toward the head's east side
   const hub = [...w.nodes.values()].find(n => n.x === 25 && n.z === 24);
   const ne = w.edges.size, nn = w.nodes.size;
   t.setTool('walk'); t.chain = hub;
   const tgt = new (g.camera.position.constructor)(25 + Math.sin(0.55) * 6, 0.2, 24 + Math.cos(0.55) * 6);
   t['walkTo'](tgt); t.escape(); a.update(0);
-  const minA = Math.min(...[...w.nodes.values()].filter(n => w.edgesOf(n.id).length >= 2).map(n => junctionAngle(w, n)));
-  ok('acute branch gets a bend', w.nodes.size > nn + 1, `nodes +${w.nodes.size - nn}, edges +${w.edges.size - ne}`);
-  ok('no junction tighter than ~45°', minA >= Math.PI / 4 - 0.02, (minA * 180 / Math.PI).toFixed(1) + '°');
+  ok('acute branch joins straight on, no extra posts', w.nodes.size === nn + 1 && w.edges.size === ne + 1, `nodes +${w.nodes.size - nn}, edges +${w.edges.size - ne}`);
+  ok('acute junction is a landing', jointOf(w, hub) === 'landing', jointOf(w, hub));
   // a walkway laid across rising ground rides over the high point
   const lo = a.addNode(11, 22.5, w.height(11, 22.5) + 0.2), hiX = 18.5, hiZ = 12.5;
   t.setTool('walk'); t.chain = lo; const n2 = w.nodes.size;
