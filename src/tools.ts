@@ -1059,6 +1059,8 @@ export class Tools {
   }
   /** Tightest angle a new walkway may leave a junction at; sharper ones get a bend so the path stays walkable. */
   static MIN_JOIN = Math.PI / 4;
+  /** Furthest a bend may turn the walkway off the line it was asked for; past that it branches off the side instead. */
+  static MAX_BEND = Math.PI * 0.22;
   /** The existing walkway at n closest in angle to direction (dx,dz): that angle, its heading, and which side the new one is on. */
   private tightest(n: WalkNode, dx: number, dz: number, skip?: WalkNode) {
     const a = Math.atan2(dz, dx);
@@ -1087,9 +1089,11 @@ export class Tools {
         const cand = want + ((k % 2 ? 1 : -1) * Math.ceil(k / 2) * Math.PI) / 36;
         if (dirs.every(dd => gap(cand, dd) >= Tools.MIN_JOIN + 0.05) && gap(cand, want) < dev) { dev = gap(cand, want); out = cand; }
       }
-      if (!isFinite(out)) return null; // a crowded junction: nowhere walkable to turn
+      // a crowded junction (nowhere walkable to turn), or a turn so wide the bend would swing the walkway out of its way
+      if (!isFinite(out) || dev > Tools.MAX_BEND || L < 3) return null;
       void t;
-      const d = Math.min(Math.max(1.8, L * 0.35), L * 0.6);
+      // a short dog-leg just clear of the junction, then straight on to where we're going
+      const d = Math.min(1.8, L * 0.3);
       const x = j.x + Math.cos(out) * d, z = j.z + Math.sin(out) * d;
       if (x < 0.3 || z < 0.3 || x > N - 0.3 || z > N - 0.3) return null;
       const yF = j.y + (far.y - j.y) * 0.25;
@@ -1113,11 +1117,16 @@ export class Tools {
       this.world.splitEdge(best.id, m);
       return m;
     };
-    const crowded = (j: WalkNode, far: WalkNode) => !grottoTieAt(this.world, j.x, j.z) && this.world.edgesOf(j.id).length >= 3 && this.tightest(j, far.x - j.x, far.z - j.z, far).angle < Tools.MIN_JOIN;
-    if (crowded(a, b)) a = offSide(a, b);
-    if (crowded(b, a)) b = offSide(b, a);
-    const ma = bendAt(a, b);
-    const mb = bendAt(b, ma ?? a);
+    // a junction left too sharply: a small bend if one clears it, else branch off the side of the walkway it would run along
+    const tight = (j: WalkNode, far: WalkNode) => !grottoTieAt(this.world, j.x, j.z) && this.world.edgesOf(j.id).length > 0 && this.tightest(j, far.x - j.x, far.z - j.z, far).angle < Tools.MIN_JOIN;
+    const leave = (j: WalkNode, far: WalkNode): [WalkNode, WalkNode | null] => {
+      if (!tight(j, far)) return [j, null];
+      const m = this.world.edgesOf(j.id).length >= 3 ? null : bendAt(j, far);
+      return m ? [j, m] : [offSide(j, far), null];
+    };
+    let ma: WalkNode | null, mb: WalkNode | null;
+    [a, ma] = leave(a, b);
+    [b, mb] = leave(b, ma ?? a);
     const chain = [a, ma, mb, b].filter(Boolean) as WalkNode[];
     for (let i = 0; i < chain.length - 1; i++) this.addFollowing(chain[i], chain[i + 1], style, width, 0);
     if (ma || mb) this.toast("Added a bend so the walkway meets at a walkable angle");
