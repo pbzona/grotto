@@ -33,7 +33,8 @@
   const sg = segs[0]; // south wall, facing the camera
   const nv = h.volumes.length;
   drag(scr(sg.position.x, sg.position.y, sg.position.z), scr(sg.position.x, sg.position.y, sg.position.z + 1.6)); a.update(0);
-  ok('segment extruded into a wing', h.volumes.length === nv + 1, JSON.stringify(h.volumes[h.volumes.length - 1] && [h.volumes.at(-1).x0, h.volumes.at(-1).z0, h.volumes.at(-1).x1, h.volumes.at(-1).z1]));
+  const edited = w.houses.get(h.id);
+  ok('segment extruded into a wing', edited.volumes.length === nv + 1, JSON.stringify(edited.volumes.at(-1) && [edited.volumes.at(-1).x0, edited.volumes.at(-1).z0, edited.volumes.at(-1).x1, edited.volumes.at(-1).z1]));
   // --- lift part of the longhouse-like main volume
   const L = [...w.houses.values()].find(h => h.volumes[0].x0 === 19.5 && h.volumes[0].z0 === 11);
   t.select({ kind: 'house', id: L.id, vi: 0 }); a.update(0); t.revealFor('roof');
@@ -42,8 +43,8 @@
   const lf = lifts[0]; const before = L.volumes.length;
   const p0 = scr(lf.position.x, lf.position.y, lf.position.z);
   ev('pointermove', p0); ev('pointerdown', p0); for (let i = 1; i <= 6; i++) ev('pointermove', [p0[0], p0[1] - i * 10]); ev('pointerup', [p0[0], p0[1] - 60]); a.update(0);
-  const fl = L.volumes.map(v => v.floors + v.roof[0]).join(',');
-  ok('lift split the volume', L.volumes.length > before && L.volumes.some(v => v.roof === 'flat'), fl);
+  const lifted = w.houses.get(L.id), fl = lifted.volumes.map(v => v.floors + v.roof[0]).join(',');
+  ok('lift split the volume', lifted.volumes.length > before && lifted.volumes.some(v => v.roof === 'flat'), fl);
   // terrace door exists?
   const hb = { mb: null }; 
   // --- placing: R turns the footprint, cliffs refuse

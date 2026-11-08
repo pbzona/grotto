@@ -7,6 +7,7 @@ import { defaultDeckY, landingRadius, WALK_W, MAX_STAIR, slopeOf, clampStair } f
 import { buildOneProp, buildBoat, PROP_INFO, boatFreeboard, isGreenery, palmPierces } from "./props.ts";
 import { fitLandmark, type Fit } from "./placement.ts";
 import type { TerrainOp } from "./world-ops.ts";
+import { doorEnds, type DoorEnd, type HouseEdit } from "./house-ops.ts";
 import { U } from "./materials.ts";
 import { HandleLayer } from "./handles.ts";
 
@@ -26,9 +27,6 @@ export const HOUSE_PRESETS: Record<string, { label: string; w: number; d: number
   lookout: { label: "Lookout", w: 2, d: 2, floors: 3, roof: "hip", kind: "lookout" },
   tower: { label: "Tower", w: 2, d: 2, floors: 3, roof: "hip", kind: "tower" },
 };
-
-/** A walkway end opening a door in a house wall, remembered so it can follow the wall while the house is reshaped. */
-type DoorEnd = { id: string; vi: number; side: number; t: number; d: number; floor: number };
 
 type Drag =
   | { t: "side"; side: number; grab: number; plane: number; orig: House; extrude: boolean; wingVi?: number; doors: DoorEnd[] }
@@ -457,15 +455,12 @@ export class Tools {
     this.app.begin();
     if (s.kind === "house") {
       const h = this.world.houses.get(s.id);
-      if (h && h.volumes.length > 1 && s.vi > 0) { h.volumes.splice(s.vi, 1); this.select({ kind: "house", id: h.id, vi: 0 }); }
-      else { this.world.houses.delete(s.id); this.select(null); }
-    } else if (s.kind === "node") { this.app.removePost(s.id); this.select(null); }
-    else if (s.kind === "edge") { this.world.edges.delete(s.id); this.world.pruneNodes(); this.select(null); }
-    else if (s.kind === "prop") {
-      const change = this.app.ops.removeProp(s.id); this.select(null);
-      if (change) { this.app.recordChange(change); return; }
-    }
-    this.app.changed({ structures: true });
+      const change = this.app.ops.removeHouse(s.id, s.vi);
+      this.select(h && h.volumes.length > 1 && s.vi > 0 ? { kind: "house", id: s.id, vi: 0 } : null);
+      if (change) this.app.recordChange(change);
+    } else if (s.kind === "node") { this.app.removePost(s.id); this.select(null); this.app.changed({ structures: true }); }
+    else if (s.kind === "edge") { const change = this.app.ops.removeEdge(s.id); this.select(null); if (change) this.app.recordChange(change); }
+    else if (s.kind === "prop") { const change = this.app.ops.removeProp(s.id); this.select(null); if (change) this.app.recordChange(change); }
   }
   escape() {
     if (this.drag) { this.cancelDrag(); return; }
@@ -504,12 +499,12 @@ export class Tools {
     const h = this.previewHouse(r);
     if (this.steep(h)) { this.toast("Too steep here"); this.updateGhost(); return; }
     this.app.begin();
-    h.id = uid("h");
-    this.world.houses.set(h.id, h);
+    const result = this.app.ops.placeHouse(h);
+    if (!result.ok) { this.app.cancel(); this.toast(result.why); return; }
     this.ghostSeed = Math.random();
-    this.app.changed({ structures: true });
+    this.app.recordChange(result.change);
     this.setTool("select");
-    this.select({ kind: "house", id: h.id, vi: 0 });
+    this.select({ kind: "house", id: result.value.id, vi: 0 });
   }
   private toggleBay(id: string, point: THREE.Vector3, normal: THREE.Vector3) {
     const h = this.world.houses.get(id); if (!h) return false;
@@ -526,66 +521,24 @@ export class Tools {
     }
     if (!best) return false;
     this.app.begin();
-    const v = h.volumes[best.vi];
-    v.openings = v.openings ?? {};
     const next = best.kind === "window" ? "wall" : best.kind === "wall" ? (best.floor === 0 ? "door" : "window") : "window";
-    v.openings[best.key] = next;
-    this.app.changed({ structures: true });
+    const change = this.app.ops.setOpening(id, best.vi, best.key, next);
+    if (change) this.app.recordChange(change);
     this.toast(next === "door" ? "Door" : next === "window" ? "Window" : "Plain wall");
     return true;
   }
   /** Panel/keyboard edits on the selected house. */
-  houseEdit(op: string, val?: any) {
+  houseEdit(op: HouseEdit["kind"], val?: unknown) {
     const s = this.sel; if (s?.kind !== "house") return;
-    const h = this.world.houses.get(s.id); if (!h) return;
-    const v = h.volumes[s.vi] ?? h.volumes[0];
     const live = op === "pitch" || op === "curve" || op === "overhang";
     if (!this.app.edits.active) this.app.begin();
-    switch (op) {
-      case "roof": v.roof = val; break;
-      case "pitch": v.pitch = val; break;
-      case "curve": v.curve = val; break;
-      case "overhang": v.overhang = val; break;
-      case "ridge": v.ridgeX = !(v.ridgeX ?? (v.x1 - v.x0 >= v.z1 - v.z0)); break;
-      case "floors": v.floors = Math.max(1, Math.min(4, v.floors + val)); break;
-      case "palette": h.palette = val; break;
-      case "style": h.style = val; break;
-      case "foundation": h.foundation = val; break;
-      case "toggle": (h as any)[val] = !(h as any)[val]; break;
-      case "reroll": h.seed = Math.random(); for (const vv of h.volumes) delete vv.openings; break;
-      case "kind": v.kind = val === "room" ? undefined : val; break;
-      case "wing": { if (!this.addWing(h, val)) { this.app.cancel(); this.toast("No free side for a wing"); return; } break; }
-      default: this.app.cancel(); return;
-    }
-    this.app.changed({ structures: true });
+    const action = op === "ridge" ? { kind: op } : { kind: op, value: op === "reroll" ? Math.random() : val };
+    const result = this.app.ops.editHouse(s.id, s.vi, action as HouseEdit);
+    if (!result.ok) { this.app.cancel(); this.toast(result.why); return; }
+    if (result.value.vi !== s.vi) this.sel = { ...s, vi: result.value.vi };
+    this.app.recordChange(result.change);
     this.refreshHandles();
     if (!live) this.onChange?.();
-  }
-  private addWing(h: House, kind: "room" | "tower" | "lookout" | "shed") {
-    const main = h.volumes[this.sel?.kind === "house" ? this.sel.vi : 0] ?? h.volumes[0];
-    const size = kind === "shed" ? [2, 1.5] : kind === "room" ? [2.5, 2] : [2, 2];
-    for (let s = 0; s < 4; s++) {
-      const [nx, nz] = SIDE_N[s];
-      const alongX = nz !== 0;
-      const len = size[0], dep = size[1];
-      const mid = alongX ? snap((main.x0 + main.x1) / 2) : snap((main.z0 + main.z1) / 2);
-      for (const shift of [0, -1, 1, -1.5, 1.5]) {
-        const c = mid + shift;
-        let r: { x0: number; z0: number; x1: number; z1: number };
-        if (alongX) { const z = nz > 0 ? main.z1 : main.z0 - dep; r = { x0: snap(c - len / 2), x1: snap(c - len / 2) + len, z0: z, z1: z + dep }; }
-        else { const x = nx > 0 ? main.x1 : main.x0 - dep; r = { z0: snap(c - len / 2), z1: snap(c - len / 2) + len, x0: x, x1: x + dep }; }
-        if (!this.world.footprintFree(r.x0, r.z0, r.x1, r.z1)) continue;
-        if (h.volumes.some(o => r.x0 < o.x1 - 0.01 && r.x1 > o.x0 + 0.01 && r.z0 < o.z1 - 0.01 && r.z1 > o.z0 + 0.01)) continue;
-        const v = newVolume(r.x0, r.z0, r.x1, r.z1, kind === "shed" ? 1 : kind === "room" ? Math.max(1, main.floors - 1) : main.floors + 1, kind === "shed" ? "shed" : kind === "room" ? "gable" : "hip");
-        if (this.steep({ ...h, volumes: [...h.volumes, v] }, siteDrop(this.world, h))) continue;
-        if (kind === "shed") v.ridgeX = !alongX;
-        if (kind === "tower" || kind === "lookout") v.kind = kind;
-        h.volumes.push(v);
-        this.sel = { kind: "house", id: h.id, vi: h.volumes.length - 1 };
-        return true;
-      }
-    }
-    return false;
   }
 
   // ---------- handles ----------
@@ -784,14 +737,15 @@ export class Tools {
         else if (side === 2) nv = newVolume(mx, v.z0 - 0.5, mx + wl, v.z0, Math.max(1, v.floors - 1), v.roof === "flat" ? "flat" : "gable");
         else if (side === 1) nv = newVolume(v.x1, mz, v.x1 + 0.5, mz + wl, Math.max(1, v.floors - 1), v.roof === "flat" ? "flat" : "gable");
         else nv = newVolume(v.x0 - 0.5, mz, v.x0, mz + wl, Math.max(1, v.floors - 1), v.roof === "flat" ? "flat" : "gable");
-        h.volumes.push(nv);
-        wingVi = h.volumes.length - 1;
+        const result = this.app.ops.replaceHouse(h.id, { ...h, volumes: [...h.volumes, nv] });
+        if (!result.ok) { this.app.cancel(); this.layer.held = null; return; }
+        wingVi = result.value.volumes.length - 1;
         this.sel = { kind: "house", id: h.id, vi: wingVi };
       }
-      this.drag = { t: "side", side, grab: along - coord, plane, orig, extrude: e.shiftKey, wingVi, doors: this.doorEnds(h) };
+      this.drag = { t: "side", side, grab: along - coord, plane, orig, extrude: e.shiftKey, wingVi, doors: doorEnds(this.world, this.world.houses.get(h.id)!) };
     } else if (d.t === "move") {
       const g = this.ground() ?? new THREE.Vector3();
-      this.drag = { t: "move", start: g.clone(), orig, doors: this.doorEnds(h) };
+      this.drag = { t: "move", start: g.clone(), orig, doors: doorEnds(this.world, h) };
     } else if (d.t === "floors") {
       this.drag = { t: "floors", y0: e.clientY, floors0: h.volumes[s.vi].floors };
     }
@@ -827,9 +781,10 @@ export class Tools {
     }
     const key = JSON.stringify(vols);
     if (key === JSON.stringify(h.volumes)) return;
-    h.volumes = vols;
+    const result = this.app.ops.replaceHouse(h.id, { ...h, volumes: vols });
+    if (!result.ok) return;
     this.housesChanged = true;
-    this.app.changed({ structures: true });
+    this.app.recordChange(result.change);
     this.refreshHighlight();
   }
   /** Raise or lower one stretch of a volume: it splits into up to three parts; the parts left lower become flat roof terraces. */
@@ -859,9 +814,10 @@ export class Tools {
       vols.splice(d.vi, 1, ...parts);
       this.sel = { kind: "house", id: h.id, vi: d.vi + parts.indexOf(mid) };
     } else this.sel = { kind: "house", id: h.id, vi: d.vi };
-    h.volumes = vols;
+    const result = this.app.ops.replaceHouse(h.id, { ...h, volumes: vols });
+    if (!result.ok) return;
     this.housesChanged = true;
-    this.app.changed({ structures: true });
+    this.app.recordChange(result.change);
     this.refreshHighlight(); this.onChange?.();
   }
   /** Pull a new walkway segment out of a dead end. */
@@ -919,22 +875,22 @@ export class Tools {
     if (!this.world.footprintFree(test.x0, test.z0, test.x1, test.z1, h)) return;
     if (h.volumes.some((o, oi) => oi !== vi && test.x0 < o.x1 - 0.01 && test.x1 > o.x0 + 0.01 && test.z0 < o.z1 - 0.01 && test.z1 > o.z0 + 0.01)) return;
     if (this.steep({ ...h, volumes: h.volumes.map((o, oi) => (oi === vi ? { ...o, ...test } : o)) }, siteDrop(this.world, h))) return;
-    // wings attached to the moving side ride along with it
-    if (!d.extrude) {
+    // Wings attached to the moving side ride along with it.
+    const volumes = h.volumes.map((o, oi) => {
+      if (oi === vi) return test;
+      if (d.extrude) return o;
       const oldC = side === 0 ? v.z1 : side === 1 ? v.x1 : side === 2 ? v.z0 : v.x0;
       const newC = side === 0 ? test.z1 : side === 1 ? test.x1 : side === 2 ? test.z0 : test.x0;
       const delta = newC - oldC;
-      h.volumes.forEach((o, oi) => {
-        if (oi === vi) return;
-        const touches = side === 0 ? Math.abs(o.z0 - oldC) < 1e-3 : side === 2 ? Math.abs(o.z1 - oldC) < 1e-3 : side === 1 ? Math.abs(o.x0 - oldC) < 1e-3 : Math.abs(o.x1 - oldC) < 1e-3;
-        const overlap = side % 2 ? o.z0 < v.z1 && o.z1 > v.z0 : o.x0 < v.x1 && o.x1 > v.x0;
-        if (touches && overlap) { if (side % 2) { o.x0 += delta; o.x1 += delta; } else { o.z0 += delta; o.z1 += delta; } }
-      });
-    }
-    Object.assign(v, { x0: test.x0, x1: test.x1, z0: test.z0, z1: test.z1 });
-    this.followDoors(h, d.orig, d.doors);
+      const touches = side === 0 ? Math.abs(o.z0 - oldC) < 1e-3 : side === 2 ? Math.abs(o.z1 - oldC) < 1e-3 : side === 1 ? Math.abs(o.x0 - oldC) < 1e-3 : Math.abs(o.x1 - oldC) < 1e-3;
+      const overlap = side % 2 ? o.z0 < v.z1 && o.z1 > v.z0 : o.x0 < v.x1 && o.x1 > v.x0;
+      if (!touches || !overlap) return o;
+      return side % 2 ? { ...o, x0: o.x0 + delta, x1: o.x1 + delta } : { ...o, z0: o.z0 + delta, z1: o.z1 + delta };
+    });
+    const result = this.app.ops.replaceHouse(h.id, { ...h, volumes }, { origin: d.orig, doors: d.doors });
+    if (!result.ok) return;
     this.housesChanged = true;
-    this.app.changed({ structures: true });
+    this.app.recordChange(result.change);
     this.refreshHandles(); this.refreshHighlight();
   }
   private dragMove(d: Extract<Drag, { t: "move" }>) {
@@ -946,49 +902,22 @@ export class Tools {
     if (vols.every((v, i) => v.x0 === h.volumes[i].x0 && v.z0 === h.volumes[i].z0)) return;
     if (!vols.every(v => this.world.footprintFree(v.x0, v.z0, v.x1, v.z1, h))) return;
     if (this.steep({ ...h, volumes: vols }, siteDrop(this.world, d.orig))) return;
-    h.volumes = vols;
-    this.followDoors(h, d.orig, d.doors);
+    const result = this.app.ops.replaceHouse(h.id, { ...h, volumes: vols }, { origin: d.orig, doors: d.doors });
+    if (!result.ok) return;
     this.housesChanged = true;
-    this.app.changed({ structures: true });
+    this.app.recordChange(result.change);
     this.refreshHandles(); this.refreshHighlight();
-  }
-  /** The walkway ends that open doors in this house. */
-  private doorEnds(h: House): DoorEnd[] {
-    const w = this.world, base = houseLayout(w, h).base, out: DoorEnd[] = [];
-    for (const n of w.nodes.values()) {
-      if (!w.edgesOf(n.id).length || !nearWalls(h, n.x, n.z)) continue;
-      const hit = nodeWall(h, n, base);
-      if (hit) out.push({ id: n.id, vi: hit.vi, side: hit.side, t: hit.t, d: hit.d, floor: hit.floor });
-    }
-    return out;
-  }
-  /**
-   * Keep door ends on their walls after the house moved or a side was pulled: the same storey, the same distance out,
-   * and the same spot along the wall (carried with the wall when the whole volume shifted, clamped when it shrank).
-   */
-  private followDoors(h: House, orig: House, doors: DoorEnd[]) {
-    if (!doors.length) return;
-    const w = this.world, base = houseLayout(w, h).base;
-    for (const dr of doors) {
-      const n = w.nodes.get(dr.id), v = h.volumes[dr.vi], ov = orig.volumes[dr.vi]; if (!n || !v || !ov) continue;
-      const alongX = dr.side % 2 === 0;
-      const lo = alongX ? v.x0 : v.z0, hi = alongX ? v.x1 : v.z1;
-      const olo = alongX ? ov.x0 : ov.z0, ohi = alongX ? ov.x1 : ov.z1;
-      const shift = Math.abs((lo - olo) - (hi - ohi)) < 1e-6 ? lo - olo : 0;
-      const L0 = sideLine(ov, dr.side), L0t = [L0.b[0] - L0.a[0], L0.b[1] - L0.a[1]], L0len = Math.hypot(L0t[0], L0t[1]);
-      const at = (alongX ? L0.a[0] + L0t[0] / L0len * dr.t : L0.a[1] + L0t[1] / L0len * dr.t) + shift;
-      const c = Math.min(hi - 0.5, Math.max(lo + 0.5, at));
-      const L = sideLine(v, dr.side);
-      if (alongX) { n.x = c; n.z = L.a[1] + L.n[1] * dr.d; } else { n.z = c; n.x = L.a[0] + L.n[0] * dr.d; }
-      n.y = base + Math.min(v.floors - 1, dr.floor) * FLOOR_H;
-    }
   }
   private dragFloors(d: Extract<Drag, { t: "floors" }>, e: PointerEvent) {
     const s = this.sel; if (s?.kind !== "house") return;
     const h = this.world.houses.get(s.id); if (!h) return;
     const v = h.volumes[s.vi];
     const f = Math.max(1, Math.min(4, d.floors0 + Math.round((d.y0 - e.clientY) / 45)));
-    if (f !== v.floors) { v.floors = f; this.housesChanged = true; this.app.changed({ structures: true }); this.refreshHandles(); this.onChange?.(); }
+    if (f !== v.floors) {
+      const result = this.app.ops.replaceHouse(h.id, { ...h, volumes: h.volumes.map((part, i) => i === s.vi ? { ...part, floors: f } : part) });
+      if (!result.ok) return;
+      this.housesChanged = true; this.app.recordChange(result.change); this.refreshHandles(); this.onChange?.();
+    }
   }
 
   // ---------- walkways ----------

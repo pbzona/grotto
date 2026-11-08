@@ -1,7 +1,9 @@
-import { World, N, uid, WATER_Y, MAX_LEVEL, PAINT_CH, isGreenery, isLandmark, isShop, type PaintType, type PropType, type Prop, type WalkNode, type WalkEdge } from "./world.ts";
+import { World, N, uid, WATER_Y, MAX_LEVEL, PAINT_CH, isGreenery, isLandmark, isShop, type House, type PaintType, type PropType, type Prop, type WalkNode, type WalkEdge } from "./world.ts";
 import { defaultDeckY, WALK_W, MAX_STAIR, slopeOf, isStairs, clampStair } from "./walkway-rules.ts";
 import { doorOf } from "./house-model.ts";
 import { fitLandmark } from "./placement.ts";
+import { editHouse as nextHouse, followedDoors, type DoorEnd, type HouseEdit } from "./house-ops.ts";
+import { siteDrop, MAX_SITE_DROP } from "./house-model.ts";
 
 export type WorldChange = { terrain?: true; paint?: true; structures?: true };
 export type TerrainOp = "raise" | "lower" | "flatten" | "smooth";
@@ -227,6 +229,55 @@ export class WorldOps {
       w.paint[k + ch] = Math.min(255, Math.max(w.paint[k + ch], f * 255));
       for (let c = 0; c < 4; c++) if (c !== ch) w.paint[k + c] = Math.max(0, w.paint[k + c] - f * 180);
     }
+  }
+
+  placeHouse(proposal: House): EditResult<House> {
+    if (!proposal.volumes.every(v => this.world.footprintFree(v.x0, v.z0, v.x1, v.z1)) || siteDrop(this.world, proposal) > MAX_SITE_DROP) return { ok: false, why: "Not enough room or too steep here" };
+    const house = { ...structuredClone(proposal), id: uid("h") };
+    this.world.houses.set(house.id, house);
+    return { ok: true, value: house, change: { structures: true } };
+  }
+
+  editHouse(id: string, vi: number, edit: HouseEdit): EditResult<{ house: House; vi: number }> {
+    const current = this.world.houses.get(id);
+    if (!current) return { ok: false, why: "House no longer exists" };
+    const result = nextHouse(this.world, current, vi, edit);
+    if (!result) return { ok: false, why: edit.kind === "wing" ? "No free side for a wing" : "Invalid house edit" };
+    this.world.houses.set(id, result.house);
+    return { ok: true, value: result, change: { structures: true } };
+  }
+
+  replaceHouse(id: string, candidate: House, from?: { origin: House; doors: DoorEnd[] }): EditResult<House> {
+    const current = this.world.houses.get(id);
+    if (!current) return { ok: false, why: "House no longer exists" };
+    if (!candidate.volumes.length || !candidate.volumes.every(v => this.world.footprintFree(v.x0, v.z0, v.x1, v.z1, current, 0.5)) ||
+        siteDrop(this.world, candidate) > Math.max(MAX_SITE_DROP, siteDrop(this.world, from?.origin ?? current)) + 1e-6) return { ok: false, why: "That shape won't fit here" };
+    const next = structuredClone(candidate);
+    this.world.houses.set(id, next);
+    if (from) for (const n of followedDoors(this.world, next, from.origin, from.doors)) this.world.nodes.set(n.id, n);
+    return { ok: true, value: next, change: { structures: true } };
+  }
+
+  removeEdge(id: string): WorldChange | null {
+    if (!this.world.edges.delete(id)) return null;
+    this.world.pruneNodes();
+    return { structures: true };
+  }
+
+  removeHouse(id: string, vi = 0): WorldChange | null {
+    const h = this.world.houses.get(id);
+    if (!h) return null;
+    if (vi > 0 && h.volumes.length > 1) this.world.houses.set(id, { ...h, volumes: h.volumes.filter((_, i) => i !== vi) });
+    else this.world.houses.delete(id);
+    return { structures: true };
+  }
+
+  setOpening(id: string, vi: number, key: string, kind: "window" | "wall" | "door"): WorldChange | null {
+    const house = this.world.houses.get(id), volume = house?.volumes[vi];
+    if (!house || !volume) return null;
+    const volumes = house.volumes.map((v, i) => i === vi ? { ...v, openings: { ...v.openings, [key]: kind } } : v);
+    this.world.houses.set(id, { ...house, volumes });
+    return { structures: true };
   }
 
   /** Fit, validate and add a landmark using the same solver as the placement ghost. */

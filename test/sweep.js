@@ -26,10 +26,10 @@
   // walkway rope bridge via tool
   key('3'); t.walkStyle = 'rope'; const ne = w.edges.size; t.nudgeLift(8); click(scr(33, 0.2, 30.6)); t.nudgeLift(8); click(scr(33, 0.2, 36)); key('Escape'); ok('rope edge laid', w.edges.size === ne + 1 && [...w.edges.values()].some(e => e.style === 'rope'));
   // select house + panel edit
-  key('1'); const h = [...w.houses.values()][0], v = h.volumes[0];
-  t.select({ kind: 'house', id: h.id, vi: 0 }); t.houseEdit('roof', 'flat'); ok('roof edit', v.roof === 'flat'); t.houseEdit('palette', 3); ok('palette edit', h.palette === 3);
-  t.houseEdit('foundation', 'stilts'); ok('foundation', h.foundation === 'stilts');
-  t.houseEdit('wing', 'tower'); ok('add tower wing', h.volumes.length >= 2);
+  key('1'); const h = [...w.houses.values()][0], current = () => w.houses.get(h.id);
+  t.select({ kind: 'house', id: h.id, vi: 0 }); t.houseEdit('roof', 'flat'); ok('roof edit', current().volumes[0].roof === 'flat'); t.houseEdit('palette', 3); ok('palette edit', current().palette === 3);
+  t.houseEdit('foundation', 'stilts'); ok('foundation', current().foundation === 'stilts');
+  t.houseEdit('wing', 'tower'); ok('add tower wing', current().volumes.length >= 2);
   key('Delete'); ok('delete wing', w.houses.has(h.id));
   // save/restore round trip
   flush(); a.save(); const saved = JSON.parse(localStorage.getItem('grotto.cove.v1')); ok('explicit save', saved.world.houses.length === w.houses.size);

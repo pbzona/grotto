@@ -1,10 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { World, carveCove, DECK_Y, type Prop } from "../src/world.ts";
+import { World, carveCove, newVolume, DECK_Y, type Prop } from "../src/world.ts";
 import { WorldOps } from "../src/world-ops.ts";
 import { Edits } from "../src/edits.ts";
 import { seedCove, seedStarter } from "../src/seed.ts";
-import { villagerHomes, houseLayout } from "../src/house-model.ts";
+import { villagerHomes, houseLayout, makeHouse } from "../src/house-model.ts";
+import { doorEnds } from "../src/house-ops.ts";
 
 function blank() { const world = new World(); world.heights.fill(8); return { world, ops: new WorldOps(world) }; }
 
@@ -49,6 +50,39 @@ test("removing a grotto restores the derived surface without erasing terrain edi
   assert.ok(world.level(under[0], under[1]) < 20);
   assert.deepEqual(ops.removeProp(p.id), { terrain: true, structures: true });
   assert.equal(world.level(under[0], under[1]), 20);
+});
+
+test("house panel edits copy records, reject bad values and undo a wing", () => {
+  const { world, ops } = blank();
+  const h = makeHouse("home", 0.2, [newVolume(20, 20, 23, 23)]);
+  world.houses.set(h.id, h);
+  const before = world.save(), edits = new Edits(world);
+  assert.equal(ops.editHouse(h.id, 0, { kind: "pitch", value: NaN }).ok, false);
+  assert.deepEqual(world.save(), before);
+  edits.begin();
+  const roof = ops.editHouse(h.id, 0, { kind: "roof", value: "flat" });
+  const wing = ops.editHouse(h.id, 0, { kind: "wing", value: "tower" });
+  assert.equal(roof.ok, true); assert.equal(wing.ok, true);
+  assert.equal(h.volumes[0].roof, "gable", "old house references stay unchanged");
+  assert.equal(h.volumes.length, 1);
+  assert.equal(world.houses.get(h.id)!.volumes.length, 2);
+  edits.commit(); edits.undo(); assert.deepEqual(world.save(), before);
+});
+
+test("moving a house copies its records and follows connected doors", () => {
+  const { world, ops } = blank();
+  const h = makeHouse("home", 0.2, [newVolume(20, 20, 23, 23)]);
+  world.houses.set(h.id, h);
+  const y = houseLayout(world, h).base;
+  const door = ops.addNode(21.5, 23.6, y), other = ops.addNode(21.5, 26, y);
+  ops.addEdge(door, other);
+  const connected = doorEnds(world, h);
+  assert.equal(connected.length, 1);
+  const move = ops.replaceHouse(h.id, { ...h, volumes: h.volumes.map(v => ({ ...v, z0: v.z0 + 1, z1: v.z1 + 1 })) }, { origin: h, doors: connected });
+  assert.equal(move.ok, true);
+  assert.equal(h.volumes[0].z0, 20);
+  assert.equal(door.z, 23.6);
+  assert.ok(Math.abs(world.nodes.get(door.id)!.z - 24.6) < 1e-6);
 });
 
 test("terrain strokes report changes and edit the base beneath a grotto", () => {
