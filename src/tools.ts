@@ -67,6 +67,7 @@ export class Tools {
   paintType: PaintType | "erase" = "path";
   propType: PropType = "palm";
   propRot = 0;
+  shopHeading: number | null = null;
   buildingChoice = "cottage";
   get placingSpecial() { return this.tool === "house" && !(this.buildingChoice in HOUSE_PRESETS); }
   get placingType(): PropType { return this.tool === "house" ? this.buildingChoice as PropType : this.propType; }
@@ -77,9 +78,9 @@ export class Tools {
   ghostOpts: Prop["opts"] = {};
   private fitCache: { key: string; fit: Fit } | null = null;
   fitAt(type: PropType, x: number, z: number, selfId = "ghost", seed = this.propSeed, opts = this.ghostOpts, flip = this.landFlip): Fit {
-    const key = [type, Math.round(x * 4), Math.round(z * 4), selfId, seed, JSON.stringify(opts), flip, this.propRot, this.world.version].join("|");
+    const key = [type, Math.round(x * 4), Math.round(z * 4), selfId, seed, JSON.stringify(opts), flip, this.shopHeading, this.world.version].join("|");
     if (this.fitCache?.key === key) return this.fitCache.fit;
-    const fit = fitLandmark(this.world, type, x, z, seed, opts, flip, selfId, this.propRot);
+    const fit = fitLandmark(this.world, type, x, z, seed, opts, flip, selfId, isShop(type) ? this.shopHeading ?? undefined : undefined);
     this.fitCache = { key, fit };
     return fit;
   }
@@ -430,7 +431,11 @@ export class Tools {
     if (this.tool === "prop" || this.placingSpecial) {
       if (this.placingType === "hull") this.landFlip = !this.landFlip;
       else if (this.placingType === "grotto") { const d = GROTTO_OPTS.dock; const cur = propOpt({ seed: this.propSeed, opts: this.ghostOpts }, "dock", d); this.ghostOpts = { ...this.ghostOpts, dock: d[(d.indexOf(cur) + 1) % d.length] }; }
-      else this.propRot += isShop(this.placingType) ? Math.PI / 2 : Math.PI / 4;
+      else if (isShop(this.placingType)) {
+        const h = this.hover;
+        const rot = this.shopHeading ?? (h ? this.fitAt(this.placingType, h.x, h.z).rot : 0);
+        this.shopHeading = (rot + Math.PI / 2) % (Math.PI * 2);
+      } else this.propRot += Math.PI / 4;
       this.updateGhost(); this.onChange?.(); return;
     }
     if (this.tool === "house") { this.houseTurn = !this.houseTurn; this.updateGhost(); return; }

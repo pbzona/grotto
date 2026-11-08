@@ -11,8 +11,11 @@
   };
   t.setTool('house');
   ok('building panel has homes, shops, and landmarks', ['Cottage', 'Market', 'Boatyard', 'Bakery', 'Hull tavern', 'Lighthouse'].every(name => [...document.querySelectorAll('#panel button')].some(b => b.textContent === name)));
+  t.buildingChoice = 'market'; t.shopHeading = null; t.hover = { x: 10, z: 9 };
+  const first = t.fitAt('market', 10, 9); t.rotate(); const turned = t.fitAt('market', 10, 9);
+  ok('R turns a market entrance', first.ok && turned.ok && Math.abs(Math.cos(turned.rot - first.rot)) < 0.01);
   for (const [type, x, z] of [['market', 15, 8], ['boatyard', 40, 15], ['bakery', 31, 8.5]]) {
-    t.buildingChoice = type; t.propSeed = 0.36; t.ghostOpts = {}; t.propRot = 0;
+    t.buildingChoice = type; t.propSeed = 0.36; t.ghostOpts = {}; t.propRot = 0; t.shopHeading = null;
     const fit = t.fitAt(type, x, z), before = w.props.size;
     click(scr(x, z)); a.update(0);
     const placed = [...w.props.values()].at(-1);
@@ -31,5 +34,16 @@
   ok('redo restores latest shop', w.props.size === before);
   t.setTool('prop');
   ok('Props contains grotto but no tavern or lighthouse', [...document.querySelectorAll('#panel button')].some(b => b.textContent === 'Grotto') && ![...document.querySelectorAll('#panel button')].some(b => b.textContent === 'Hull tavern' || b.textContent === 'Lighthouse'));
+  const market = [...w.props.values()].find(p => p.type === 'market');
+  const x = market.x - Math.sin(market.rot) * 2.2, z = market.z + Math.cos(market.rot) * 2.2;
+  t.setTool('walk');
+  const door = t.walkPoint({ x, z }, null).node;
+  const approach = a.addNode(x - Math.sin(market.rot) * 2, z + Math.cos(market.rot) * 2, door.y);
+  const edge = a.addEdge(door, approach); a.settleWalks(new Set([door.id, approach.id])); a.changed({ structures: true }); a.update(0);
+  g.updateVillagers(0.1);
+  ok('walkway snaps to market threshold', Math.hypot(door.x - x, door.z - z) < 0.01);
+  ok('connected market attracts visits', g.villagers.visits.has(market.id));
+  w.edges.delete(edge.id); w.removeNode(door.id); w.removeNode(approach.id); a.changed({ structures: true }); g.updateVillagers(0.1);
+  ok('disconnected market loses visits', !g.villagers.visits.has(market.id));
   return R.join('\n');
 })()

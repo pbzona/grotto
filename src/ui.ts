@@ -552,7 +552,7 @@ export class UI {
     switch (t.tool) {
       case "house": {
         title("Buildings");
-        const choose = (v: string) => { t.buildingChoice = v; if (v in HOUSE_PRESETS) t.preset = v; t.ghostOpts = {}; this.refresh(); t.updateGhost(); };
+        const choose = (v: string) => { t.buildingChoice = v; if (v in HOUSE_PRESETS) t.preset = v; t.shopHeading = null; t.ghostOpts = {}; this.refresh(); t.updateGhost(); };
         seg(row("Homes"), Object.entries(HOUSE_PRESETS).map(([k, v]) => [k, v.label] as [string, string]), t.buildingChoice, choose);
         seg(row("Shops"), [["market", "Market"], ["boatyard", "Boatyard"], ["bakery", "Bakery"]], t.buildingChoice, choose);
         seg(row("Landmarks"), [["hull", "Hull tavern"], ["lighthouse", "Lighthouse"]], t.buildingChoice, choose);
