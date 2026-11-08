@@ -151,6 +151,43 @@ test("post and walkway panel operations settle the graph and undo together", () 
   edits.redo(); assert.equal(world.edges.get(edge.id)?.rail, true);
 });
 
+test("a pending walkway start becomes one undoable graph edit", () => {
+  const { world, ops } = blank(); world.heights.fill(2);
+  const edits = new Edits(world), before = world.save();
+  edits.begin();
+  const start = ops.startWalk({ kind: "new", x: 12, z: 12, y: DECK_Y, pad: 0 });
+  assert.equal(start.ok, true);
+  if (!start.ok) return;
+  assert.equal(world.nodes.size, 0, "an isolated first click is pending, not saved");
+  const joined = ops.connectWalk(start.value.node.id, { kind: "new", x: 12, z: 16, y: DECK_Y, pad: 0 }, "deck", 1.1, start.value.pending);
+  assert.equal(joined.ok, true);
+  assert.equal(edits.commit(), true);
+  assert.equal(world.edges.size, 1);
+  edits.undo(); assert.deepEqual(world.save(), before);
+  edits.redo(); assert.equal(world.edges.size, 1);
+});
+
+test("splitting a walkway to branch preserves its style, and invalid joins roll back", () => {
+  const { world, ops } = blank(); world.heights.fill(2);
+  const a = ops.addNode(10, 10, DECK_Y), b = ops.addNode(18, 10, DECK_Y);
+  const e = ops.addEdge(a, b, "rope", 1.4);
+  e.rail = true;
+  const before = world.save(), edits = new Edits(world);
+  edits.begin();
+  const start = ops.startWalk({ kind: "edge", id: e.id, t: 0.5 });
+  assert.equal(start.ok, true);
+  if (!start.ok) return;
+  assert.equal(world.edges.size, 2);
+  assert.ok([...world.edges.values()].every(edge => edge.style === "rope" && edge.width === 1.4 && edge.rail));
+  const steep = ops.connectWalk(start.value.node.id, { kind: "new", x: 14, z: 12, y: 15, pad: 0 }, "deck", 1.1);
+  assert.equal(steep.ok, false);
+  assert.equal(world.edges.size, 2, "failed attempt restores the split start");
+  edits.cancel(); assert.deepEqual(world.save(), before);
+  const long = ops.connectWalk(a.id, { kind: "new", x: 30, z: 10, y: DECK_Y, pad: 0 }, "deck", 1.1);
+  assert.equal(long.ok, false);
+  assert.deepEqual(world.save(), before);
+});
+
 test("generation runs in Node against world rules, without App or a renderer", () => {
   const starter = blank(); seedStarter(starter.ops);
   assert.ok(starter.world.houses.size >= 5);

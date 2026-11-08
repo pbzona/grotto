@@ -133,13 +133,17 @@
   const market = w.props.get(placedMarketId);
   const x = market.x - Math.sin(market.rot) * 2.2, z = market.z + Math.cos(market.rot) * 2.2;
   t.setTool('walk');
-  const door = t.walkPoint({ x, z }, null).node;
-  const approach = a.addNode(x - Math.sin(market.rot) * 2, z + Math.cos(market.rot) * 2, door.y);
-  const edge = a.addEdge(door, approach); a.settleWalks(new Set([door.id, approach.id])); a.changed({ structures: true }); a.update(0);
+  a.begin(true);
+  const walkStart = a.ops.startWalk(t.planWalkPoint({ x, z }, null));
+  if (!walkStart.ok) throw new Error(walkStart.why);
+  const door = walkStart.value.node;
+  const joined = a.ops.connectWalk(door.id, { kind: 'new', x: x - Math.sin(market.rot) * 2, z: z + Math.cos(market.rot) * 2, y: door.y, pad: 0 }, 'deck', 1.1, walkStart.value.pending);
+  if (!joined.ok) throw new Error(joined.why);
+  a.recordChange(joined.change); a.commit(); a.update(0);
   g.updateVillagers(0.1);
   ok('walkway snaps to market threshold', Math.hypot(door.x - x, door.z - z) < 0.01);
   ok('connected market attracts visits', g.villagers.visits.has(market.id));
-  w.edges.delete(edge.id); w.removeNode(door.id); w.removeNode(approach.id); a.changed({ structures: true }); g.updateVillagers(0.1);
+  const edge = w.edgesOf(door.id)[0]; a.begin(); a.recordChange(a.ops.removeEdge(edge.id)); g.updateVillagers(0.1);
   ok('disconnected market loses visits', !g.villagers.visits.has(market.id));
   // Dragging a selected shop moves both the mesh and its shader highlight.
   const { U } = await import('/src/materials.ts');

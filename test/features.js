@@ -73,14 +73,14 @@
   const n0 = w.nodes.size, e0 = w.edges.size;
   if (site) {
     const [sx, sz] = site;
-    a.begin(true); const r0 = t.walkPoint(new V(sx, 0, sz), null); t.chain = r0.node; w.nodes.delete(r0.node.id); t.chainTemp = r0.node;
+    t.startWalkAt(new V(sx, 0, sz));
     for (const k of [3, 6, 8]) t.walkTo(new V(sx + k, 0, sz));
     t.endChain();
   }
   ok('posts in a straight line fold into one stretch', site && w.nodes.size === n0 + 2 && w.edges.size === e0 + 1, site ? `${w.nodes.size - n0} posts ${w.edges.size - e0} stretches` : 'no open water');
   if (site) {
     const [sx, sz] = site;
-    a.begin(true); const r0 = t.walkPoint(new V(sx, 0, sz + 4), null); t.chain = r0.node; w.nodes.delete(r0.node.id); t.chainTemp = r0.node;
+    t.startWalkAt(new V(sx, 0, sz + 4));
     t.walkTo(new V(sx + 3, 0, sz + 4)); t.walkTo(new V(sx + 5, 0, sz + 6));
     t.endChain();
     const mid = [...w.nodes.values()].find(n => Math.hypot(n.x - sx - 3, n.z - sz - 4) < 0.2);

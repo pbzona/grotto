@@ -7,6 +7,10 @@ import { siteDrop, MAX_SITE_DROP } from "./house-model.ts";
 
 export type WorldChange = { terrain?: true; paint?: true; structures?: true };
 export type TerrainOp = "raise" | "lower" | "flatten" | "smooth";
+export type WalkTarget =
+  | { kind: "node"; id: string }
+  | { kind: "edge"; id: string; t: number }
+  | { kind: "new"; x: number; z: number; y: number; pad: number };
 export type EditResult<T> = { ok: true; value: T; change: WorldChange } | { ok: false; why: string };
 const propChange = (type: PropType): WorldChange => type === "grotto" ? { terrain: true, structures: true } : { structures: true };
 
@@ -23,6 +27,57 @@ export class WorldOps {
     const e: WalkEdge = { id: uid("e"), a: a.id, b: b.id, width, style, rail: false };
     this.world.edges.set(e.id, e); return e;
   }
+  private walkTarget(target: WalkTarget): WalkNode | null {
+    if (target.kind === "node") return this.world.nodes.get(target.id) ?? null;
+    if (target.kind === "edge") {
+      const edge = this.world.edges.get(target.id);
+      const a = edge && this.world.nodes.get(edge.a), b = edge && this.world.nodes.get(edge.b);
+      if (!a || !b || !Number.isFinite(target.t) || target.t <= 0.08 || target.t >= 0.92) return null;
+      const n = this.addNode(a.x + (b.x - a.x) * target.t, a.z + (b.z - a.z) * target.t, a.y + (b.y - a.y) * target.t);
+      this.world.splitEdge(edge!.id, n);
+      return n;
+    }
+    const { x, z, y, pad } = target;
+    if (![x, z, y, pad].every(Number.isFinite) || x < -1 || z < -1 || x > N + 1 || z > N + 1 || y < -3 || y > 20 || pad < 0 || pad > 5) return null;
+    return this.addNode(x, z, y, pad);
+  }
+
+  /** The first click may only name a pending post; it is inserted when a segment is committed. */
+  startWalk(target: WalkTarget): EditResult<{ node: WalkNode; pending: WalkNode | null }> {
+    const n = this.walkTarget(target);
+    if (!n) return { ok: false, why: "No walkway here" };
+    const pending = target.kind === "new" && !this.world.edgesOf(n.id).length ? n : null;
+    if (pending) this.world.nodes.delete(n.id);
+    return { ok: true, value: { node: n, pending }, change: { structures: true } };
+  }
+
+  /** One attempted connection: resolve, split, settle and reject or publish it as a single model edit. */
+  connectWalk(fromId: string, target: WalkTarget, style: WalkEdge["style"], width: number, pending?: WalkNode | null): EditResult<WalkNode> {
+    const from = this.world.nodes.get(fromId) ?? (pending?.id === fromId ? pending : null);
+    if (!from || !["deck", "rope"].includes(style) || !Number.isFinite(width) || width < 0.1 || width > 5) return { ok: false, why: "Invalid walkway" };
+    const before = this.world.save();
+    if (pending && !this.world.nodes.has(pending.id)) this.world.nodes.set(pending.id, pending);
+    const known = new Set(this.world.nodes.keys());
+    const reject = (why: string): EditResult<WalkNode> => { this.world.load(before); return { ok: false, why }; };
+    const next = this.walkTarget(target);
+    if (!next) return reject("No walkway here");
+    if (next.id === fromId) return reject("Pick another post");
+    if (Math.hypot(next.x - from.x, next.z - from.z) > 14) return reject("That's a long way — add a post in between");
+    const edges = new Set(this.world.edges.keys());
+    if (!this.world.edgesOf(fromId).some(e => e.a === next.id || e.b === next.id)) {
+      this.addEdge(from, next, style, width);
+      this.settleWalks(new Set([fromId, next.id]));
+      for (const e of this.world.edges.values()) {
+        if (edges.has(e.id)) continue;
+        const a = this.world.nodes.get(e.a), b = this.world.nodes.get(e.b);
+        if (a && b && slopeOf(a, b) > MAX_STAIR + 1e-6) return reject("Too steep for stairs — start them further out, or lift the post with [ ]");
+      }
+    }
+    const fresh = [...this.world.nodes.keys()].filter(id => !known.has(id));
+    this.mergeInline([fromId, ...fresh].filter(id => id !== next.id));
+    return { ok: true, value: this.world.nodes.get(next.id) ?? next, change: { structures: true } };
+  }
+
   addProp(type: PropType, x: number, z: number, rot = 0, seed = Math.random()): Prop {
     const p: Prop = { id: uid("p"), type, x, z, rot, seed };
     this.world.props.set(p.id, p);
@@ -173,8 +228,10 @@ export class WorldOps {
     return changed;
   }
   /** take a post out of a walkway; a post in the middle of a run is bridged over rather than leaving a gap */
-  removePost(id: string) {
-    const w = this.world, es = w.edgesOf(id);
+  removePost(id: string): WorldChange | null {
+    const w = this.world;
+    if (!w.nodes.has(id)) return null;
+    const es = w.edgesOf(id);
     if (es.length === 2 && es[0].style === es[1].style) {
       const [e1, e2] = es, a = e1.a === id ? e1.b : e1.a, b = e2.a === id ? e2.b : e2.a;
       const A = w.nodes.get(a), B = w.nodes.get(b);
@@ -183,10 +240,22 @@ export class WorldOps {
         w.edges.set(e1.id, { ...e1, a, b });
         this.easeStairs(new Set([a, b]));
         this.settleWalks(new Set([a, b]));
-        return;
+        return { structures: true };
       }
     }
     w.removeNode(id); w.pruneNodes();
+    return { structures: true };
+  }
+
+  finishWalkwayEdit(near?: Set<string>): WorldChange | null {
+    const count = this.world.nodes.size;
+    this.world.pruneNodes();
+    return this.settleWalks(near) || this.world.nodes.size !== count ? { structures: true } : null;
+  }
+
+  settleTerrainWalks(): WorldChange | null {
+    const changed = this.settleWalks();
+    return this.mergeInline() || changed ? { structures: true } : null;
   }
 
   carveGrotto(_p: Prop) { this.world.rebuildCarving(); }

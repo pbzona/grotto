@@ -3,10 +3,10 @@ import type { App } from "./app.ts";
 import { World, N, snap, House, Volume, newVolume, FLOOR_H, PaintType, PropType, WalkNode, WalkEdge, RoofType, WATER_Y, DECK_Y, Prop, isLandmark, isShop, SHOP_DIMS, BOATYARD_SLIP, shopDoorAt, hullDims, grottoDims, grottoTies, QUAY_HALF, GROTTO_OPTS, propOpt } from "./world.ts";
 import { MeshBuilder } from "./mesh.ts";
 import { buildHouse, houseLayout, makeHouse, siteDrop, MAX_SITE_DROP, nodeWall, nearWalls, sideLine, HouseBuild, Bay } from "./houses.ts";
-import { defaultDeckY, landingRadius, WALK_W, MAX_STAIR, slopeOf, clampStair } from "./walks.ts";
+import { defaultDeckY, landingRadius, WALK_W, MAX_STAIR, clampStair } from "./walks.ts";
 import { buildOneProp, buildBoat, PROP_INFO, boatFreeboard, isGreenery, palmPierces } from "./props.ts";
 import { fitLandmark, type Fit } from "./placement.ts";
-import type { TerrainOp } from "./world-ops.ts";
+import type { TerrainOp, WalkTarget } from "./world-ops.ts";
 import { doorEnds, type DoorEnd, type HouseEdit } from "./house-ops.ts";
 import { U } from "./materials.ts";
 import { HandleLayer } from "./handles.ts";
@@ -366,28 +366,21 @@ export class Tools {
     const moved = Math.hypot(e.clientX - this.downAt.x, e.clientY - this.downAt.y) > 6;
     switch (d.t) {
       case "rect": this.commitHouse(d.a, d.b, moved); break;
-      case "stroke": if (!d.changed) this.app.cancel(); else if (this.tool === "terrain") { const a = this.app.settleWalks(), b = this.app.mergeInline(); if (a || b) this.app.changed({ structures: true }); } break;
+      case "stroke": if (!d.changed) this.app.cancel(); else if (this.tool === "terrain") { const change = this.app.ops.settleTerrainWalks(); if (change) this.app.recordChange(change); } break;
       case "walk": {
         const g = this.surface() ?? d.down;
         if (moved && d.down.distanceTo(g) > 0.5) {
           // press-drag-release: a whole segment
-          if (!this.chain) { this.app.begin(true); this.chain = this.walkPoint(d.down, null).node; }
+          if (!this.chain) this.startWalkAt(d.down);
           this.walkTo(g);
-        } else if (!this.chain) {
-          this.app.begin(true);
-          const r = this.walkPoint(d.down, null);
-          this.chain = r.node;
-          const lone = r.created && !this.world.edgesOf(r.node.id).length;
-          if (lone) this.world.nodes.delete(r.node.id);
-          this.chainTemp = lone ? r.node : null;
-          this.app.changed({ structures: true });
-        } else this.walkTo(g);
+        } else if (!this.chain) this.startWalkAt(d.down);
+        else this.walkTo(g);
         this.updateGhost();
         break;
       }
       case "extend":
         if (!d.changed) this.app.cancel();
-        else if (d.node) { this.world.pruneNodes(); this.app.settleWalks(new Set([d.from, d.node.id])); this.app.changed({ structures: true }); this.select({ kind: "node", id: d.node.id }); }
+        else if (d.node) { const change = this.app.ops.finishWalkwayEdit(new Set([d.from, d.node.id])); if (change) this.app.recordChange(change); this.select({ kind: "node", id: d.node.id }); }
         this.onChange?.();
         break;
       case "seg": case "lift":
@@ -401,7 +394,7 @@ export class Tools {
         this.refreshHandles(); this.onChange?.();
         break;
       case "nodeY": case "nodeMove": case "propMove":
-        if (!d.changed) this.app.cancel(); else if (d.t !== "propMove") { this.world.pruneNodes(); if (this.app.settleWalks(new Set([d.id]))) this.app.changed({ structures: true }); }
+        if (!d.changed) this.app.cancel(); else if (d.t !== "propMove") { const change = this.app.ops.finishWalkwayEdit(new Set([d.id])); if (change) this.app.recordChange(change); }
         this.onChange?.();
         break;
     }
@@ -463,7 +456,7 @@ export class Tools {
       const change = this.app.ops.removeHouse(s.id, s.vi);
       this.select(h && h.volumes.length > 1 && s.vi > 0 ? { kind: "house", id: s.id, vi: 0 } : null);
       if (change) this.app.recordChange(change);
-    } else if (s.kind === "node") { this.app.removePost(s.id); this.select(null); this.app.changed({ structures: true }); }
+    } else if (s.kind === "node") { const change = this.app.ops.removePost(s.id); this.select(null); if (change) this.app.recordChange(change); }
     else if (s.kind === "edge") { const change = this.app.ops.removeEdge(s.id); this.select(null); if (change) this.app.recordChange(change); }
     else if (s.kind === "prop") { const change = this.app.ops.removeProp(s.id); this.select(null); if (change) this.app.recordChange(change); }
   }
@@ -955,28 +948,29 @@ export class Tools {
     if (be) { const { a, b, t } = be; return { kind: "edge", edge: be.e, a, b, t, x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t, y: a.y + (b.y - a.y) * t }; }
     return null;
   }
-  private walkPoint(p: THREE.Vector3, prev: WalkNode | null): { node: WalkNode; created: boolean } {
+  private planWalkPoint(p: { x: number; z: number }, prev: WalkNode | null): WalkTarget {
     const w = this.world;
     const sn = this.snapWalk(p, prev);
-    if (sn?.kind === "node") return { node: sn.node, created: false };
-    // anywhere on (or just off) a grotto's quay ties on at its middle
+    if (sn?.kind === "node") return { kind: "node", id: sn.node.id };
     const q = this.quayAt(p);
-    if (q) return { node: this.app.addNode(q.x, q.z, DECK_Y), created: true };
-    // Shop entrances are exact thresholds outside the body; only a connected path makes a visit possible.
+    if (q) return { kind: "new", x: q.x, z: q.z, y: DECK_Y, pad: 0 };
     const shop = shopDoorAt(w, p.x, p.z);
-    if (shop) return { node: this.app.addNode(shop.x, shop.z, shop.y), created: true };
-    if (sn?.kind === "edge") {
-      const n = this.app.addNode(sn.x, sn.z, sn.y);
-      w.splitEdge(sn.edge.id, n);
-      return { node: n, created: true };
-    }
-    // dock against a house wall, at the storey nearest the walkway's height
-    const dock = this.wallDock(p, (base) => prev ? prev.y + this.walkLift : base + this.walkLift);
-    if (dock) return { node: this.app.addNode(dock.x, dock.z, dock.y), created: true };
-    const x = p.x, z = p.z;
+    if (shop) return { kind: "new", x: shop.x, z: shop.z, y: shop.y, pad: 0 };
+    if (sn?.kind === "edge") return { kind: "edge", id: sn.edge.id, t: sn.t };
+    const dock = this.wallDock(p, base => prev ? prev.y + this.walkLift : base + this.walkLift);
+    if (dock) return { kind: "new", x: dock.x, z: dock.z, y: dock.y, pad: 0 };
+    const { x, z } = p;
     let y = defaultDeckY(w, x, z) + this.walkLift;
     if (prev && Math.abs(this.walkLift) < 1e-3 && prev.y > y && Math.hypot(prev.x - x, prev.z - z) < 8 && this.walkStyle === "rope") y = prev.y;
-    return { node: this.app.addNode(x, z, Math.max(y, Math.max(w.height(x, z), WATER_Y) + 0.2), this.walkPad ? 1.2 : 0), created: true };
+    return { kind: "new", x, z, y: Math.max(y, Math.max(w.height(x, z), WATER_Y) + 0.2), pad: this.walkPad ? 1.2 : 0 };
+  }
+  private startWalkAt(p: { x: number; z: number }) {
+    this.app.begin(true);
+    const target = this.planWalkPoint(p, null);
+    const result = this.app.ops.startWalk(target);
+    if (!result.ok) { this.app.cancel(); this.toast(result.why); return; }
+    this.chain = result.value.node; this.chainTemp = result.value.pending;
+    if (target.kind === "edge") this.app.recordChange(result.change);
   }
   /** The tie point of the grotto quay p is on or just beside, if any. */
   quayAt(p: { x: number; z: number }, margin = 0.6): { x: number; z: number; prop: Prop; half: number } | null {
@@ -1012,51 +1006,19 @@ export class Tools {
     }
     return null;
   }
-  /** Join two posts; where it meets other walkways at a sharp angle the post simply becomes a landing. */
-  joinWalk(a: WalkNode, b: WalkNode) {
-    const style = this.walkStyle, width = style === "rope" ? 0.9 : WALK_W;
-    this.addFollowing(a, b, style, width, 0);
-  }
-  /** Add a stretch; if the ground rises through its deck line, put a post on the high point so it rides over instead of through. */
-  /** Add a stretch, then let it settle over any ground it would cut through. */
-  private addFollowing(a: WalkNode, b: WalkNode, style: WalkEdge["style"], width: number, _depth: number) {
-    this.app.addEdge(a, b, style, width);
-    this.app.settleWalks(new Set([a.id, b.id]));
-  }
-  /** Does any walkway stretch added since `before` climb steeper than MAX_STAIR? */
-  private tooSteep(before: Set<string>) {
-    for (const e of this.world.edges.values()) {
-      if (before.has(e.id)) continue;
-      const a = this.world.nodes.get(e.a), b = this.world.nodes.get(e.b);
-      if (a && b && slopeOf(a, b) > MAX_STAIR + 1e-6) return true;
-    }
-    return false;
-  }
-  private walkTo(p: THREE.Vector3) {
+  private walkTo(p: { x: number; z: number }) {
     if (!this.chain) return;
     if (!this.app.edits.active) this.app.begin(true);
-    if (this.chainTemp && !this.world.nodes.has(this.chainTemp.id)) this.world.nodes.set(this.chainTemp.id, this.chainTemp);
-    const nodesBefore = new Set(this.world.nodes.keys());
-    const r = this.walkPoint(p, this.chain);
-    if (r.node === this.chain || Math.hypot(r.node.x - this.chain.x, r.node.z - this.chain.z) > 14) {
-      const long = r.node !== this.chain;
+    const width = this.walkStyle === "rope" ? 0.9 : WALK_W;
+    const result = this.app.ops.connectWalk(this.chain.id, this.planWalkPoint(p, this.chain), this.walkStyle, width, this.chainTemp);
+    if (!result.ok) {
       this.app.cancel(); this.chain = null; this.chainTemp = null;
-      if (long) this.toast("That's a long way — add a post in between"); return;
+      if (result.why !== "Pick another post") this.toast(result.why);
+      if (result.why.startsWith("Too steep")) this.walkLift = 0;
+      return;
     }
-    const dup = this.world.edgesOf(this.chain.id).some(e => e.a === r.node.id || e.b === r.node.id);
-    if (!dup) {
-      const before = new Set(this.world.edges.keys());
-      this.joinWalk(this.chain, r.node);
-      if (this.tooSteep(before)) {
-        this.app.cancel(); this.chain = null; this.chainTemp = null; this.walkLift = 0;
-        this.toast("Too steep for stairs — start them further out, or lift the post with [ ]"); return;
-      }
-    }
-    const fresh = [...this.world.nodes.keys()].filter(id => !nodesBefore.has(id));
-    this.app.mergeInline([this.chain.id, ...fresh].filter(id => id !== r.node.id));
-    this.chain = r.node; this.chainTemp = null;
-    this.walkLift = 0;
-    this.app.changed({ structures: true });
+    this.chain = result.value; this.chainTemp = null; this.walkLift = 0;
+    this.app.recordChange(result.change);
     this.app.commit();
     this.onChange?.();
   }
