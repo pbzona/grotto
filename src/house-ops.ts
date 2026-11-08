@@ -14,15 +14,15 @@ export type HouseEdit =
   | { kind: "wing"; value: "room" | "tower" | "lookout" | "shed" };
 
 export function editHouse(world: World, house: House, vi: number, edit: HouseEdit): { house: House; vi: number } | null {
+  if (!Number.isInteger(vi) || vi < 0 || vi >= house.volumes.length) return null;
   const next = structuredClone(house);
-  const v = next.volumes[vi] ?? next.volumes[0];
-  if (!v) return null;
+  const v = next.volumes[vi];
   switch (edit.kind) {
     case "roof": if (!["gable", "hip", "flat", "shed"].includes(edit.value)) return null; v.roof = edit.value; break;
     case "pitch": if (!Number.isFinite(edit.value) || edit.value < 0.5 || edit.value > 1.6) return null; v.pitch = edit.value; break;
     case "curve": if (!Number.isFinite(edit.value) || edit.value < -1 || edit.value > 1) return null; v.curve = edit.value; break;
     case "overhang": if (!Number.isFinite(edit.value) || edit.value < 0.05 || edit.value > 0.45) return null; v.overhang = edit.value; break;
-    case "floors": if (!Number.isFinite(edit.value)) return null; v.floors = Math.max(1, Math.min(4, v.floors + edit.value)); break;
+    case "floors": if (!Number.isInteger(edit.value)) return null; v.floors = Math.max(1, Math.min(4, v.floors + edit.value)); break;
     case "palette": if (!Number.isInteger(edit.value) || edit.value < 0 || edit.value > 7) return null; next.palette = edit.value; break;
     case "style": if (!["plaster", "plank", "stone"].includes(edit.value)) return null; next.style = edit.value; break;
     case "foundation": if (!["auto", "stilts", "keyed", "rock"].includes(edit.value)) return null; next.foundation = edit.value; break;
@@ -31,6 +31,7 @@ export function editHouse(world: World, house: House, vi: number, edit: HouseEdi
     case "reroll": if (!Number.isFinite(edit.value)) return null; next.seed = edit.value; next.volumes = next.volumes.map(vol => ({ ...vol, openings: undefined })); break;
     case "kind": if (edit.value !== "room" && edit.value !== "tower" && edit.value !== "lookout") return null; v.kind = edit.value === "room" ? undefined : edit.value; break;
     case "wing": {
+      if (!["room", "tower", "lookout", "shed"].includes(edit.value)) return null;
       const wing = findWing(world, house, vi, edit.value);
       if (!wing) return null;
       next.volumes.push(wing);

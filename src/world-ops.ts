@@ -1,4 +1,4 @@
-import { World, N, uid, WATER_Y, MAX_LEVEL, PAINT_CH, isGreenery, isLandmark, isShop, type House, type PaintType, type PropType, type Prop, type WalkNode, type WalkEdge } from "./world.ts";
+import { World, N, uid, WATER_Y, MAX_LEVEL, PAINT_CH, isGreenery, isLandmark, isShop, grottoTieAt, shopDoorAt, type House, type PaintType, type PropType, type Prop, type WalkNode, type WalkEdge } from "./world.ts";
 import { defaultDeckY, WALK_W, MAX_STAIR, slopeOf, isStairs, clampStair } from "./walkway-rules.ts";
 import { doorOf } from "./house-model.ts";
 import { fitLandmark } from "./placement.ts";
@@ -9,7 +9,6 @@ export type WorldChange = { terrain?: true; paint?: true; structures?: true };
 export type TerrainOp = "raise" | "lower" | "flatten" | "smooth";
 export type EditResult<T> = { ok: true; value: T; change: WorldChange } | { ok: false; why: string };
 const propChange = (type: PropType): WorldChange => type === "grotto" ? { terrain: true, structures: true } : { structures: true };
-import { grottoTieAt, shopDoorAt } from "./world.ts";
 
 /** Three-free editing rules shared by gestures and cove generation. Does not own history or rendering. */
 export class WorldOps {

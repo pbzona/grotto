@@ -58,6 +58,8 @@ test("house panel edits copy records, reject bad values and undo a wing", () => 
   world.houses.set(h.id, h);
   const before = world.save(), edits = new Edits(world);
   assert.equal(ops.editHouse(h.id, 0, { kind: "pitch", value: NaN }).ok, false);
+  assert.equal(ops.editHouse(h.id, 0, { kind: "floors", value: 0.5 }).ok, false);
+  assert.equal(ops.editHouse(h.id, 10, { kind: "ridge" }).ok, false);
   assert.deepEqual(world.save(), before);
   edits.begin();
   const roof = ops.editHouse(h.id, 0, { kind: "roof", value: "flat" });

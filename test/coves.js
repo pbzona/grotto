@@ -132,16 +132,16 @@
   {
     // a walkway only opens a door when it reaches the wall, and the door stays with the house as it moves
     const H = await import('/src/houses.ts');
+    const { doorEnds } = await import('/src/house-ops.ts');
     const home = villagerHomes(w)[0], h = w.houses.get(home.house), n = w.nodes.get(home.node);
     const door = H.doorOf(w, n);
     ok('door ends sit within reach of the wall', door && door.house === h && door.hit.d <= H.DOOR_REACH);
     const [nx, nz] = door.line.n, gap = 0.8 - door.hit.d;
     ok('a walkway stopping short of the wall is no door', !H.doorOf(w, { ...n, x: n.x + nx * gap, z: n.z + nz * gap }));
     a.begin(true);
-    const orig = JSON.parse(JSON.stringify(h)), ends = g.tools.doorEnds(h);
-    h.volumes = h.volumes.map(v => ({ ...v, x0: v.x0 + 0.5, x1: v.x1 + 0.5 }));
-    g.tools.followDoors(h, orig, ends);
-    ok('door ends follow a moved house', ends.length > 0 && ends.every(e => H.doorOf(w, w.nodes.get(e.id))?.house === h));
+    const orig = structuredClone(h), ends = doorEnds(w, h);
+    const moved = a.ops.replaceHouse(h.id, { ...h, volumes: h.volumes.map(v => ({ ...v, x0: v.x0 + 0.5, x1: v.x1 + 0.5 })) }, { origin: orig, doors: ends });
+    ok('door ends follow a moved house', moved.ok && ends.length > 0 && ends.every(e => H.doorOf(w, w.nodes.get(e.id))?.house === w.houses.get(h.id)));
     a.cancel(); a.update(0);
   }
   a.begin(); a.clearBuildings(); a.commit(); g.updateVillagers(1);
