@@ -228,4 +228,3 @@ export function makeHouse(id: string, seed: number, volumes: Volume[], palette?:
     foundation: "auto", shutters: r() < 0.75, boxes: r() < 0.7, awning: r() < 0.5,
   };
 }
-

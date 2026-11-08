@@ -20,4 +20,3 @@ export function clampStair(world: World, n: WalkNode, y: number) {
   }
   return lo <= hi ? Math.max(lo, Math.min(hi, y)) : y;
 }
-
