@@ -1,4 +1,4 @@
-import { DECK_Y, grottoTieAt, grottoDockWalk, type World, type WalkNode, type WalkEdge } from "./world.ts";
+import { DECK_Y, grottoTieAt, grottoDockWalk, isShop, shopEntrance, shopBase, hullDims, HULL_OPTS, propOpt, type World, type WalkNode, type WalkEdge } from "./world.ts";
 
 /** The walkable network: walkway nodes and edges, plus any grotto docks they tie on to. */
 export type Paths = Pick<World, "nodes" | "edges"> & Partial<Pick<World, "height">>;
@@ -13,7 +13,32 @@ export type Paths = Pick<World, "nodes" | "edges"> & Partial<Pick<World, "height
 /** A house with a walkway at its door: `node` is the walk node against the wall. */
 export interface Home { house: string; node: string; seed: number; size: number }
 
-export type Phase = "in" | "walk" | "idle" | "out" | "home";
+export type Phase = "in" | "walk" | "idle" | "out" | "home" | "visit" | "enter" | "inside" | "emerge";
+export interface Visit { id: string; node: string; mode: "linger" | "enter" }
+
+/** Only real walkway ends at an accessible entrance attract residents. */
+export function villagerVisits(world: World): Visit[] {
+  const live = [...world.nodes.values()].filter(n => world.edgesOf(n.id).length === 1);
+  const out: Visit[] = [];
+  for (const p of world.props.values()) {
+    let point: { x: number; z: number }, y: number, reach: number;
+    if (isShop(p.type)) {
+      point = shopEntrance(p); y = shopBase(world, p); reach = 0.3;
+    } else if (p.type === "hull") {
+      const { len, wid } = hullDims(p), cabin = propOpt(p, "cabin", HULL_OPTS.cabin);
+      const dz = cabin === "stern" ? -len * 0.04 - 0.8 : cabin === "tall" ? (-len * 0.28 + len * 0.22) / 2 + 0.3 : (-len * 0.32 + len * 0.3) / 2 + 0.3;
+      const lx = -wid / 2 - 1.2, c = Math.cos(p.rot), s = Math.sin(p.rot);
+      point = { x: p.x + lx * c - dz * s, z: p.z + lx * s + dz * c };
+      y = world.height(point.x, point.z) + 0.2; reach = 0.65;
+    } else if (p.type === "lighthouse") {
+      point = { x: p.x + Math.cos(p.rot) * 1.4, z: p.z + Math.sin(p.rot) * 1.4 };
+      y = world.height(point.x, point.z) + 0.2; reach = 0.65;
+    } else continue;
+    const at = live.find(n => Math.hypot(n.x - point.x, n.z - point.z) < reach && Math.abs(n.y - y) < 0.45);
+    if (at) out.push({ id: p.id, node: at.id, mode: p.type === "market" || p.type === "lighthouse" ? "linger" : "enter" });
+  }
+  return out;
+}
 export interface Villager {
   id: string;
   house: string;
@@ -32,6 +57,8 @@ export interface Villager {
   wait: number;
   /** Leaving for good (house gone) rather than just ducking indoors. */
   gone: boolean;
+  /** A chosen shop, only while traveling to or visiting it. */
+  visit?: string;
   x: number; y: number; z: number; heading: number;
   /** Walk cycle phase, advances with distance. */
   stride: number;
@@ -99,13 +126,16 @@ function rand(seed: number) {
 export class Villagers {
   people: Villager[] = [];
   private homes = new Map<string, Home>();
+  private visits = new Map<string, Visit>();
   private r = rand(7);
   /** People per unit of walkway; see CROWDS. */
   density: number = CROWDS[DEFAULT_CROWD].density;
 
   /** Reconcile with the world: new houses send someone out, removed ones fade, broken paths reset. */
-  sync(world: Paths, homes: Home[]) {
+  sync(world: Paths, homes: Home[], visits: Visit[] = []) {
     this.homes = new Map(homes.map(h => [h.house, h]));
+    const previous = this.visits;
+    this.visits = new Map(visits.filter(v => world.nodes.has(v.node)).map(v => [v.id, v]));
     const want = headcount(homes, world, this.density);
     const have = new Map<string, number>();
     for (const v of this.people) {
@@ -114,7 +144,7 @@ export class Villagers {
       const home = this.homes.get(v.house);
       if (!home || k >= (want.get(v.house) ?? 0)) { this.leave(v, true); continue; }
       have.set(v.house, Math.max(have.get(v.house) ?? 0, k + 1));
-      if (!this.valid(world, v, home)) this.leave(v, false);
+      if (!this.valid(world, v, home) || (v.visit && (!this.visits.has(v.visit) || previous.get(v.visit)?.node !== this.visits.get(v.visit)!.node || !component(world, home.node).has(this.visits.get(v.visit)!.node)))) this.leave(v, false);
     }
     for (const [house, n] of want) for (let k = have.get(house) ?? 0; k < n; k++) {
       const home = this.homes.get(house)!;
@@ -148,6 +178,7 @@ export class Villagers {
 
   private leave(v: Villager, gone: boolean) {
     if (gone) v.gone = true;
+    v.visit = undefined;
     if (v.phase !== "home") v.phase = "out";
   }
 
@@ -183,6 +214,22 @@ export class Villagers {
         v.wait -= dt;
         if (v.wait <= 0) this.plan(world, v);
         return;
+      case "visit":
+        v.wait -= dt;
+        if (v.wait <= 0) { v.visit = undefined; this.plan(world, v); }
+        return;
+      case "enter":
+        v.vis = Math.max(0, v.vis - dt * FADE);
+        if (v.vis <= 0) { v.phase = "inside"; v.wait = 2 + this.r() * 3; }
+        return;
+      case "inside":
+        v.wait -= dt;
+        if (v.wait <= 0) v.phase = "emerge";
+        return;
+      case "emerge":
+        v.vis = Math.min(1, v.vis + dt * FADE);
+        if (v.vis >= 1) { v.visit = undefined; this.plan(world, v); }
+        return;
       case "walk": this.walk(world, v, dt);
     }
   }
@@ -193,8 +240,13 @@ export class Villagers {
     if (!home) { this.leave(v, true); return; }
     const reach = [...component(world, home.node)];
     const atHome = v.from === home.node;
+    v.visit = undefined;
     let target: string;
-    if (!atHome && this.r() < 0.3) target = home.node;
+    const destinations = [...this.visits.values()].filter(s => reach.includes(s.node) && s.node !== v.from);
+    if (destinations.length && this.r() < 0.5) {
+      const dest = destinations[Math.floor(this.r() * destinations.length)];
+      target = dest.node; v.visit = dest.id;
+    } else if (!atHome && this.r() < 0.3) target = home.node;
     else {
       const others = reach.filter(id => id !== v.from);
       if (!others.length) { v.phase = "idle"; v.wait = 3 + this.r() * 4; return; }
@@ -217,6 +269,13 @@ export class Villagers {
     }
     this.place(world, v);
     if (!v.path.length) {
+      const dest = v.visit && this.visits.get(v.visit);
+      if (dest && v.from === dest.node) {
+        v.phase = dest.mode === "linger" ? "visit" : "enter";
+        v.wait = 2.5 + this.r() * 3;
+        return;
+      }
+      v.visit = undefined;
       const home = this.homes.get(v.house);
       if (home && v.from === home.node && this.r() < 0.7) { v.phase = "out"; return; }
       v.phase = "idle"; v.wait = 2 + this.r() * 5;

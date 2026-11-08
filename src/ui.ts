@@ -28,7 +28,7 @@ const svg = (k: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="current
 
 const TOOLS: { id: ToolId; label: string; tab: string; key: string }[] = [
   { id: "select", label: "Select & edit", tab: "Select", key: "1" },
-  { id: "house", label: "Houses", tab: "Houses", key: "2" },
+  { id: "house", label: "Buildings", tab: "Buildings", key: "2" },
   { id: "walk", label: "Docks & walkways", tab: "Docks", key: "3" },
   { id: "terrain", label: "Shape terrain", tab: "Land", key: "4" },
   { id: "paint", label: "Paint ground", tab: "Paint", key: "5" },
@@ -81,8 +81,8 @@ export function injectStyles() {
   #panel h2 small { font: italic 13px var(--display); color: var(--dim); }
   .leg { display: flex; gap: 7px; font: 12px var(--small); color: var(--dim); }
   .leg i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 3px; border: 1px solid var(--ink); }
-  .pr { display: grid; grid-template-columns: 52px 1fr; align-items: center; gap: 6px; margin: 6px 0; }
-  .pl { font: 500 13px var(--small); color: var(--dim); letter-spacing: .02em; }
+  .pr { display: grid; grid-template-columns: 64px 1fr; align-items: center; gap: 6px; margin: 6px 0; }
+  .pl { font: 500 12px var(--small); color: var(--dim); letter-spacing: .02em; }
   .pc { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; }
   .chip { border: 1px solid var(--rule); background: rgba(255,250,235,.45); color: var(--ink); border-radius: 2px; padding: 3px 7px 4px; font: 500 13px var(--body); cursor: pointer; line-height: 1.15; }
   .chip:hover { border-color: var(--ink); background: rgba(255,250,235,.8); }
@@ -277,8 +277,9 @@ export class UI {
       <tr><td>Orbit · zoom · pan</td><td>Right-drag · scroll · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrows</td></tr>
       <tr><td>Low, upward shots</td><td>Right-drag down to tip the view up · scroll toward a subject · <kbd>U</kbd> hides the interface</td></tr>
       <tr><td>Turn the view · zoom · reset</td><td><kbd>Q</kbd> <kbd>E</kbd> · <kbd>+</kbd> <kbd>−</kbd> · <kbd>F</kbd></td></tr>
-      <tr><td>Tools</td><td><kbd>1</kbd> select · <kbd>2</kbd> houses · <kbd>3</kbd> docks · <kbd>4</kbd> terrain · <kbd>5</kbd> paint · <kbd>6</kbd> props · <kbd>7</kbd> remove</td></tr>
+      <tr><td>Tools</td><td><kbd>1</kbd> select · <kbd>2</kbd> buildings · <kbd>3</kbd> docks · <kbd>4</kbd> terrain · <kbd>5</kbd> paint · <kbd>6</kbd> props · <kbd>7</kbd> remove</td></tr>
       <tr><td>Houses</td><td>Drag out a footprint (or click). Select one: pull the <b>arrows</b> to stretch, <b>Shift-drag</b> an arrow for a new wing, drag the <b>ring</b> to move, drag the <b>diamond</b> up/down for floors. Click a wall to cycle window / wall / door.</td></tr>
+      <tr><td>Shops</td><td>Pick a market, boatyard, or bakery in Buildings, then click a suitable dry site. <kbd>R</kbd> turns the entrance. Connect a walkway to the front for visitors.</td></tr>
       <tr><td>Stilts</td><td>Houses over water or on slopes stand on stilts at deck height automatically — the panel can force stilts or key a house into the slope.</td></tr>
       <tr><td>Docks & walkways</td><td>Click to lay posts, or drag a segment. Start or end on a walkway to branch, on a house wall for a door. <kbd>[</kbd> <kbd>]</kbd> raise/lower the next post — steep runs become stairs. Rope style makes sagging bridges. Double-click, right-click or <kbd>Esc</kbd> to finish.</td></tr>
       <tr><td>Edit a walkway</td><td>Drag any post — including the far end of a pier — to move it. Orange cones set its height; a dead end's cream arrow pulls out a new stretch.</td></tr>
@@ -406,10 +407,10 @@ export class UI {
     const k = (x: string) => `<kbd>${x}</kbd>`;
     switch (t.tool) {
       case "select": return t.sel?.kind === "house" ? `hover a wall to add a wing, the roof to lift · ${k("Esc")} done` : t.sel ? `${k("Del")} remove · ${k("Esc")} done` : `click to edit · right-drag to orbit · ${k("?")} help`;
-      case "house": return `drag or click · ${k("R")} turn`;
+      case "house": return t.placingSpecial ? `click to place · ${k("R")} turn · connect a walkway for visitors` : `drag or click · ${k("R")} turn`;
       case "walk": return t.chain ? `click to add · ${k("[")}${k("]")} height · ${k("Esc")} finish` : `click to start · snaps to docks & walls`;
       case "terrain": case "paint": return `drag to ${t.tool === "paint" ? "paint" : t.terrainOp} · ${k("[")}${k("]")} size`;
-      case "prop": return t.propType === "hull" ? `snaps to the shore · ${k("R")} flip` : t.propType === "grotto" ? `snaps into a cliff · ${k("R")} dock side` : `click to place · ${k("R")} turn`;
+      case "prop": return t.propType === "grotto" ? `snaps into a cliff · ${k("R")} dock side` : `click to place · ${k("R")} turn`;
       case "erase": return `click to remove · ${k("Ctrl")}${k("Z")} undo`;
     }
   }
@@ -524,7 +525,7 @@ export class UI {
         title(PROP_INFO[pr.type].label);
         const regrow = () => {
           if (isLandmark(pr.type)) {
-            const f = fitLandmark(app.world, pr.type, pr.x, pr.z, pr.seed, pr.opts, false, pr.id);
+            const f = fitLandmark(app.world, pr.type, pr.x, pr.z, pr.seed, pr.opts, false, pr.id, pr.rot);
             if (!f.ok) { app.cancel(); this.toast(f.why ?? "That variant won't fit here"); this.refresh(); return; }
             pr.x = f.x; pr.z = f.z;
             if (pr.type !== "lighthouse") pr.rot = f.rot + (pr.type === "hull" && Math.cos(f.rot - pr.rot) < 0 ? Math.PI : 0);
@@ -549,10 +550,19 @@ export class UI {
       return;
     }
     switch (t.tool) {
-      case "house":
-        title("Houses");
-        seg(row("Type"), Object.entries(HOUSE_PRESETS).map(([k, v]) => [k, v.label] as [string, string]), t.preset, v => { t.preset = v; this.refresh(); t.updateGhost(); });
+      case "house": {
+        title("Buildings");
+        const choose = (v: string) => { t.buildingChoice = v; if (v in HOUSE_PRESETS) t.preset = v; t.ghostOpts = {}; this.refresh(); t.updateGhost(); };
+        seg(row("Homes"), Object.entries(HOUSE_PRESETS).map(([k, v]) => [k, v.label] as [string, string]), t.buildingChoice, choose);
+        seg(row("Shops"), [["market", "Market"], ["boatyard", "Boatyard"], ["bakery", "Bakery"]], t.buildingChoice, choose);
+        seg(row("Landmarks"), [["hull", "Hull tavern"], ["lighthouse", "Lighthouse"]], t.buildingChoice, choose);
+        if (t.placingSpecial) {
+          const gp = { type: t.placingType, seed: t.propSeed, opts: t.ghostOpts } as Prop;
+          variantRows(gp, (key, value) => { t.ghostOpts = { ...t.ghostOpts, [key]: value }; this.refresh(); t.updateGhost(); });
+          actions([["Reroll", () => { t.propSeed = Math.random(); t.ghostOpts = {}; this.refresh(); t.updateGhost(); }]]);
+        }
         break;
+      }
       case "walk":
         title("Docks");
         seg(row("Style"), [["deck", "Deck"], ["rope", "Rope"]], t.walkStyle, v => { t.walkStyle = v as any; this.refresh(); });
@@ -575,7 +585,7 @@ export class UI {
       }
       case "prop": {
         title("Props");
-        const groups: [string, PropType[]][] = [["Green", ["palm", "bougainvillea", "scrub", "rock"]], ["Dock", ["barrels", "crates", "lantern", "nets", "laundry", "crane"]], ["Boats", ["rowboat", "sloop"]], ["Big", ["hull", "grotto", "lighthouse"]]];
+        const groups: [string, PropType[]][] = [["Green", ["palm", "bougainvillea", "scrub", "rock"]], ["Dock", ["barrels", "crates", "lantern", "nets", "laundry", "crane"]], ["Boats", ["rowboat", "sloop"]], ["Places", ["grotto"]]];
         const short: Record<string, string> = { bougainvillea: "Blooms", nets: "Nets", hull: "Tavern", grotto: "Grotto" };
         for (const [g, items] of groups) seg(row(g), items.map(i => [i, short[i] ?? PROP_INFO[i].label, PROP_INFO[i].label] as [string, string, string]), t.propType, v => { t.propType = v as PropType; this.refresh(); t.updateGhost(); });
         if (t.propType === "hull" || t.propType === "grotto") {

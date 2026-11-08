@@ -9,7 +9,7 @@ import { skyAt, LightMap } from "./lighting";
 import { App } from "./app";
 import { Gulls, People, Fish, planSchools } from "./life";
 import { seagrassCells } from "./props";
-import { Villagers, CROWDS, walkGraph, type Paths } from "./villagers";
+import { Villagers, CROWDS, walkGraph, villagerVisits, type Paths } from "./villagers";
 import { villagerHomes, lookoutLanterns } from "./houses";
 import { Contraband } from "./contraband";
 import { VillageSloop } from "./sloop";
@@ -166,7 +166,7 @@ async function boot() {
     // the boat planners are heavier and wait for edits to settle
     if (world.version !== walkedVersion) { walkedVersion = world.version;
       paths = walkGraph(world);
-      villagers.sync(paths, villagerHomes(world));
+      villagers.sync(paths, villagerHomes(world), villagerVisits(world));
     }
     if (world.version !== seenVersion && sinceSync > 0.3) { seenVersion = world.version; sinceSync = 0;
       const homes = villagerHomes(world);

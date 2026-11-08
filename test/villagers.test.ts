@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { World } from "../src/world.ts";
-import { Villagers, headcount, route, walkGraph, MAX_VILLAGERS, type Home } from "../src/villagers.ts";
+import { Villagers, headcount, route, walkGraph, villagerVisits, MAX_VILLAGERS, type Home } from "../src/villagers.ts";
 
 function line(w: World, ids: string[], y = 1) {
   ids.forEach((id, i) => w.nodes.set(id, { id, x: 10 + i * 2, z: 10, y, pad: 0 }));
@@ -89,6 +89,37 @@ test("a deleted house's villagers fade away; a cut walkway sends them home", () 
   for (const p of v.people) if (p.vis > 0) assert.ok(onDeck(w, p.x, p.z));
   v.sync(w, []); run(v, w, 3);
   assert.equal(v.people.length, 0);
+});
+
+test("shops only attract connected residents; the market lingers and the bakery opens indoors", () => {
+  const w = new World(); w.heights.fill(8); line(w, ["a", "b", "c", "d"], w.height(12, 10) + 0.2);
+  w.props.set("m", { id: "m", type: "market", x: 16, z: 7.8, rot: 0, seed: 0.4 });
+  // entrance is at z=10, on the final walkway node
+  const visits = villagerVisits(w);
+  assert.deepEqual(visits.map(v => [v.id, v.node, v.mode]), [["m", "d", "linger"]]);
+  const v = new Villagers(); v.density = 1;
+  const homes: Home[] = [{ house: "h", node: "a", seed: 0.4, size: 1 }];
+  v.sync(w, homes, visits);
+  let lingered = false;
+  for (let i = 0; i < 1600; i++) {
+    v.update(w, 0.1);
+    if (v.people[0]?.phase === "visit") lingered = true;
+  }
+  assert.ok(lingered, "market becomes a reachable destination");
+  w.props.get("m")!.type = "bakery";
+  w.props.get("m")!.z = 7.9; // bakery front + 1.5 + 0.6 = 10
+  v.sync(w, homes, villagerVisits(w));
+  let entered = false, emerged = false;
+  for (let i = 0; i < 1800; i++) {
+    v.update(w, 0.1);
+    if (v.people[0]?.phase === "inside") entered = true;
+    if (entered && v.people[0]?.phase === "emerge") emerged = true;
+  }
+  assert.ok(entered && emerged, "visitors reappear after entering");
+  w.edges.delete("ecd");
+  assert.deepEqual(villagerVisits(w), [], "a disconnected threshold is not a destination");
+  v.sync(w, homes, villagerVisits(w));
+  assert.ok(v.people.every(p => !p.visit), "the lost visit is cancelled");
 });
 
 test("resync is stable: same houses keep the same people", () => {

@@ -1,6 +1,6 @@
 import * as THREE from "three/webgpu";
 import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { World, N, uid, newVolume, DECK_Y, Prop, PropType, WalkNode, WalkEdge, PAINT_CH, PaintType, carveCove, CoveKind, COVES, WATER_Y, grottoTieAt, isLandmark, landmarkSamples } from "./world";
+import { World, N, uid, newVolume, DECK_Y, Prop, PropType, WalkNode, WalkEdge, PAINT_CH, PaintType, carveCove, CoveKind, COVES, WATER_Y, grottoTieAt, shopDoorAt, isLandmark, landmarkSamples } from "./world";
 import { Terrain } from "./terrain";
 import type { Materials } from "./materials";
 import { LightMap } from "./lighting";
@@ -245,7 +245,7 @@ export class App {
     let changed = false;
     const touched = new Set<string>();
     const Hc = (x: number, z: number) => w.height(Math.min(N - 0.01, Math.max(0.01, x)), Math.min(N - 0.01, Math.max(0.01, z)));
-    const nearHouse = (n: WalkNode) => !!doorOf(w, n) || !!grottoTieAt(w, n.x, n.z);
+    const nearHouse = (n: WalkNode) => !!doorOf(w, n) || !!grottoTieAt(w, n.x, n.z) || !!shopDoorAt(w, n.x, n.z, 0.3);
     // posts: a deck sitting in a side slope comes up to clear the ground under its footprint
     for (const n of w.nodes.values()) {
       if (only && !only.has(n.id)) continue;

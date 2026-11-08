@@ -210,6 +210,7 @@ export function landmarkSamples(p: Prop): [number, number][] {
   } else if (isShop(p.type)) {
     const { w, d } = SHOP_DIMS[p.type];
     for (let x = -w / 2; x <= w / 2 + 0.01; x += 0.5) for (let z = -d / 2; z <= d / 2 + 0.01; z += 0.5) add(Math.min(x, w / 2), Math.min(z, d / 2));
+    if (p.type === "bakery") for (let x = w / 2; x <= w / 2 + 0.8; x += 0.2) for (let z = -d / 2 + 0.15; z <= -d / 2 + 1.5; z += 0.35) add(x, z);
   } else add(0, 0);
   return out;
 }
@@ -224,10 +225,18 @@ export function shopEntrance(p: Prop) {
   const { d } = SHOP_DIMS[p.type as ShopType];
   return toWorld(p, 0, d / 2 + 0.6);
 }
+export function shopDoorAt(w: World, x: number, z: number, reach = 0.8) {
+  for (const p of w.props.values()) {
+    if (!isShop(p.type)) continue;
+    const door = shopEntrance(p);
+    if (Math.hypot(door.x - x, door.z - z) < reach) return { prop: p, x: door.x, z: door.z, y: shopBase(w, p) };
+  }
+  return null;
+}
 export function shopBase(w: World, p: Prop) {
   const { w: wid, d } = SHOP_DIMS[p.type as ShopType], c = Math.cos(p.rot), s = Math.sin(p.rot);
   let high = -Infinity;
-  for (const x of [-wid * 0.43, 0, wid * 0.43]) for (const z of [-d * 0.43, 0, d * 0.43]) high = Math.max(high, w.height(p.x + x * c - z * s, p.z + x * s + z * c));
+  for (const x of [-wid * 0.43, 0, wid * 0.43, ...(p.type === "bakery" ? [wid / 2 + 0.7] : [])]) for (const z of [-d * 0.43, 0, d * 0.43]) high = Math.max(high, w.height(p.x + x * c - z * s, p.z + x * s + z * c));
   return Math.round((high + 0.18) * 20) / 20;
 }
 export const isLandmark = (t: PropType) => t === "hull" || t === "grotto" || t === "lighthouse" || isShop(t);

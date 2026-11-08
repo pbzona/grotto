@@ -1,6 +1,6 @@
 import * as THREE from "three/webgpu";
 import type { App } from "./app";
-import { World, N, snap, House, Volume, newVolume, uid, FLOOR_H, MAX_LEVEL, PaintType, PropType, WalkNode, WalkEdge, RoofType, WATER_Y, DECK_Y, Prop, isLandmark, hullDims, grottoDims, grottoTies, grottoTieAt, QUAY_HALF, GROTTO_OPTS, propOpt } from "./world";
+import { World, N, snap, House, Volume, newVolume, uid, FLOOR_H, MAX_LEVEL, PaintType, PropType, WalkNode, WalkEdge, RoofType, WATER_Y, DECK_Y, Prop, isLandmark, isShop, SHOP_DIMS, shopDoorAt, hullDims, grottoDims, grottoTies, grottoTieAt, QUAY_HALF, GROTTO_OPTS, propOpt } from "./world";
 import { MeshBuilder } from "./mesh";
 import { buildHouse, houseLayout, makeHouse, siteDrop, MAX_SITE_DROP, nodeWall, nearWalls, sideLine, HouseBuild, Bay } from "./houses";
 import { defaultDeckY, landingRadius, WALK_W, MAX_STAIR, slopeOf, clampStair } from "./walks";
@@ -67,6 +67,9 @@ export class Tools {
   paintType: PaintType | "erase" = "path";
   propType: PropType = "palm";
   propRot = 0;
+  buildingChoice = "cottage";
+  get placingSpecial() { return this.tool === "house" && !(this.buildingChoice in HOUSE_PRESETS); }
+  get placingType(): PropType { return this.tool === "house" ? this.buildingChoice as PropType : this.propType; }
   /** the seed the ghost shows, so what you see is what gets placed */
   propSeed = Math.random();
   /** hull tavern end-for-end; grotto dock side for the next placement */
@@ -74,9 +77,9 @@ export class Tools {
   ghostOpts: Prop["opts"] = {};
   private fitCache: { key: string; fit: Fit } | null = null;
   fitAt(type: PropType, x: number, z: number, selfId = "ghost", seed = this.propSeed, opts = this.ghostOpts, flip = this.landFlip): Fit {
-    const key = [type, Math.round(x * 4), Math.round(z * 4), selfId, seed, JSON.stringify(opts), flip, this.world.version].join("|");
+    const key = [type, Math.round(x * 4), Math.round(z * 4), selfId, seed, JSON.stringify(opts), flip, this.propRot, this.world.version].join("|");
     if (this.fitCache?.key === key) return this.fitCache.fit;
-    const fit = fitLandmark(this.world, type, x, z, seed, opts, flip, selfId);
+    const fit = fitLandmark(this.world, type, x, z, seed, opts, flip, selfId, this.propRot);
     this.fitCache = { key, fit };
     return fit;
   }
@@ -272,6 +275,7 @@ export class Tools {
         break;
       }
       case "house": {
+        if (this.placingSpecial) { this.placeProp(); break; }
         const g = this.ground(); if (!g) return;
         const a = new THREE.Vector3(snap(g.x), g.y, snap(g.z));
         this.drag = { t: "rect", a, b: a.clone() };
@@ -303,7 +307,7 @@ export class Tools {
     if (d && d.t !== "walk" && d.t !== "rect") this.app.interacting = true;
     if (!d) {
       if (this.tool === "select") { this.hoverHandles(); return; }
-      this.hover = this.tool === "walk" || this.tool === "prop" ? this.surface() : this.ground();
+      this.hover = this.tool === "walk" || this.tool === "prop" || this.placingSpecial ? this.surface() : this.ground();
       this.updateGhost();
       return;
     }
@@ -335,7 +339,7 @@ export class Tools {
         } else {
           const p = this.world.props.get(d.id); if (!p) break;
           if (isLandmark(p.type)) {
-            const f = fitLandmark(this.world, p.type, x, z, p.seed, p.opts, false, p.id);
+            const f = fitLandmark(this.world, p.type, x, z, p.seed, p.opts, false, p.id, p.rot);
             if (!f.ok) break;
             p.x = f.x; p.z = f.z;
             if (p.type !== "lighthouse") p.rot = f.rot + (p.type === "hull" && Math.cos(f.rot - p.rot) < 0 ? Math.PI : 0);
@@ -423,15 +427,15 @@ export class Tools {
   setBrush(b: number) { this.brush = Math.max(0.5, Math.min(6, b)); this.updateBrush(); this.onChange?.(); }
   nudgeLift(dir: number) { this.walkLift = Math.max(-2, Math.min(8, this.walkLift + dir * 0.25)); this.updateGhost(); this.onChange?.(); }
   rotate() {
-    if (this.tool === "prop") {
-      if (this.propType === "hull") this.landFlip = !this.landFlip;
-      else if (this.propType === "grotto") { const d = GROTTO_OPTS.dock; const cur = propOpt({ seed: this.propSeed, opts: this.ghostOpts }, "dock", d); this.ghostOpts = { ...this.ghostOpts, dock: d[(d.indexOf(cur) + 1) % d.length] }; }
-      else this.propRot += Math.PI / 4;
+    if (this.tool === "prop" || this.placingSpecial) {
+      if (this.placingType === "hull") this.landFlip = !this.landFlip;
+      else if (this.placingType === "grotto") { const d = GROTTO_OPTS.dock; const cur = propOpt({ seed: this.propSeed, opts: this.ghostOpts }, "dock", d); this.ghostOpts = { ...this.ghostOpts, dock: d[(d.indexOf(cur) + 1) % d.length] }; }
+      else this.propRot += isShop(this.placingType) ? Math.PI / 2 : Math.PI / 4;
       this.updateGhost(); this.onChange?.(); return;
     }
     if (this.tool === "house") { this.houseTurn = !this.houseTurn; this.updateGhost(); return; }
     const s = this.sel;
-    if (s?.kind === "prop") { const p = this.world.props.get(s.id); if (p && p.type !== "grotto") { this.app.begin(); p.rot += p.type === "hull" ? Math.PI : Math.PI / 4; this.app.changed({ structures: true }); } }
+    if (s?.kind === "prop") { const p = this.world.props.get(s.id); if (p && p.type !== "grotto") { this.app.begin(); const old = p.rot; p.rot += p.type === "hull" ? Math.PI : isShop(p.type) ? Math.PI / 2 : Math.PI / 4; if (isShop(p.type)) { const f = fitLandmark(this.world, p.type, p.x, p.z, p.seed, p.opts, false, p.id, p.rot); if (!f.ok || Math.cos(f.rot - p.rot) < 0.99) { p.rot = old; this.app.cancel(); this.toast("That entrance won't fit here"); return; } p.x = f.x; p.z = f.z; } this.app.changed({ structures: true }); } }
     else if (s?.kind === "house") this.houseEdit("ridge");
   }
   deleteSelection() {
@@ -1009,6 +1013,9 @@ export class Tools {
     // anywhere on (or just off) a grotto's quay ties on at its middle
     const q = this.quayAt(p);
     if (q) return { node: this.app.addNode(q.x, q.z, DECK_Y), created: true };
+    // Shop entrances are exact thresholds outside the body; only a connected path makes a visit possible.
+    const shop = shopDoorAt(w, p.x, p.z);
+    if (shop) return { node: this.app.addNode(shop.x, shop.z, shop.y), created: true };
     if (sn?.kind === "edge") {
       const n = this.app.addNode(sn.x, sn.z, sn.y);
       w.splitEdge(sn.edge.id, n);
@@ -1142,21 +1149,22 @@ export class Tools {
   // ---------- props + erase ----------
   private placeProp() {
     const p = this.hover ?? this.surface(); if (!p) return;
-    if (isLandmark(this.propType)) {
-      const f = this.fitAt(this.propType, p.x, p.z);
+    const type = this.placingType;
+    if (isLandmark(type)) {
+      const f = this.fitAt(type, p.x, p.z);
       if (!f.ok) { this.toast(f.why ?? "Won't fit here"); return; }
       this.app.begin();
-      const np = this.app.addProp(this.propType, f.x, f.z, f.rot, this.propSeed);
+      const np = this.app.addProp(type, f.x, f.z, f.rot, this.propSeed);
       if (Object.keys(this.ghostOpts ?? {}).length) { np.opts = { ...this.ghostOpts }; if (np.type === "grotto") this.app.carveGrotto(np); }
       this.propSeed = Math.random(); this.ghostOpts = {};
       this.app.changed({ structures: true, terrain: np.type === "grotto" });
       this.onChange?.();
       return;
     }
-    const chk = this.propCheck(this.propType, p.x, p.z);
+    const chk = this.propCheck(type, p.x, p.z);
     if (!chk.ok) { this.toast(chk.why ?? "Won't fit there"); return; }
     this.app.begin();
-    this.app.addProp(this.propType, Math.round(p.x * 10) / 10, Math.round(p.z * 10) / 10, this.propRot, this.propSeed);
+    this.app.addProp(type, Math.round(p.x * 10) / 10, Math.round(p.z * 10) / 10, this.propRot, this.propSeed);
     this.propSeed = Math.random();
     this.app.changed({ structures: true });
   }
@@ -1210,7 +1218,7 @@ export class Tools {
       for (const old of prev) if (!now.has(old)) old.dispose();
     };
     const w = this.world;
-    if (this.tool === "house") {
+    if (this.tool === "house" && !this.placingSpecial) {
       const d = this.drag;
       let r: ReturnType<Tools["rectFrom"]> | null = null;
       if (d?.t === "rect") r = this.rectFrom(d.a, d.b, true);
@@ -1222,17 +1230,18 @@ export class Tools {
       buildHouse(w, h, out);
       return setG(mb.toGeometry(), !w.footprintFree(r.x0, r.z0, r.x1, r.z1) || this.steep(h), { rect: [r.x0, r.z0, r.x1, r.z1], y: houseLayout(w, h).base + 0.03 });
     }
-    if (this.tool === "prop" && this.hover) {
-      if (isLandmark(this.propType)) {
-        const f = this.fitAt(this.propType, this.hover.x, this.hover.z);
-        const gp: Prop = { id: "ghost", type: this.propType, x: f.x, z: f.z, rot: f.rot, seed: this.propSeed, opts: this.ghostOpts };
+    if ((this.tool === "prop" || this.placingSpecial) && this.hover) {
+      const type = this.placingType;
+      if (isLandmark(type)) {
+        const f = this.fitAt(type, this.hover.x, this.hover.z);
+        const gp: Prop = { id: "ghost", type, x: f.x, z: f.z, rot: f.rot, seed: this.propSeed, opts: this.ghostOpts };
         const mb = new MeshBuilder();
         buildOneProp(w, mb, gp, { lights: [], foam: [] });
         if (!f.ok) this.toastSoft(f.why ?? "Won't fit here");
         return setG(mb.toGeometry(), !f.ok, { poly: landmarkOutline(gp) });
       }
-      const p = { id: "ghost", type: this.propType, x: this.hover.x, z: this.hover.z, rot: this.propRot, seed: this.propSeed };
-      if (PROP_INFO[this.propType].water) {
+      const p = { id: "ghost", type, x: this.hover.x, z: this.hover.z, rot: this.propRot, seed: this.propSeed };
+      if (PROP_INFO[type].water) {
         const b = buildBoat(p, this.app.d.mats.ghost);
         const g = b.mesh.geometry;
         const m = new THREE.Matrix4().makeRotationY(-p.rot).setPosition(p.x, WATER_Y + boatFreeboard(p.type), p.z);
@@ -1249,9 +1258,10 @@ export class Tools {
       let sn = this.snapWalk(h0, this.chain);
       // a grotto quay wins over splitting a walkway, as it does on click
       const q = sn?.kind === "node" ? null : this.quayAt(h0);
-      if (q) sn = null;
-      const hx = q ? q.x : sn ? sn.x : h0.x, hz = q ? q.z : sn ? sn.z : h0.z;
-      const y = q ? DECK_Y : sn ? sn.y : defaultDeckY(w, hx, hz) + this.walkLift;
+      const shop = sn?.kind === "node" || q ? null : shopDoorAt(w, h0.x, h0.z);
+      if (q || shop) sn = null;
+      const hx = q ? q.x : shop ? shop.x : sn ? sn.x : h0.x, hz = q ? q.z : shop ? shop.z : sn ? sn.z : h0.z;
+      const y = q ? DECK_Y : shop ? shop.y : sn ? sn.y : defaultDeckY(w, hx, hz) + this.walkLift;
       mb.paint([1, 1, 1], 0);
       // every quay in view gets a faint outline, so there's an obvious place to tie on
       for (const p of w.props.values()) {
@@ -1271,8 +1281,8 @@ export class Tools {
         if (Math.hypot(side[0], side[2]) > 0.05) mb.beam([a.x, a.y, a.z], [hx, y, hz], side, WALK_W / 2, 0.04);
       }
       // a snapped target gets a bigger ring around the post (or join point) it will connect to
-      const r = q ? QUAY_HALF * 1.2 : sn?.kind === "node" ? landingRadius(w, sn.node) + 0.3 : sn ? 0.85 : 0.55;
-      if (sn) { // a second, raised ring so a snap reads at a glance
+      const r = q ? QUAY_HALF * 1.2 : sn?.kind === "node" ? landingRadius(w, sn.node) + 0.3 : sn || shop ? 0.85 : 0.55;
+      if (sn || shop) { // a second, raised ring so a snap reads at a glance
         const ring: [number, number, number][] = [];
         for (let i = 0; i <= 32; i++) { const a = i / 32 * Math.PI * 2; ring.push([hx + Math.cos(a) * (r + 0.16), y + 0.1, hz + Math.sin(a) * (r + 0.16)]); }
         mb.tube(ring, 0.045, 4);
@@ -1389,6 +1399,9 @@ function landmarkOutline(p: Prop): [number, number][] {
   } else if (p.type === "grotto") {
     const { a: R, D, T } = grottoDims(p);
     for (const [lx, lz] of [[-R - T, 0.8], [-R - 0.6, 0.8], [-R - 0.6, 5], [R + 0.6, 5], [R + 0.6, 0.8], [R + T, 0.8], [R + T, -D], [-R - T, -D]]) out.push(W(lx, lz));
+  } else if (isShop(p.type)) {
+    const { w, d } = SHOP_DIMS[p.type];
+    for (const [x, z] of [[-w / 2, -d / 2], [w / 2, -d / 2], ...(p.type === "bakery" ? [[w / 2 + 0.8, -d / 2], [w / 2 + 0.8, 0]] : []), [w / 2, d / 2], [-w / 2, d / 2]]) out.push(W(x, z));
   } else for (let k = 0; k < 24; k++) { const a = (k / 24) * Math.PI * 2; out.push(W(Math.cos(a) * 1.25, Math.sin(a) * 1.25)); }
   return out;
 }

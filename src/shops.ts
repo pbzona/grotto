@@ -41,10 +41,14 @@ function market(m: MeshBuilder, p: Prop, L: Light[]) {
   const cloth = ["#c66e4f", "#eadcba", "#648e8a", "#d3a658"];
   for (let i = 0; i < 3; i++) {
     const x0 = -hw + i * w / 3, x1 = x0 + w / 3, top = 2.58 + (i % 2) * 0.19;
-    color(m, cloth[(i + Math.floor(r() * 3)) % cloth.length], M.cloth);
-    m.quad([[x0, 2.12, -hd - 0.16], [x1, 2.12, -hd - 0.16], [x1, top, 0], [x0, top, 0]], [0, 1, -1]);
-    m.quad([[x0, top, 0], [x1, top, 0], [x1, 2.12, hd + 0.16], [x0, 2.12, hd + 0.16]], [0, 1, 1]);
-    color(m, dark, M.plank); m.beam([(x0 + x1) / 2, top + 0.02, -0.03], [(x0 + x1) / 2, top + 0.02, 0.03], [1, 0, 0], 0.025, 0.025);
+    const tint = Math.floor(r() * cloth.length);
+    for (let k = 0; k < 6; k++) {
+      const a = x0 + (x1 - x0) * k / 6, b = x0 + (x1 - x0) * (k + 1) / 6;
+      color(m, cloth[k % 2 ? tint : (tint + 1) % cloth.length], M.cloth);
+      m.quad([[a, 2.12, -hd - 0.16], [b, 2.12, -hd - 0.16], [b, top, 0], [a, top, 0]], [0, 1, -1]);
+      m.quad([[a, top, 0], [b, top, 0], [b, 2.12, hd + 0.16], [a, 2.12, hd + 0.16]], [0, 1, 1]);
+    }
+    color(m, dark, M.plank); m.beam([x0, top + 0.02, 0], [x1, top + 0.02, 0], [0, 0, 1], 0.025, 0.025);
   }
   for (const x of [-1.22, 1.22]) {
     color(m, plank, M.plank); m.box([x - 0.42, 0.55, -0.8], [x + 0.42, 0.68, 0.45]);

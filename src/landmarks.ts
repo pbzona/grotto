@@ -91,10 +91,10 @@ function siteScore(w: World, p: Prop): { s: number; why?: string } {
   }
   if (isShop(p.type)) {
     const { w: wid, d } = SHOP_DIMS[p.type], gs: number[] = [];
-    for (const x of [-wid * 0.43, 0, wid * 0.43]) for (const z of [-d * 0.43, 0, d * 0.43]) gs.push(G(x, z));
+    for (const x of [-wid * 0.43, 0, wid * 0.43, ...(p.type === "bakery" ? [wid / 2 + 0.7] : [])]) for (const z of [-d * 0.43, 0, d * 0.43]) gs.push(G(x, z));
     const lo = Math.min(...gs), hi = Math.max(...gs);
     if (lo < WATER_Y + 0.05) return { s: -Infinity, why: "Shops need dry ground" };
-    if (hi - lo > 0.7) return { s: -Infinity, why: "Too steep for this building" };
+    if (hi - lo > 1.25) return { s: -Infinity, why: "Too steep for this building" };
     const door = shopEntrance(p), entry = H(w, door.x, door.z);
     if (entry < WATER_Y - 0.1 || Math.abs(entry - hi) > 0.65) return { s: -Infinity, why: "The entrance needs level ground" };
     return { s: -(hi - lo) * 2 - Math.abs(entry - hi) };
@@ -111,10 +111,10 @@ function siteScore(w: World, p: Prop): { s: number; why?: string } {
  * Search around (hx, hz) for the best site. `flip` turns the hull end-for-end.
  * Headings are free: the grotto faces out of its cliff, the hull lies along the shore.
  */
-export function fitLandmark(w: World, type: PropType, hx: number, hz: number, seed: number, opts: Prop["opts"], flip: boolean, selfId = "ghost"): Fit {
+export function fitLandmark(w: World, type: PropType, hx: number, hz: number, seed: number, opts: Prop["opts"], flip: boolean, selfId = "ghost", heading = 0): Fit {
   const probe: Prop = { id: selfId, type, x: hx, z: hz, rot: 0, seed, opts };
   let best: Fit | null = null, bestS = -Infinity, why = "Won't fit here";
-  const rots = type === "lighthouse" ? [0] : Array.from({ length: isShop(type) ? 4 : 16 }, (_, i) => (i / (isShop(type) ? 4 : 16)) * Math.PI * 2);
+  const rots = type === "lighthouse" ? [0] : isShop(type) ? Array.from({ length: 4 }, (_, i) => heading + i * Math.PI / 2) : Array.from({ length: 16 }, (_, i) => (i / 16) * Math.PI * 2);
   const R = type === "lighthouse" || isShop(type) ? 1.5 : 3;
   for (let dz = -R; dz <= R + 1e-6; dz += 0.5) for (let dx = -R; dx <= R + 1e-6; dx += 0.5) {
     const d = Math.hypot(dx, dz); if (d > R) continue;
