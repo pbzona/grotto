@@ -126,7 +126,7 @@ export function grottoQuays(p: Pick<Prop, "seed" | "opts">): GrottoQuay[] {
   const g = grottoDims(p);
   return grottoDocks(p).map(lx => ({ lx, qx: Math.sign(lx) * (g.W + g.T + 0.45), qz: QUAY_Z, half: QUAY_HALF }));
 }
-const toWorld = (p: Prop, lx: number, lz: number) => { const c = Math.cos(p.rot), s = Math.sin(p.rot); return { x: p.x + lx * c - lz * s, z: p.z + lx * s + lz * c }; };
+const toWorld = (p: Pick<Prop, "x" | "z" | "rot">, lx: number, lz: number) => { const c = Math.cos(p.rot), s = Math.sin(p.rot); return { x: p.x + lx * c - lz * s, z: p.z + lx * s + lz * c }; };
 /** World positions where walkways meet the grotto: the middle of each quay. */
 export function grottoTies(p: Prop): { x: number; z: number }[] {
   return grottoQuays(p).map(q => toWorld(p, q.qx, q.qz));
@@ -225,7 +225,7 @@ export const SHOP_DIMS: Record<ShopType, { w: number; d: number; h: number }> = 
   market: { w: 4.2, d: 3.2, h: 2.4 }, boatyard: { w: 5.2, d: 3.8, h: 2.8 }, bakery: { w: 3.1, d: 3, h: 2.5 },
 };
 /** The boatyard opens to the water at +z, but people enter from dry land at -z. */
-export function shopEntrance(p: Prop) {
+export function shopEntrance(p: Pick<Prop, "type" | "x" | "z" | "rot">) {
   const { d } = SHOP_DIMS[p.type as ShopType];
   return toWorld(p, 0, (p.type === "boatyard" ? -1 : 1) * (d / 2 + 0.6));
 }

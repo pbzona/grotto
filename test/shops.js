@@ -33,6 +33,7 @@
   t.shopHeading = null;
   ok('market can sit on a slope near the village', t.fitAt('market', 16, 18).ok);
   ok('bakery can sit near the village', t.fitAt('bakery', 16, 18).ok);
+  let placedMarketId;
   for (const [type, x, z] of [['market', 15, 8], ['boatyard', 14, 20], ['bakery', 31, 8.5]]) {
     t.buildingChoice = type; t.propSeed = 0.36; t.ghostOpts = {}; t.propRot = 0; t.shopHeading = null;
     const fit = t.fitAt(type, x, z), before = w.props.size;
@@ -40,6 +41,7 @@
     const placed = [...w.props.values()].at(-1);
     ok(`${type} placed with Buildings tool`, fit.ok && w.props.size === before + 1 && placed.type === type, fit.ok ? `${placed?.x},${placed?.z}` : fit.why);
     if (fit.ok && placed?.type === type) {
+      if (type === 'market') placedMarketId = placed.id;
       ok(`${type} is pickable`, a.structures.userData.owners.includes(`p:${placed.id}`));
       ok(`${type} survives save/load`, (() => { const fresh = structuredClone(w.save()); return fresh.props.some(p => p.id === placed.id && p.type === type); })());
       if (type === 'market') {
@@ -120,7 +122,7 @@
   ok('redo restores latest shop', w.props.size === before + 1);
   t.setTool('prop');
   ok('Props contains grotto but no tavern or lighthouse', [...document.querySelectorAll('#panel button')].some(b => b.textContent === 'Grotto') && ![...document.querySelectorAll('#panel button')].some(b => b.textContent === 'Hull tavern' || b.textContent === 'Lighthouse'));
-  const market = [...w.props.values()].find(p => p.type === 'market');
+  const market = w.props.get(placedMarketId);
   const x = market.x - Math.sin(market.rot) * 2.2, z = market.z + Math.cos(market.rot) * 2.2;
   t.setTool('walk');
   const door = t.walkPoint({ x, z }, null).node;

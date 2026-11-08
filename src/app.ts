@@ -6,7 +6,7 @@ import type { Materials } from "./materials";
 import { LightMap } from "./lighting";
 import { MeshBuilder, Part, mergeParts, rng } from "./mesh";
 import { buildHouse, makeHouse, houseLayout, doorOf, HouseBuild, Light, Face } from "./houses";
-import { seedCove, linkGrotto } from "./seed";
+import { seedCove, seedShops, linkGrotto } from "./seed";
 import { fitLandmark } from "./landmarks";
 import { buildWalks, defaultDeckY, WALK_W, MAX_STAIR, slopeOf, isStairs } from "./walks";
 import { buildProps, buildBoat, updateBoat, Boat, stringLights, washingLines, PROP_INFO, buildScatter, isGreenery } from "./props";
@@ -521,6 +521,7 @@ export class App {
       for (const o of [...w.props.values()]) if (!isLandmark(o.type) && pts.some(([x, z]) => Math.hypot(x - o.x, z - o.z) < 0.7)) w.props.delete(o.id);
     }
     w.pruneNodes();
+    seedShops(this, 0);
     w.version++;
   }
 }

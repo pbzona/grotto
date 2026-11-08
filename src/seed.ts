@@ -1,5 +1,5 @@
 import type { App } from "./app";
-import { N, DECK_Y, WATER_Y, STEP, levelY, newVolume, uid, isLandmark, landmarkSamples, grottoDims, grottoDocks, grottoTies, grottoTieAt, World, type Prop, type RoofType, type PropType, type WalkNode } from "./world";
+import { N, DECK_Y, WATER_Y, SHOP_DIMS, STEP, levelY, newVolume, uid, isLandmark, landmarkSamples, grottoDims, grottoDocks, grottoTies, grottoTieAt, shopEntrance, World, type Prop, type RoofType, type PropType, type WalkNode } from "./world";
 import { doorOf, houseLayout, makeHouse, villagerHomes } from "./houses";
 import { fitLandmark, grottoSites, landmarkClash } from "./landmarks";
 import { planSloop, seaRoute } from "./voyages";
@@ -31,6 +31,81 @@ export function seedCove(app: App, seed: number) {
   }
   w.pruneNodes();
   if (grotto) seedLookout(app, grotto);
+  seedShops(app, seed);
+}
+
+/** Two distinct markets, close to the village where space permits; never cut off its boat routes. */
+export function seedShops(app: App, seed: number) {
+  const w = app.world, r = rng(seed * 11.37 + 0.91);
+  const nodes = [...w.nodes.values()].filter(n => w.edgesOf(n.id).length);
+  const cells: { x: number; z: number; near: number }[] = [];
+  for (let z = 4; z < N - 3; z += 3) for (let x = 4; x < N - 3; x += 3) {
+    if (!w.isWater(x, z)) continue;
+    const near = Math.min(...nodes.map(n => Math.hypot(n.x - x, n.z - z)));
+    cells.push({ x, z, near: near + r() * 1.1 });
+  }
+  cells.sort((a, b) => a.near - b.near);
+  const markets: Prop[] = [], hadSloop = !!planSloop(w);
+  const grotto = [...w.props.values()].find(p => p.type === "grotto");
+  const place = (x: number, z: number, heading?: number, tie?: WalkNode) => {
+    const variant = markets.length === 0 ? 0.06 : 0.38;
+    const fit = fitLandmark(w, "market", x, z, variant, {}, false, "ghost", heading);
+    if (!fit.ok || markets.some(p => Math.hypot(p.x - fit.x, p.z - fit.z) < 7)) return false;
+    if (tie) {
+      const door = shopEntrance({ type: "market", ...fit });
+      if (Math.hypot(door.x - tie.x, door.z - tie.z) > 0.28 || Math.abs(tie.y - DECK_Y) > 0.35) return false;
+    }
+    const p = app.addProp("market", fit.x, fit.z, fit.rot, variant);
+    if (hadSloop && !planSloop(w) || grotto && !seaReach(w, grotto)) { w.props.delete(p.id); return false; }
+    markets.push(p);
+    return true;
+  };
+  const center = nodes.reduce((a, n) => [a[0] + n.x / (nodes.length || 1), a[1] + n.z / (nodes.length || 1)], [0, 0]);
+  const ends = nodes.filter(n => w.isWater(n.x, n.z) && w.edgesOf(n.id).length === 1)
+    .sort((a, b) => Math.hypot(a.x - center[0], a.z - center[1]) - Math.hypot(b.x - center[0], b.z - center[1]));
+  for (const n of ends) {
+    if (markets.length === 2) break;
+    const e = w.edgesOf(n.id)[0], other = w.nodes.get(e.a === n.id ? e.b : e.a)!;
+    const rot = Math.atan2(n.x - other.x, other.z - n.z);
+    for (let i = 0; i < 4; i++) {
+      const heading = rot + i * Math.PI / 2, offset = SHOP_DIMS.market.d / 2 + 0.6;
+      if (place(n.x + Math.sin(heading) * offset, n.z - Math.cos(heading) * offset, heading, n)) break;
+    }
+  }
+  if (!markets.length) {
+    const wetNodes = nodes.filter(n => w.isWater(n.x, n.z) && Math.abs(n.y - DECK_Y) < 0.1 && w.edgesOf(n.id).length <= 2 && !w.houseAt(n.x, n.z, 1.2))
+      .sort((a, b) => Math.hypot(a.x - center[0], a.z - center[1]) - Math.hypot(b.x - center[0], b.z - center[1]));
+    let attempts = 0, connected = false;
+    for (const n of wetNodes) {
+      if (connected || attempts >= 90) break;
+      for (const [dx, dz] of DIRS) {
+        if (connected || attempts >= 90) break;
+        for (const dist of [3, 4, 5]) {
+          if (connected || attempts >= 90) break;
+          const door = { x: n.x + dx * dist, z: n.z + dz * dist };
+          if (door.x < 3 || door.z < 3 || door.x > N - 3 || door.z > N - 3) continue;
+          if (![0.25, 0.5, 0.75, 1].every(t => w.isWater(n.x + dx * dist * t, n.z + dz * dist * t))) continue;
+          for (let i = 0; i < 4 && attempts++ < 90; i++) {
+            const heading = i * Math.PI / 2, offset = SHOP_DIMS.market.d / 2 + 0.6;
+            const x = door.x + Math.sin(heading) * offset, z = door.z - Math.cos(heading) * offset;
+            if (!place(x, z, heading)) continue;
+            const p = markets[markets.length - 1], entrance = shopEntrance(p);
+            if (Math.hypot(entrance.x - door.x, entrance.z - door.z) > 0.2 || Math.abs(n.y - DECK_Y) > 0.1) { w.props.delete(p.id); markets.pop(); continue; }
+            const target = app.addNode(entrance.x, entrance.z, DECK_Y);
+            app.addEdge(n, target);
+            if (landmarkClash(w, p) || hadSloop && !planSloop(w) || grotto && !seaReach(w, grotto)) {
+              w.removeNode(target.id); w.props.delete(p.id); markets.pop(); continue;
+            }
+            connected = true; break;
+          }
+        }
+      }
+    }
+  }
+  for (const cell of cells) {
+    if (markets.length === 2) break;
+    place(cell.x, cell.z);
+  }
 }
 
 /** A door the ground forced a too-steep flight onto: that house doesn't make the cut. Returns how many went. */

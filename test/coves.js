@@ -1,6 +1,7 @@
 (async () => {
   const g = window.__grotto, a = g.app, w = g.world, results = [];
   const { villagerHomes } = await import('/src/houses.ts');
+  const { villagerVisits } = await import('/src/villagers.ts');
   const ok = (name, condition) => { if (!condition) throw new Error(name); results.push('PASS ' + name); };
   const btn = label => [...document.querySelectorAll('#menu .btn')].find(b => b.textContent.startsWith(label));
   const heights = () => Array.from(w.heights).join(',');
@@ -12,11 +13,13 @@
   const { propBase } = await import('/src/props.ts');
   const { planSloop } = await import('/src/voyages.ts');
   const DECK_PROPS = ['crates', 'barrels', 'crane', 'lantern', 'nets', 'laundry'];
+  const shops = () => [...w.props.values()].filter(p => ['market', 'bakery', 'boatyard'].includes(p.type));
   const dry = () => [...w.props.values()].filter(p => DECK_PROPS.includes(p.type)).every(p => propBase(w, p) > 0.25);
   const gentle = () => [...w.edges.values()].every(e => slopeOf(w.nodes.get(e.a), w.nodes.get(e.b)) <= MAX_STAIR + 1e-6 && Math.hypot(w.nodes.get(e.a).x - w.nodes.get(e.b).x, w.nodes.get(e.a).z - w.nodes.get(e.b).z) >= 0.3);
   let sloops = 0;
   for (const kind of ['classic', 'fjord', 'islets', 'estuary']) for (let s = 1; s <= 12; s++) {
     a.newCove(kind, s);
+    if (shops().length < 2 || shops().length > 3) throw new Error(`${kind} ${s}: expected two or three shops, got ${shops().length}`);
     if (!gentle() || villagerHomes(w).length !== w.houses.size || w.houses.size < 3) throw new Error(`${kind} ${s}: steep stairs or a stranded house`);
     if (!dry()) throw new Error(`${kind} ${s}: a deck prop stands in the water`);
     if (planSloop(w)) sloops++;
@@ -26,6 +29,9 @@
   }
   ok('most villages have a berth for their sloop', sloops >= 28);
   a.starter();
+  ok('starter has two or three shops', shops().length >= 2 && shops().length <= 3);
+  ok('starter has a connected market for villagers to visit', villagerVisits(w).some(v => shops().some(p => p.id === v.id)));
+  results.push('PASS every preset seed 1-12 has two or three shops');
   results.push('PASS every preset seed 1-12 has climbable stairs and connected houses');
   results.push('PASS every preset seed 1-12 has a grotto tied to the village by walkway');
   const start = JSON.stringify(w.save());
