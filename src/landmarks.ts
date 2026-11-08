@@ -1,4 +1,4 @@
-import { WATER_Y, N, levelY, propOpt, HULL_OPTS, GROTTO_OPTS, GROTTO_SINK, GROTTO_DECK, ARM_Z0, ARM_Z1, grottoQuays, grottoProfile, grottoWall, hullDims, grottoDims, landmarkSamples, quaySamples, grottoTies, isLandmark, isShop, SHOP_DIMS, BOATYARD_SLIP, shopEntrance, bakeryDock, fbm, type World, type Prop, type PropType } from "./world.ts";
+import { WATER_Y, N, propOpt, HULL_OPTS, GROTTO_OPTS, GROTTO_SINK, GROTTO_DECK, ARM_Z0, ARM_Z1, grottoQuays, grottoProfile, grottoWall, hullDims, grottoDims, fbm, type World, type Prop } from "./world.ts";
 import { MeshBuilder, M, hexRGB, rng, lerp3, add, type V3 } from "./mesh.ts";
 import type { Light } from "./houses.ts";
 import { PALETTES } from "./houses.ts";
@@ -14,7 +14,6 @@ const clampN = (v: number) => Math.min(N - 0.01, Math.max(0.01, v));
 const H = (w: World, x: number, z: number) => w.height(clampN(x), clampN(z));
 
 export { fitLandmark, grottoSites, landmarkClash, type Fit } from "./placement.ts";
-const sstep = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 export { grottoCells } from "./world.ts";
 
 export function buildGrotto(mb: MeshBuilder, w: World, p: Prop, L: Light[]) {

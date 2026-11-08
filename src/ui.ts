@@ -5,9 +5,7 @@ import { PALETTES } from "./houses.ts";
 import { PROP_INFO, isGreenery } from "./props.ts";
 import { MARKET_VENDORS, MARKET_KEYS, marketVendor } from "./shops.ts";
 import { formatHour } from "./lighting.ts";
-import { type PropType, type Prop, type CoveKind, COVES, propOpt, HULL_OPTS, GROTTO_OPTS, isLandmark } from "./world.ts";
-import { fitLandmark } from "./placement.ts";
-import { clampStair } from "./walks.ts";
+import { type PropType, type Prop, type CoveKind, COVES, propOpt, HULL_OPTS, GROTTO_OPTS } from "./world.ts";
 import { CROWDS, CROWD_KEY } from "./villagers.ts";
 
 // Hand-inked chart glyphs: slightly uneven strokes, drawn to sit on paper.
@@ -599,21 +597,17 @@ export class UI {
     }
   }
   private nodeEdit(id: string, op: "y" | "pad", v: number) {
-    const n = this.app.world.nodes.get(id); if (!n) return;
     this.app.begin();
-    if (op === "y") {
-      const want = Math.min(20, n.y + v), y = clampStair(this.app.world, n, want);
-      if (Math.abs(y - want) > 1e-6) this.toast("That's as steep as stairs go");
-      n.y = Math.max(Math.max(this.app.world.height(n.x, n.z), 0.2) + 0.2, y);
-    } else n.pad = v;
-    this.app.settleWalks(new Set([id]));
-    this.app.changed({ structures: true }); this.tools.refreshHandles(); this.refresh();
+    const result = this.app.ops.editNode(id, op === "y" ? { lift: v } : { pad: v });
+    if (!result.ok) { this.app.cancel(); return; }
+    if (result.value.clamped) this.toast("That's as steep as stairs go");
+    this.app.recordChange(result.change); this.tools.refreshHandles(); this.refresh();
   }
-  private edgeEdit(id: string, op: string, v: any) {
-    const e = this.app.world.edges.get(id); if (!e) return;
+  private edgeEdit(id: string, op: "style" | "width" | "rail", v: string | number | boolean) {
     if (!this.app.edits.active) this.app.begin();
-    (e as any)[op] = v;
-    this.app.settleWalks(new Set([e.a, e.b]));
-    this.app.changed({ structures: true }); if (!this.app.edits.active) this.refresh();
+    const patch = op === "style" ? { style: v as "deck" | "rope" } : op === "width" ? { width: v as number } : { rail: v as boolean };
+    const result = this.app.ops.editEdge(id, patch);
+    if (!result.ok) { this.app.cancel(); return; }
+    this.app.recordChange(result.change); if (!this.app.edits.active) this.refresh();
   }
 }

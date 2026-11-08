@@ -1,6 +1,6 @@
 import { World, N, uid, WATER_Y, PAINT_CH, isGreenery, isLandmark, isShop, type PaintType, type PropType, type Prop, type WalkNode, type WalkEdge } from "./world.ts";
-import { defaultDeckY, WALK_W, MAX_STAIR, slopeOf, isStairs } from "./walks.ts";
-import { doorOf } from "./houses.ts";
+import { defaultDeckY, WALK_W, MAX_STAIR, slopeOf, isStairs, clampStair } from "./walkway-rules.ts";
+import { doorOf } from "./house-model.ts";
 import { fitLandmark } from "./placement.ts";
 
 export type WorldChange = { terrain?: true; paint?: true; structures?: true };
@@ -228,6 +228,28 @@ export class WorldOps {
     Object.assign(current, candidate);
     if (candidate.type === "grotto") this.world.rebuildCarving();
     return { ok: true, value: current, change: propChange(candidate.type) };
+  }
+
+  editNode(id: string, patch: { lift?: number; pad?: number }): EditResult<{ node: WalkNode; clamped: boolean }> {
+    const node = this.world.nodes.get(id);
+    if (!node) return { ok: false, why: "Post no longer exists" };
+    let clamped = false;
+    if (patch.lift !== undefined) {
+      const want = Math.min(20, node.y + patch.lift), y = clampStair(this.world, node, want);
+      clamped = Math.abs(y - want) > 1e-6;
+      node.y = Math.max(Math.max(this.world.height(node.x, node.z), WATER_Y) + 0.2, y);
+    }
+    if (patch.pad !== undefined) node.pad = patch.pad;
+    this.settleWalks(new Set([id]));
+    return { ok: true, value: { node, clamped }, change: { structures: true } };
+  }
+
+  editEdge(id: string, patch: Partial<Pick<WalkEdge, "style" | "width" | "rail">>): EditResult<WalkEdge> {
+    const edge = this.world.edges.get(id);
+    if (!edge) return { ok: false, why: "Walkway no longer exists" };
+    Object.assign(edge, patch);
+    this.settleWalks(new Set([edge.a, edge.b]));
+    return { ok: true, value: edge, change: { structures: true } };
   }
 
   removeProp(id: string): WorldChange | null {

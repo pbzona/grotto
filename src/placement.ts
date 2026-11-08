@@ -1,4 +1,4 @@
-import { WATER_Y, N, propOpt, HULL_OPTS, grottoDims, hullDims, landmarkSamples, quaySamples, grottoTies, isLandmark, isShop, isGreenery, SHOP_DIMS, BOATYARD_SLIP, shopEntrance, bakeryDock, type World, type Prop, type PropType } from "./world.ts";
+import { WATER_Y, N, grottoDims, hullDims, landmarkSamples, quaySamples, grottoTies, isLandmark, isShop, isGreenery, SHOP_DIMS, BOATYARD_SLIP, shopEntrance, bakeryDock, type World, type Prop, type PropType } from "./world.ts";
 
 const clampN = (v: number) => Math.min(N - 0.01, Math.max(0.01, v));
 const H = (w: World, x: number, z: number) => w.height(clampN(x), clampN(z));

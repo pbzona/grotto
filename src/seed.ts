@@ -1,10 +1,10 @@
 import type { WorldOps } from "./world-ops.ts";
 import { N, DECK_Y, WATER_Y, carveCove, SHOP_DIMS, STEP, levelY, newVolume, uid, isLandmark, landmarkSamples, grottoDims, grottoDocks, grottoTies, grottoTieAt, shopEntrance, World, type Prop, type RoofType, type PropType, type WalkNode } from "./world.ts";
-import { doorOf, houseLayout, makeHouse, villagerHomes } from "./houses.ts";
+import { doorOf, houseLayout, makeHouse, villagerHomes } from "./house-model.ts";
 import { fitLandmark, grottoSites, landmarkClash } from "./placement.ts";
 import { planSloop, seaRoute } from "./voyages.ts";
-import { rng } from "./mesh.ts";
-import { defaultDeckY, MAX_STAIR, slopeOf } from "./walks.ts";
+import { rng } from "./random.ts";
+import { defaultDeckY, MAX_STAIR, slopeOf } from "./walkway-rules.ts";
 
   /** A lived-in starter village for the cove. */
 export function seedStarter(app: WorldOps) {
@@ -177,7 +177,12 @@ export function seedShops(app: WorldOps, seed: number) {
             if (!place(x, z, heading)) continue;
             const p = markets[markets.length - 1], entrance = shopEntrance(p);
             if (Math.hypot(entrance.x - door.x, entrance.z - door.z) > 0.2 || Math.abs(n.y - DECK_Y) > 0.1) { w.props.delete(p.id); markets.pop(); continue; }
-            const target = app.addNode(entrance.x, entrance.z, DECK_Y);
+            // The fit search may nudge a market a few centimetres off the pier's axis.
+            // Align its entrance before connecting it, so the new walkway stays square.
+            if (dx) p.z += n.z - entrance.z;
+            else p.x += n.x - entrance.x;
+            const aligned = shopEntrance(p);
+            const target = app.addNode(aligned.x, aligned.z, DECK_Y);
             app.addEdge(n, target);
             if (landmarkClash(w, p) || hadSloop && !planSloop(w) || grotto && !seaReach(w, grotto)) {
               w.removeNode(target.id); w.props.delete(p.id); markets.pop(); continue;
@@ -410,30 +415,24 @@ function villageCentre(w: World): [number, number] {
 export function seedGrotto(app: WorldOps, r: () => number): Prop | null {
   const w = app.world, near = villageCentre(w), seed = 0.2 + r() * 0.6;
   const sloop = !!planSloop(w);
-  keepHomes = villagerHomes(w).length;
+  const homes = villagerHomes(w).length;
   // spare the village sloop its berth if at all possible; a grotto matters more than the sloop
   for (const strict of sloop ? [true, false] : [false]) {
-    keepSloop = strict;
     for (const size of [1, 0] as const) {
       const opts = { size, dock: "left" as const };
       for (const f of grottoSites(w, seed, opts, near)) {
-        const p = placeGrotto(app, f, seed, opts, near);
+        const p = placeGrotto(app, f, seed, opts, near, homes, strict);
         if (p) return p;
       }
     }
-    const p = raiseHeadland(app, seed, near);
+    const p = raiseHeadland(app, seed, near, homes, strict);
     if (p) return p;
   }
   return null;
 }
 
-/** Set while seeding: the village sloop has a berth, and the grotto must not take it away. */
-let keepSloop = false;
-/** Set while seeding: carving the ledge or raising a headland can drop a house away from its door, and none may lose its walkway. */
-let keepHomes = 0;
-
 /** Tie the grotto on, and keep the walkway only if boats still reach the docks; prefer one that stays off the water. */
-function tieOn(app: WorldOps, p: Prop, homes: number): boolean {
+function tieOn(app: WorldOps, p: Prop, homes: number, keepSloop: boolean): boolean {
   const w = app.world;
   for (const water of [true, false]) {
     const nodes = new Set(w.nodes.keys()), edges = new Set(w.edges.keys()), ys = new Map([...w.nodes.values()].map(n => [n.id, n.y]));
@@ -454,7 +453,7 @@ function tieOn(app: WorldOps, p: Prop, homes: number): boolean {
 }
 
 /** Try a site: face the dock toward the village, and keep the grotto only if boats can reach it. */
-function placeGrotto(app: WorldOps, f: { x: number; z: number; rot: number }, seed: number, opts: Prop["opts"], near: [number, number]): Prop | null {
+function placeGrotto(app: WorldOps, f: { x: number; z: number; rot: number }, seed: number, opts: Prop["opts"], near: [number, number], homes: number, keepSloop: boolean): Prop | null {
   const w = app.world;
   const probe: Prop = { id: "ghost", type: "grotto", x: f.x, z: f.z, rot: f.rot, seed, opts };
   const toward: "left" | "right" = toL(probe, near[0], near[1])[0] < 0 ? "left" : "right";
@@ -463,7 +462,7 @@ function placeGrotto(app: WorldOps, f: { x: number; z: number; rot: number }, se
     if (landmarkClash(w, probe)) continue;
     const p = app.addProp("grotto", f.x, f.z, f.rot, seed);
     p.opts = { ...probe.opts }; app.carveGrotto(p);
-    if (seaReach(w, p) && tieOn(app, p, keepHomes)) return p;
+    if (seaReach(w, p) && tieOn(app, p, homes, keepSloop)) return p;
     w.props.delete(p.id); app.carveGrotto(p);
   }
   return null;
@@ -473,7 +472,7 @@ function placeGrotto(app: WorldOps, f: { x: number; z: number; rot: number }, se
  * No cliff will take a grotto: pick a stretch of shore with open, reachable water in front and raise
  * a rocky headland behind it, stepped down to the ground around so it reads as part of the coast.
  */
-function raiseHeadland(app: WorldOps, seed: number, near: [number, number]): Prop | null {
+function raiseHeadland(app: WorldOps, seed: number, near: [number, number], homes: number, keepSloop: boolean): Prop | null {
   const w = app.world, opts = { size: 0 as const, dock: "left" as const };
   const probe: Prop = { id: "ghost", type: "grotto", x: 0, z: 0, rot: 0, seed, opts };
   const g = grottoDims(probe), R = g.W + g.T + 1.4, back = g.D + 1.6;
@@ -518,7 +517,7 @@ function raiseHeadland(app: WorldOps, seed: number, near: [number, number]): Pro
     const was = lift.map(([i, j]) => w.baseLevel(i, j));
     for (const [i, j, l] of lift) w.setLevel(i, j, l);
     const fit = fitLandmark(w, "grotto", cd.x, cd.z, seed, opts, false);
-    const p = fit.ok ? placeGrotto(app, fit, seed, opts, near) : null;
+    const p = fit.ok ? placeGrotto(app, fit, seed, opts, near, homes, keepSloop) : null;
     if (p) return p;
     lift.forEach(([i, j], k) => w.setLevel(i, j, was[k]));
   }
@@ -617,11 +616,13 @@ export function linkGrotto(app: WorldOps, p: Prop, water = true): boolean {
   for (let q = 1; q < cells.length - 1; q++) if ((cells[q] & 3) !== (cells[q + 1] & 3)) qs.push(q);
   // square the first leg off the quay and the last onto the node it joins
   const along = (s: number) => (s & 3) % 2 === 0;
-  let prev = app.addNode(tie.x, tie.z, DECK_Y);
+  // Align near-identical axes exactly: a quay's computed tie can be millimetres off the village grid.
+  let prev = app.addNode(Math.abs(tie.x - goal.x) < 0.3 ? goal.x : tie.x,
+    Math.abs(tie.z - goal.z) < 0.3 ? goal.z : tie.z, DECK_Y);
   for (const [o, q] of qs.entries()) {
     const k = cells[q] >> 2;
     let x = (k % N) + 0.5, z = ((k / N) | 0) + 0.5;
-    if (o === 0) { if (along(cells[q])) z = tie.z; else x = tie.x; }
+    if (o === 0) { if (along(cells[q])) z = prev.z; else x = prev.x; }
     if (o === qs.length - 1) { if (along(cells[cells.length - 1])) z = goal.z; else x = goal.x; }
     const n = app.addNode(x, z, deck[k]);
     app.addEdge(prev, n); prev = n;
