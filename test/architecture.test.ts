@@ -112,6 +112,22 @@ test("walkway settling clears the terrain and preserves a climbable grade", () =
   }
 });
 
+test("dragging and settling posts replace records without changing old references", () => {
+  const { world, ops } = blank(); world.heights.fill(2);
+  const original = ops.addNode(12, 12, DECK_Y);
+  const moved = ops.moveNode(original.id, 13, 12);
+  assert.equal(moved.ok, true);
+  assert.equal(original.x, 12);
+  assert.equal(world.nodes.get(original.id)?.x, 13);
+  const end = ops.addNode(13, 20, DECK_Y);
+  ops.addEdge(world.nodes.get(original.id)!, end);
+  for (let z = 10; z <= 18; z++) for (let x = 11; x <= 15; x++) world.setLevel(x, z, 16);
+  const previous = world.nodes.get(original.id)!;
+  ops.settleWalks();
+  assert.equal(previous.y, DECK_Y);
+  assert.notStrictEqual(world.nodes.get(original.id), previous);
+});
+
 test("post and walkway panel operations settle the graph and undo together", () => {
   const { world, ops } = blank(); world.heights.fill(2);
   const a = ops.addNode(10, 10, DECK_Y), b = ops.addNode(10, 15, DECK_Y);

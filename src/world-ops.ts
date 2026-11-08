@@ -49,7 +49,7 @@ export class WorldOps {
       let g = -Infinity;
       for (let k = 0; k < 8; k++) g = Math.max(g, Hc(n.x + Math.cos(k * 0.785) * r, n.z + Math.sin(k * 0.785) * r));
       g = Math.max(g, Hc(n.x, n.z));
-      if (g + 0.1 > n.y) { n.y = Math.round((g + 0.16) * 20) / 20; changed = true; touched.add(n.id); }
+      if (g + 0.1 > n.y) { w.nodes.set(n.id, { ...n, y: Math.round((g + 0.16) * 20) / 20 }); changed = true; touched.add(n.id); }
     }
     const settle = (e: WalkEdge, depth: number) => {
       const A = w.nodes.get(e.a), B = w.nodes.get(e.b); if (!A || !B || e.style === "rope") return;
@@ -97,7 +97,7 @@ export class WorldOps {
         const [lo, hi] = A.y < B.y ? [A, B] : [B, A];
         if (w.edgesOf(lo.id).length === 1 && doorOf(w, lo)) continue; // a door: the floor sets it
         if (grottoTieAt(w, lo.x, lo.z)) continue; // a grotto quay sits at deck height
-        lo.y = Math.ceil((hi.y - MAX_STAIR * L) * 20 - 1e-6) / 20;
+        w.nodes.set(lo.id, { ...lo, y: Math.ceil((hi.y - MAX_STAIR * L) * 20 - 1e-6) / 20 });
         next.add(lo.id);
       }
       live.clear(); for (const id of next) live.add(id);
@@ -143,7 +143,7 @@ export class WorldOps {
       let g = Hc(n.x, n.z);
       for (let k = 0; k < 8; k++) g = Math.max(g, Hc(n.x + Math.cos(k * 0.785) * 0.55, n.z + Math.sin(k * 0.785) * 0.55));
       if (g + 0.1 > y || !this.clears(A, m, es[0].width) || !this.clears(m, B, es[1].width)) continue;
-      n.y = y; changed = true;
+      w.nodes.set(n.id, { ...n, y }); changed = true;
     }
     return changed;
   }
@@ -308,6 +308,16 @@ export class WorldOps {
     this.world.props.set(id, candidate);
     if (candidate.type === "grotto") this.world.rebuildCarving();
     return { ok: true, value: candidate, change: propChange(candidate.type) };
+  }
+
+  /** Drag preview: replace one post record without settling the graph until the gesture ends. */
+  moveNode(id: string, x: number, z: number, y?: number): EditResult<WalkNode> {
+    const old = this.world.nodes.get(id);
+    if (!old) return { ok: false, why: "Post no longer exists" };
+    if (![x, z, y ?? old.y].every(Number.isFinite) || x < -1 || x > N + 1 || z < -1 || z > N + 1 || (y !== undefined && (y < -3 || y > 20))) return { ok: false, why: "Invalid post position" };
+    const node = { ...old, x, z, y: y ?? old.y };
+    this.world.nodes.set(id, node);
+    return { ok: true, value: node, change: { structures: true } };
   }
 
   editNode(id: string, patch: { lift?: number; pad?: number }): EditResult<{ node: WalkNode; clamped: boolean }> {

@@ -327,7 +327,10 @@ export class Tools {
         const y = Math.round((d.y0 + dy) / 0.25) * 0.25;
         const g = this.world.height(n.x, n.z);
         const ny = Math.max(Math.max(g, WATER_Y) + 0.2, clampStair(this.world, n, Math.min(12, y)));
-        if (ny !== n.y) { n.y = ny; d.changed = true; this.app.changed({ structures: true }); this.refreshHandles(); }
+        if (ny !== n.y) {
+          const result = this.app.ops.moveNode(n.id, n.x, n.z, ny);
+          if (result.ok) { d.changed = true; this.app.recordChange(result.change); this.refreshHandles(); }
+        }
         break;
       }
       case "nodeMove": case "propMove": {
@@ -335,7 +338,11 @@ export class Tools {
         const x = Math.min(N - 0.3, Math.max(0.3, d.ox + g.x - d.start.x)), z = Math.min(N - 0.3, Math.max(0.3, d.oz + g.z - d.start.z));
         if (d.t === "nodeMove") {
           const n = this.world.nodes.get(d.id); if (!n) break;
-          n.x = Math.round(x * 4) / 4; n.z = Math.round(z * 4) / 4;
+          const result = this.app.ops.moveNode(n.id, Math.round(x * 4) / 4, Math.round(z * 4) / 4);
+          if (!result.ok) break;
+          d.changed = true; this.app.recordChange(result.change);
+          this.refreshHandles(); this.refreshHighlight();
+          break;
         } else {
           const p = this.world.props.get(d.id); if (!p) break;
           const result = this.app.ops.reviseProp(p.id, { x: isLandmark(p.type) ? x : Math.round(x * 10) / 10, z: isLandmark(p.type) ? z : Math.round(z * 10) / 10 });
@@ -344,8 +351,6 @@ export class Tools {
           this.refreshHandles(); this.refreshHighlight();
           break;
         }
-        d.changed = true; this.app.changed({ structures: true }); this.refreshHandles(); this.refreshHighlight();
-        break;
       }
     }
   }
@@ -833,13 +838,15 @@ export class Tools {
       const e0 = this.world.edgesOf(from.id)[0];
       this.app.addEdge(from, d.node, e0?.style ?? "deck", e0?.width ?? WALK_W);
     }
-    d.node.x = x; d.node.z = z;
-    // follow the ground up and down gently; over water stay at deck height
+    // Follow the ground up and down gently; over water stay at deck height.
     const want = defaultDeckY(this.world, x, z);
     const most = MAX_STAIR * Math.hypot(x - from.x, z - from.z);
-    d.node.y = dock ? dock.y : Math.abs(want - from.y) < 0.6 ? from.y : from.y + Math.max(-most, Math.min(most, want - from.y));
+    const y = dock ? dock.y : Math.abs(want - from.y) < 0.6 ? from.y : from.y + Math.max(-most, Math.min(most, want - from.y));
+    const result = this.app.ops.moveNode(d.node.id, x, z, y);
+    if (!result.ok) return;
+    d.node = result.value;
     d.changed = true;
-    this.app.changed({ structures: true });
+    this.app.recordChange(result.change);
   }
   private planeHit(y: number) {
     const r = this.ray.ray;
