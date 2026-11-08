@@ -59,6 +59,12 @@
   const boat = a.boats[0].mesh; a.changed({ structures: true }); a.update(0);
   ok('unrelated rebuild retains boat geometry', a.boats[0].mesh === boat);
 
+  reset(); const green = (3 * 48 + 3) * 4 + 2;
+  w.paint[green] = 0; a.changed({ paint: true }); a.update(0);
+  const beforeGreen = a.scatterCache.part;
+  w.paint[green] = 255; a.changed({ paint: true }); a.update(0);
+  ok('greenery paint invalidates scatter even when its byte is not at a sampled index', a.scatterCache.part !== beforeGreen);
+
   reset(); const gr = [...w.props.values()].find(p => p.type === 'grotto' && p.carved.length), [i, j] = gr.carved[0];
   const level = Math.min(24, w.baseLevel(i, j) + 1);
   a.begin(); w.setLevel(i, j, level); a.changed({ terrain: true });
