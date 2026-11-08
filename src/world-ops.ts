@@ -55,10 +55,13 @@ export class WorldOps {
   connectWalk(fromId: string, target: WalkTarget, style: WalkEdge["style"], width: number, pending?: WalkNode | null): EditResult<WalkNode> {
     const from = this.world.nodes.get(fromId) ?? (pending?.id === fromId ? pending : null);
     if (!from || !["deck", "rope"].includes(style) || !Number.isFinite(width) || width < 0.1 || width > 5) return { ok: false, why: "Invalid walkway" };
-    const before = this.world.save();
+    const before = this.world.save(), version = this.world.version;
     if (pending && !this.world.nodes.has(pending.id)) this.world.nodes.set(pending.id, pending);
     const known = new Set(this.world.nodes.keys());
-    const reject = (why: string): EditResult<WalkNode> => { this.world.load(before); return { ok: false, why }; };
+    const reject = (why: string): EditResult<WalkNode> => {
+      this.world.load(before); this.world.version = version;
+      return { ok: false, why };
+    };
     const next = this.walkTarget(target);
     if (!next) return reject("No walkway here");
     if (next.id === fromId) return reject("Pick another post");
@@ -271,7 +274,7 @@ export class WorldOps {
   }
 
   finishExtension(fromId: string, endId: string): EditResult<WalkNode> {
-    const before = this.world.save();
+    const before = this.world.save(), version = this.world.version;
     this.finishWalkwayEdit(new Set([fromId, endId]));
     const node = this.world.nodes.get(endId);
     const edges = this.world.edgesOf(endId);
@@ -279,7 +282,7 @@ export class WorldOps {
       const a = this.world.nodes.get(e.a), b = this.world.nodes.get(e.b);
       return !a || !b || slopeOf(a, b) > MAX_STAIR + 1e-6;
     })) {
-      this.world.load(before);
+      this.world.load(before); this.world.version = version;
       return { ok: false, why: "Too steep for stairs — start them further out" };
     }
     return { ok: true, value: node, change: { structures: true } };
@@ -322,7 +325,7 @@ export class WorldOps {
     return changed ? { terrain: true } : null;
   }
 
-  paintDisc(type: PaintType | "erase", x: number, z: number, r: number, strength = 1) {
+  paintDisc(type: PaintType | "erase", x: number, z: number, r: number, strength = 1): WorldChange {
     const w = this.world;
     for (let j = Math.floor(z - r - 1); j <= Math.ceil(z + r); j++) for (let i = Math.floor(x - r - 1); i <= Math.ceil(x + r); i++) {
       if (i < 0 || j < 0 || i >= N || j >= N) continue;
@@ -335,6 +338,7 @@ export class WorldOps {
       w.paint[k + ch] = Math.min(255, Math.max(w.paint[k + ch], f * 255));
       for (let c = 0; c < 4; c++) if (c !== ch) w.paint[k + c] = Math.max(0, w.paint[k + c] - f * 180);
     }
+    return { paint: true };
   }
 
   placeHouse(proposal: House): EditResult<House> {

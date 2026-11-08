@@ -185,8 +185,10 @@ test("splitting a walkway to branch preserves its style, and invalid joins roll 
   if (!start.ok) return;
   assert.equal(world.edges.size, 2);
   assert.ok([...world.edges.values()].every(edge => edge.style === "rope" && edge.width === 1.4 && edge.rail));
+  const version = world.version;
   const steep = ops.connectWalk(start.value.node.id, { kind: "new", x: 14, z: 12, y: 15, pad: 0 }, "deck", 1.1);
   assert.equal(steep.ok, false);
+  assert.equal(world.version, version);
   assert.equal(world.edges.size, 2, "failed attempt restores the split start");
   edits.cancel(); assert.deepEqual(world.save(), before);
   const long = ops.connectWalk(a.id, { kind: "new", x: 30, z: 10, y: DECK_Y, pad: 0 }, "deck", 1.1);

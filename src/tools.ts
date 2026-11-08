@@ -1030,9 +1030,9 @@ export class Tools {
     } else {
       if (!first && now - d.last < 30) return;
       d.last = now;
-      this.app.paintDisc(this.paintType, p.x, p.z, this.brush * 0.8, this.paintType === "erase" ? 0.5 : 1);
+      const change = this.app.ops.paintDisc(this.paintType, p.x, p.z, this.brush * 0.8, this.paintType === "erase" ? 0.5 : 1);
       d.changed = true;
-      this.app.changed({ paint: true });
+      this.app.recordChange(change);
     }
   }
 
