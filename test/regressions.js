@@ -246,5 +246,14 @@
     g.controls.target.copy(home); g.camera.position.copy(cam0); g.controls.update(); reset();
   }
   results.push(`PERF warmed unchanged structure rebuild median=${samples[4].toFixed(1)}ms max=${samples.at(-1).toFixed(1)}ms`);
+  {
+    const { UI } = await import('/src/ui.ts');
+    const getItem = Storage.prototype.getItem, setItem = Storage.prototype.setItem;
+    Storage.prototype.getItem = Storage.prototype.setItem = () => { throw new DOMException('Blocked', 'SecurityError'); };
+    try {
+      const ui = new UI(a, t, { orbit() {}, zoom() {}, reset() {} }, g.sound);
+      ok('UI starts when browser storage is blocked', ui.help.isConnected);
+    } finally { Storage.prototype.getItem = getItem; Storage.prototype.setItem = setItem; }
+  }
   return results.join('\n');
 })()

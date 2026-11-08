@@ -297,7 +297,12 @@ export class UI {
     window.addEventListener("keydown", e => this.key(e));
     this.refresh(); this.refreshTime();
     setInterval(() => this.refreshTime(), 500);
-    if (!localStorage.getItem("grotto.seenHelp")) { localStorage.setItem("grotto.seenHelp", "1"); setTimeout(() => this.toast("Press ? for controls · right-drag to look around"), 1200); }
+    let seenHelp = false;
+    try {
+      seenHelp = !!localStorage.getItem("grotto.seenHelp");
+      if (!seenHelp) localStorage.setItem("grotto.seenHelp", "1");
+    } catch { /* Help still works when browser storage is unavailable. */ }
+    if (!seenHelp) setTimeout(() => this.toast("Press ? for controls · right-drag to look around"), 1200);
   }
 
   toast(msg: string) {
