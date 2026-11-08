@@ -1,11 +1,12 @@
 import * as THREE from "three/webgpu";
-import { World, Prop, WATER_Y, N, fbm, isLandmark, landmarkSamples } from "./world";
+import { World, Prop, WATER_Y, N, fbm, isLandmark, isShop, shopBase, landmarkSamples } from "./world";
 import { MeshBuilder, V3, M, hexRGB, rng, hsh, add, scl, lerp3, norm, sub } from "./mesh";
 import type { Light, Anchor, Face } from "./houses";
 import { houseLayout, sideLine } from "./houses";
 import { FLOOR_H } from "./world";
 import { landingRadius, isStairs, lanternPost } from "./walks";
 import { buildHullTavern, buildGrotto, buildLighthouseBase } from "./landmarks";
+import { buildShop } from "./shops";
 
 /** Where a prop stands: the ground, or the deck of a walkway it sits on. */
 export function surfaceAt(world: World, x: number, z: number) {
@@ -72,6 +73,7 @@ export const PROP_INFO: Record<string, { label: string; water?: boolean; big?: b
   crane: { label: "Crane", r: 0.8 },
   rowboat: { label: "Rowboat", water: true, r: 1.0 }, sloop: { label: "Sloop", water: true, r: 1.9 },
   hull: { label: "Hull tavern", big: true, r: 4.2 }, grotto: { label: "Sea grotto", big: true, r: 3.4 }, lighthouse: { label: "Lighthouse", big: true, r: 1.4 },
+  market: { label: "Covered market", big: true, r: 2.7 }, boatyard: { label: "Boatyard", big: true, r: 3.3 }, bakery: { label: "Bakery", big: true, r: 2.4 },
 };
 
 /** Trees, shrubs and rocks are lesser objects: anything built over them hides them instead of being blocked. */
@@ -109,7 +111,7 @@ export function buildProps(world: World, mb: MeshBuilder, out: PropBuild) {
 export function buildOneProp(world: World, mb: MeshBuilder, p: Prop, out: PropBuild) {
   {
     mb.setOwner(`p:${p.id}`);
-    const y = p.type === "grotto" ? WATER_Y : isGreenery(p.type) ? groundBase(world, p.x, p.z, (p.type === "palm" ? 0.16 : 0.3) * (p.scale ?? 1)) : propBase(world, p);
+    const y = p.type === "grotto" ? WATER_Y : isShop(p.type) ? shopBase(world, p) : isGreenery(p.type) ? groundBase(world, p.x, p.z, (p.type === "palm" ? 0.16 : 0.3) * (p.scale ?? 1)) : propBase(world, p);
     const c = Math.cos(p.rot), s = Math.sin(p.rot), sc = p.scale ?? 1;
     /** Local height of the surface under local point (lx, lz), relative to the base (<= 0): posts reach down to it. */
     foot = (lx: number, lz: number) => Math.min(0, (surfaceAt(world, p.x + (lx * c - lz * s) * sc, p.z + (lx * s + lz * c) * sc) - y) / sc);
@@ -118,6 +120,7 @@ export function buildOneProp(world: World, mb: MeshBuilder, p: Prop, out: PropBu
     const L: Light[] = [];
     if (p.type === "hull") { buildHullTavern(mb, world, p, L); out.lights.push(...L); mb.xf = null; return; }
     if (p.type === "grotto") buildGrotto(mb, world, p, L);
+    else if (isShop(p.type)) buildShop(mb, world, p, L);
     else { if (p.type === "lighthouse") buildLighthouseBase(mb, world, p, y); propMesh(mb, p, L, out, y); }
     for (const l of L) { const w = mb.xf([l.x, l.y, l.z]); out.lights.push({ ...l, x: w[0], y: w[1], z: w[2] }); }
     mb.xf = null;

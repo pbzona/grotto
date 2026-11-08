@@ -1,4 +1,4 @@
-import { World, Prop, PropType, WATER_Y, N, levelY, propOpt, HULL_OPTS, GROTTO_OPTS, GROTTO_SINK, GROTTO_DECK, ARM_Z0, ARM_Z1, grottoQuays, grottoProfile, grottoWall, hullDims, grottoDims, landmarkSamples, quaySamples, grottoTies, isLandmark, fbm } from "./world";
+import { World, Prop, PropType, WATER_Y, N, levelY, propOpt, HULL_OPTS, GROTTO_OPTS, GROTTO_SINK, GROTTO_DECK, ARM_Z0, ARM_Z1, grottoQuays, grottoProfile, grottoWall, hullDims, grottoDims, landmarkSamples, quaySamples, grottoTies, isLandmark, isShop, SHOP_DIMS, shopEntrance, fbm } from "./world";
 import { MeshBuilder, V3, M, hexRGB, rng, lerp3, add } from "./mesh";
 import type { Light } from "./houses";
 import { PALETTES } from "./houses";
@@ -39,7 +39,16 @@ export function landmarkClash(w: World, p: Prop): string | null {
     const dx = b.x - a.x, dz = b.z - a.z, L2 = dx * dx + dz * dz || 1e-6;
     for (const [x, z] of pts) {
       const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / L2));
-      if (Math.hypot(a.x + dx * t - x, a.z + dz * t - z) < e.width / 2 + 0.25) return "A walkway is in the way";
+      if (Math.hypot(a.x + dx * t - x, a.z + dz * t - z) < e.width / 2 + 0.25) {
+        if (isShop(p.type)) {
+          const door = shopEntrance(p), { d } = SHOP_DIMS[p.type];
+          const c = Math.cos(p.rot), s = Math.sin(p.rot);
+          const lz = -(x - p.x) * s + (z - p.z) * c;
+          // A path may reach the threshold, but may not cross the building.
+          if (lz > d / 2 - 0.16 && [a, b].some(n => Math.hypot(n.x - door.x, n.z - door.z) < 0.3)) continue;
+        }
+        return "A walkway is in the way";
+      }
     }
   }
   for (const o of w.props.values()) {
@@ -80,6 +89,16 @@ function siteScore(w: World, p: Prop): { s: number; why?: string } {
     if (hi - lo > 1.6) return { s: -Infinity, why: "Too steep for a beached hull" };
     return { s: -(hi - lo) * 2 - Math.abs(mean - (WATER_Y + 0.15)) * 1.2 };
   }
+  if (isShop(p.type)) {
+    const { w: wid, d } = SHOP_DIMS[p.type], gs: number[] = [];
+    for (const x of [-wid * 0.43, 0, wid * 0.43]) for (const z of [-d * 0.43, 0, d * 0.43]) gs.push(G(x, z));
+    const lo = Math.min(...gs), hi = Math.max(...gs);
+    if (lo < WATER_Y + 0.05) return { s: -Infinity, why: "Shops need dry ground" };
+    if (hi - lo > 0.7) return { s: -Infinity, why: "Too steep for this building" };
+    const door = shopEntrance(p), entry = H(w, door.x, door.z);
+    if (entry < WATER_Y - 0.1 || Math.abs(entry - hi) > 0.65) return { s: -Infinity, why: "The entrance needs level ground" };
+    return { s: -(hi - lo) * 2 - Math.abs(entry - hi) };
+  }
   // lighthouse: prefers level, high ground
   const gs = [G(0, 0), G(1, 0), G(-1, 0), G(0, 1), G(0, -1)];
   const lo = Math.min(...gs), hi = Math.max(...gs);
@@ -95,8 +114,8 @@ function siteScore(w: World, p: Prop): { s: number; why?: string } {
 export function fitLandmark(w: World, type: PropType, hx: number, hz: number, seed: number, opts: Prop["opts"], flip: boolean, selfId = "ghost"): Fit {
   const probe: Prop = { id: selfId, type, x: hx, z: hz, rot: 0, seed, opts };
   let best: Fit | null = null, bestS = -Infinity, why = "Won't fit here";
-  const rots = type === "lighthouse" ? [0] : Array.from({ length: 16 }, (_, i) => (i / 16) * Math.PI * 2);
-  const R = type === "lighthouse" ? 1.5 : 3;
+  const rots = type === "lighthouse" ? [0] : Array.from({ length: isShop(type) ? 4 : 16 }, (_, i) => (i / (isShop(type) ? 4 : 16)) * Math.PI * 2);
+  const R = type === "lighthouse" || isShop(type) ? 1.5 : 3;
   for (let dz = -R; dz <= R + 1e-6; dz += 0.5) for (let dx = -R; dx <= R + 1e-6; dx += 0.5) {
     const d = Math.hypot(dx, dz); if (d > R) continue;
     probe.x = hx + dx; probe.z = hz + dz;

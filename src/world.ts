@@ -55,7 +55,8 @@ export interface WalkEdge { id: string; a: string; b: string; width: number; sty
 // ---------- props ----------
 export type PropType =
   | "palm" | "bougainvillea" | "scrub" | "rock" | "barrels" | "crates" | "lantern" | "nets" | "laundry"
-  | "rowboat" | "sloop" | "hull" | "grotto" | "lighthouse" | "crane";
+  | "rowboat" | "sloop" | "hull" | "grotto" | "lighthouse" | "crane"
+  | "market" | "boatyard" | "bakery";
 export interface Prop {
   id: string; type: PropType; x: number; z: number; rot: number; seed: number; scale?: number;
   /** variant choices for landmarks (unset keys fall back to a seeded pick) */
@@ -206,10 +207,30 @@ export function landmarkSamples(p: Prop): [number, number][] {
     for (let lx = -R - 0.6; lx <= R + 0.6 + 1e-6; lx += 0.7) for (let lz = 1.5; lz <= 5; lz += 0.7) add(lx, lz);
   } else if (p.type === "lighthouse") {
     add(0, 0); for (let k = 0; k < 10; k++) add(Math.cos(k * 0.628) * 1.15, Math.sin(k * 0.628) * 1.15);
+  } else if (isShop(p.type)) {
+    const { w, d } = SHOP_DIMS[p.type];
+    for (let x = -w / 2; x <= w / 2 + 0.01; x += 0.5) for (let z = -d / 2; z <= d / 2 + 0.01; z += 0.5) add(Math.min(x, w / 2), Math.min(z, d / 2));
   } else add(0, 0);
   return out;
 }
-export const isLandmark = (t: PropType) => t === "hull" || t === "grotto" || t === "lighthouse";
+export type ShopType = "market" | "boatyard" | "bakery";
+export const isShop = (t: PropType): t is ShopType => t === "market" || t === "boatyard" || t === "bakery";
+export const isBuildingProp = (t: PropType) => isShop(t) || t === "hull" || t === "lighthouse";
+export const SHOP_DIMS: Record<ShopType, { w: number; d: number; h: number }> = {
+  market: { w: 4.2, d: 3.2, h: 2.4 }, boatyard: { w: 5.2, d: 3.8, h: 2.8 }, bakery: { w: 3.1, d: 3, h: 2.5 },
+};
+/** Shops face local +z. Their doors and walkways meet outside the front edge. */
+export function shopEntrance(p: Prop) {
+  const { d } = SHOP_DIMS[p.type as ShopType];
+  return toWorld(p, 0, d / 2 + 0.6);
+}
+export function shopBase(w: World, p: Prop) {
+  const { w: wid, d } = SHOP_DIMS[p.type as ShopType], c = Math.cos(p.rot), s = Math.sin(p.rot);
+  let high = -Infinity;
+  for (const x of [-wid * 0.43, 0, wid * 0.43]) for (const z of [-d * 0.43, 0, d * 0.43]) high = Math.max(high, w.height(p.x + x * c - z * s, p.z + x * s + z * c));
+  return Math.round((high + 0.18) * 20) / 20;
+}
+export const isLandmark = (t: PropType) => t === "hull" || t === "grotto" || t === "lighthouse" || isShop(t);
 export const WATER_PROPS: PropType[] = ["rowboat", "sloop"];
 
 let _id = 0;
@@ -396,7 +417,7 @@ function decodeWorldData(s: RecordData) {
     num(e.width, 0.1, 5); choice(e.style, ["deck", "rope"]); bool(e.rail);
   });
   const props = entries<Prop>(s.props, p => {
-    choice(p.type, ["palm", "bougainvillea", "scrub", "rock", "barrels", "crates", "lantern", "nets", "laundry", "rowboat", "sloop", "hull", "grotto", "lighthouse", "crane"]);
+    choice(p.type, ["palm", "bougainvillea", "scrub", "rock", "barrels", "crates", "lantern", "nets", "laundry", "rowboat", "sloop", "hull", "grotto", "lighthouse", "crane", "market", "boatyard", "bakery"]);
     num(p.x, 0, N); num(p.z, 0, N); num(p.rot); num(p.seed);
     if (p.scale !== undefined) num(p.scale, 0.1, 5);
     if (p.opts !== undefined) for (const [k, v] of Object.entries(record(p.opts))) { text(k); if (typeof v === "number") num(v); else text(v); }
