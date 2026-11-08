@@ -14,7 +14,10 @@
   t.buildingChoice = 'market'; t.shopHeading = null; t.hover = { x: 10, z: 9 };
   const first = t.fitAt('market', 10, 9); t.rotate(); const turned = t.fitAt('market', 10, 9);
   ok('R turns a market entrance', first.ok && turned.ok && Math.abs(Math.cos(turned.rot - first.rot)) < 0.01);
-  for (const [type, x, z] of [['market', 15, 8], ['boatyard', 40, 15], ['bakery', 31, 8.5]]) {
+  t.shopHeading = null;
+  ok('market can sit on a slope near the village', t.fitAt('market', 16, 18).ok);
+  ok('bakery can sit near the village', t.fitAt('bakery', 16, 18).ok);
+  for (const [type, x, z] of [['market', 15, 8], ['boatyard', 14, 20], ['bakery', 31, 8.5]]) {
     t.buildingChoice = type; t.propSeed = 0.36; t.ghostOpts = {}; t.propRot = 0; t.shopHeading = null;
     const fit = t.fitAt(type, x, z), before = w.props.size;
     click(scr(x, z)); a.update(0);
@@ -23,8 +26,31 @@
     if (fit.ok && placed?.type === type) {
       ok(`${type} is pickable`, a.structures.userData.owners.includes(`p:${placed.id}`));
       ok(`${type} survives save/load`, (() => { const fresh = structuredClone(w.save()); return fresh.props.some(p => p.id === placed.id && p.type === type); })());
+      if (type === 'boatyard') {
+        const cs = Math.cos(placed.rot), sn = Math.sin(placed.rot), heights = [];
+        for (const lx of [-2.236, 0, 2.236]) for (const lz of [-1.634, 0, 1.634]) heights.push(w.height(placed.x + lx * cs - lz * sn, placed.z + lx * sn + lz * cs));
+        const base = Math.round((Math.max(...heights) + 0.18) * 20) / 20;
+        const Vec = g.camera.position.constructor, ray = t.ray;
+        ray.set(new Vec(placed.x + sn * 2.2, base + 2.7, placed.z - cs * 2.2), new Vec(-sn, 0, cs));
+        const hits = ray.intersectObject(a.structures).filter(hit => a.structures.userData.owners[a.structures.userData.triOwner[hit.faceIndex]] === `p:${placed.id}`);
+        ok('boatyard back gable is closed', hits.some(hit => hit.distance < 0.6), `hits=${hits.length}`);
+      }
+      if (type === 'bakery') {
+        const cs = Math.cos(placed.rot), sn = Math.sin(placed.rot), heights = [];
+        for (const lx of [-1.33, 0, 1.33, 2.25]) for (const lz of [-1.29, 0, 1.29]) heights.push(w.height(placed.x + lx * cs - lz * sn, placed.z + lx * sn + lz * cs));
+        const base = Math.round((Math.max(...heights) + 0.18) * 20) / 20;
+        const Vec = g.camera.position.constructor, ray = t.ray;
+        ray.set(new Vec(placed.x - sn * 1.8, base + 2.5, placed.z + cs * 1.8), new Vec(sn, 0, -cs));
+        const hits = ray.intersectObject(a.structures).filter(hit => a.structures.userData.owners[a.structures.userData.triOwner[hit.faceIndex]] === `p:${placed.id}`);
+        ok('bakery gable closes the gap below the roof', hits.some(hit => hit.distance < 0.6), `hits=${hits.length}`);
+      }
     }
   }
+  const { fitLandmark } = await import('/src/landmarks.ts');
+  const coast = new w.constructor(); coast.heights.fill(2);
+  for (let j = 0; j < 24; j++) for (let i = 0; i < 48; i++) coast.setLevel(i, j, 8);
+  ok('boatyard needs shallow water in front', !fitLandmark(coast, 'boatyard', 24, 8, 0.3, {}, false).ok);
+  ok('boatyard finds a site along a beach', fitLandmark(coast, 'boatyard', 24, 21, 0.3, {}, false).ok);
   const before = w.props.size;
   t.buildingChoice = 'market'; click(scr(24, 32)); a.update(0);
   ok('market rejects water', w.props.size === before);

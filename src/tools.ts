@@ -1,6 +1,6 @@
 import * as THREE from "three/webgpu";
 import type { App } from "./app";
-import { World, N, snap, House, Volume, newVolume, uid, FLOOR_H, MAX_LEVEL, PaintType, PropType, WalkNode, WalkEdge, RoofType, WATER_Y, DECK_Y, Prop, isLandmark, isShop, SHOP_DIMS, shopDoorAt, hullDims, grottoDims, grottoTies, grottoTieAt, QUAY_HALF, GROTTO_OPTS, propOpt } from "./world";
+import { World, N, snap, House, Volume, newVolume, uid, FLOOR_H, MAX_LEVEL, PaintType, PropType, WalkNode, WalkEdge, RoofType, WATER_Y, DECK_Y, Prop, isLandmark, isShop, SHOP_DIMS, BOATYARD_SLIP, shopDoorAt, hullDims, grottoDims, grottoTies, grottoTieAt, QUAY_HALF, GROTTO_OPTS, propOpt } from "./world";
 import { MeshBuilder } from "./mesh";
 import { buildHouse, houseLayout, makeHouse, siteDrop, MAX_SITE_DROP, nodeWall, nearWalls, sideLine, HouseBuild, Bay } from "./houses";
 import { defaultDeckY, landingRadius, WALK_W, MAX_STAIR, slopeOf, clampStair } from "./walks";
@@ -1406,7 +1406,7 @@ function landmarkOutline(p: Prop): [number, number][] {
     for (const [lx, lz] of [[-R - T, 0.8], [-R - 0.6, 0.8], [-R - 0.6, 5], [R + 0.6, 5], [R + 0.6, 0.8], [R + T, 0.8], [R + T, -D], [-R - T, -D]]) out.push(W(lx, lz));
   } else if (isShop(p.type)) {
     const { w, d } = SHOP_DIMS[p.type];
-    for (const [x, z] of [[-w / 2, -d / 2], [w / 2, -d / 2], ...(p.type === "bakery" ? [[w / 2 + 0.8, -d / 2], [w / 2 + 0.8, 0]] : []), [w / 2, d / 2], [-w / 2, d / 2]]) out.push(W(x, z));
+    for (const [x, z] of [[-w / 2, -d / 2], [w / 2, -d / 2], ...(p.type === "bakery" ? [[w / 2 + 0.8, -d / 2], [w / 2 + 0.8, 0]] : []), [w / 2, d / 2], ...(p.type === "boatyard" ? [[0.85, d / 2], [0.85, d / 2 + BOATYARD_SLIP], [-0.85, d / 2 + BOATYARD_SLIP], [-0.85, d / 2]] : []), [-w / 2, d / 2]]) out.push(W(x, z));
   } else for (let k = 0; k < 24; k++) { const a = (k / 24) * Math.PI * 2; out.push(W(Math.cos(a) * 1.25, Math.sin(a) * 1.25)); }
   return out;
 }

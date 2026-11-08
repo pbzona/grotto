@@ -211,19 +211,21 @@ export function landmarkSamples(p: Prop): [number, number][] {
     const { w, d } = SHOP_DIMS[p.type];
     for (let x = -w / 2; x <= w / 2 + 0.01; x += 0.5) for (let z = -d / 2; z <= d / 2 + 0.01; z += 0.5) add(Math.min(x, w / 2), Math.min(z, d / 2));
     if (p.type === "bakery") for (let x = w / 2; x <= w / 2 + 0.8; x += 0.2) for (let z = -d / 2 + 0.15; z <= -d / 2 + 1.5; z += 0.35) add(x, z);
+    if (p.type === "boatyard") for (let z = d / 2; z <= d / 2 + BOATYARD_SLIP + 0.01; z += 0.4) for (const x of [-0.85, -0.4, 0, 0.4, 0.85]) add(x, z);
   } else add(0, 0);
   return out;
 }
 export type ShopType = "market" | "boatyard" | "bakery";
 export const isShop = (t: PropType): t is ShopType => t === "market" || t === "boatyard" || t === "bakery";
 export const isBuildingProp = (t: PropType) => isShop(t) || t === "hull" || t === "lighthouse";
+export const BOATYARD_SLIP = 3.6;
 export const SHOP_DIMS: Record<ShopType, { w: number; d: number; h: number }> = {
   market: { w: 4.2, d: 3.2, h: 2.4 }, boatyard: { w: 5.2, d: 3.8, h: 2.8 }, bakery: { w: 3.1, d: 3, h: 2.5 },
 };
-/** Shops face local +z. Their doors and walkways meet outside the front edge. */
+/** The boatyard opens to the water at +z, but people enter from dry land at -z. */
 export function shopEntrance(p: Prop) {
   const { d } = SHOP_DIMS[p.type as ShopType];
-  return toWorld(p, 0, d / 2 + 0.6);
+  return toWorld(p, 0, (p.type === "boatyard" ? -1 : 1) * (d / 2 + 0.6));
 }
 export function shopDoorAt(w: World, x: number, z: number, reach = 0.8) {
   for (const p of w.props.values()) {

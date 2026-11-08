@@ -1,4 +1,4 @@
-import { type Prop, type World, SHOP_DIMS, shopBase, type ShopType } from "./world";
+import { type Prop, type World, SHOP_DIMS, BOATYARD_SLIP, WATER_Y, shopBase, type ShopType } from "./world";
 import { MeshBuilder, M, hexRGB, rng, type V3 } from "./mesh";
 import type { Light } from "./houses";
 
@@ -13,11 +13,15 @@ function lamp(m: MeshBuilder, L: Light[], x: number, y: number, z: number) {
   color(m, "#ffc579", M.lamp); m.cyl(x, z, y - 0.14, y + 0.08, 0.07, 0.055, 6);
   L.push({ x, y, z, r: 2.4, i: 0.65 });
 }
-function roof(m: MeshBuilder, w: number, d: number, eave: number, ridge: number, tiles: string) {
+function roof(m: MeshBuilder, w: number, d: number, eave: number, ridge: number, tiles: string, gable?: string, backOnly = false) {
   const x = w / 2 + 0.22, z = d / 2 + 0.2;
   color(m, tiles, M.tile);
   m.quad([[-x, eave, -z], [-x, eave, z], [0, ridge, z], [0, ridge, -z]], [-1, 1, 0]);
   m.quad([[x, eave, z], [x, eave, -z], [0, ridge, -z], [0, ridge, z]], [1, 1, 0]);
+  if (gable) for (const side of backOnly ? [-1] : [-1, 1]) {
+    color(m, gable, M.plaster);
+    m.tri([[-w / 2 + 0.08, eave - 0.04, side * d / 2], [w / 2 - 0.08, eave - 0.04, side * d / 2], [0, ridge - 0.04, side * d / 2]], [0, 0, side]);
+  }
   color(m, dark, M.plank);
   for (const xx of [-x, x]) m.beam([xx, eave, -z], [xx, eave, z], [1, 0, 0], 0.045, 0.045);
   m.beam([0, ridge, -z], [0, ridge, z], [1, 0, 0], 0.05, 0.05);
@@ -50,20 +54,69 @@ function market(m: MeshBuilder, p: Prop, L: Light[]) {
     }
     color(m, dark, M.plank); m.beam([x0, top + 0.02, 0], [x1, top + 0.02, 0], [0, 0, 1], 0.025, 0.025);
   }
+  // A scalloped front edge gives the pavilion a market silhouette from the quay.
+  for (let i = 0; i < 12; i++) {
+    const x0 = -hw + i * w / 12, x1 = x0 + w / 12;
+    color(m, cloth[i % 3 === 0 ? 2 : i % 2 ? 0 : 1], M.cloth);
+    m.tri([[x0, 2.1, hd + 0.17], [x1, 2.1, hd + 0.17], [(x0 + x1) / 2, 1.88, hd + 0.19]], [0, 0, 1]);
+  }
   for (const x of [-1.22, 1.22]) {
     color(m, plank, M.plank); m.box([x - 0.42, 0.55, -0.8], [x + 0.42, 0.68, 0.45]);
     for (const xx of [x - 0.34, x + 0.34]) for (const z of [-0.7, 0.32]) frame(m, xx, z, 0.55, 0);
-    for (let i = 0; i < 4; i++) basket(m, x + (i % 2 ? 0.24 : -0.24), -0.5 + Math.floor(i / 2) * 0.54, 0.68, r());
+    for (let i = 0; i < 3; i++) basket(m, x + (i % 2 ? 0.24 : -0.24), -0.5 + Math.floor(i / 2) * 0.54, 0.68, r());
+    color(m, "#73918b", M.plain);
+    m.blob([x + 0.15, 0.72, 0.12], [0.17, 0.06, 0.07], r() * 100, 0);
+    m.tri([[x + 0.25, 0.72, 0.12], [x + 0.37, 0.76, 0.05], [x + 0.37, 0.68, 0.19]], [0, 1, 0]);
   }
+  color(m, "#806046", M.plank); m.box([-0.32, 1.42, hd + 0.13], [0.32, 1.85, hd + 0.2]);
+  color(m, "#f1dfb5", M.plain); m.blob([0, 1.64, hd + 0.22], [0.22, 0.075, 0.02], 7, 0);
   basket(m, -hw + 0.36, hd - 0.32, 0.08, r());
   lamp(m, L, -hw + 0.2, 1.86, hd - 0.15); lamp(m, L, hw - 0.2, 1.86, hd - 0.15);
 }
-function boatyard(m: MeshBuilder, p: Prop, L: Light[]) {
+function slipway(m: MeshBuilder, world: World, p: Prop) {
+  const { d } = SHOP_DIMS.boatyard, start = d / 2, end = start + BOATYARD_SLIP;
+  const c = Math.cos(p.rot), s = Math.sin(p.rot), base = shopBase(world, p);
+  const ground = (x: number, z: number) => world.height(p.x + x * c - z * s, p.z + x * s + z * c);
+  const top = (z: number) => Math.max(0.1 + (WATER_Y + 0.12 - base - 0.1) * (z - start) / BOATYARD_SLIP, ground(0, z) + 0.13 - base, WATER_Y + 0.12 - base);
+  color(m, "#5a4535", M.plank);
+  for (const x of [-0.65, 0.65]) {
+    for (let k = 0; k < 12; k++) {
+      const z0 = start + BOATYARD_SLIP * k / 12, z1 = start + BOATYARD_SLIP * (k + 1) / 12;
+      m.beam([x, top(z0), z0], [x, top(z1), z1], [1, 0, 0], 0.09, 0.08);
+    }
+    for (const z of [start + 0.35, start + 1.65, end - 0.22]) m.cyl(x, z, ground(x, z) - base - 0.2, top(z), 0.075, 0.075, 6);
+  }
+  for (let k = 0; k <= 10; k++) {
+    const z = start + BOATYARD_SLIP * k / 10;
+    color(m, k % 2 ? "#876849" : "#a27c53", M.plank);
+    m.beam([-0.72, top(z) - 0.06, z], [0.72, top(z) - 0.06, z], [0, 0, 1], 0.06, 0.04);
+  }
+  // The open ribs ride on the rails with the bow pointing out into the shallows.
+  const stern = start + 0.5, bow = end - 0.32;
+  color(m, dark, M.plank); m.beam([0, top(stern) + 0.18, stern], [0, top(bow) + 0.18, bow], [1, 0, 0], 0.07, 0.065);
+  for (let i = 0; i <= 9; i++) {
+    const z = stern + (bow - stern) * i / 9, width = 0.07 + 0.65 * Math.sin(Math.PI * i / 9), y = top(z);
+    color(m, i % 2 ? "#b18a60" : "#98724d", M.plank);
+    m.beam([-width, y + 0.58, z], [0, y + 0.16, z], [0, 0, 1], 0.035, 0.037);
+    m.beam([0, y + 0.16, z], [width, y + 0.58, z], [0, 0, 1], 0.035, 0.037);
+    if (i > 1 && i < 8) m.beam([-width * 0.82, y + 0.52, z], [-width * 0.76, y + 0.52, z + 0.22], [0, 1, 0], 0.035, 0.03);
+  }
+  // A few painted strakes on one side; the other side still shows the unfinished ribs.
+  for (let k = 2; k < 7; k++) {
+    const a = stern + (bow - stern) * k / 9, b = stern + (bow - stern) * (k + 1) / 9;
+    const wa = 0.07 + 0.65 * Math.sin(Math.PI * k / 9), wb = 0.07 + 0.65 * Math.sin(Math.PI * (k + 1) / 9);
+    color(m, k % 3 === 0 ? "#4b7574" : "#386467", M.plank);
+    m.quad([[-wa, top(a) + 0.57, a], [-wb, top(b) + 0.57, b], [-wb * 0.55, top(b) + 0.3, b], [-wa * 0.55, top(a) + 0.3, a]], [-1, 0, 0]);
+  }
+}
+function boatyard(m: MeshBuilder, world: World, p: Prop, L: Light[]) {
   const { w, d } = SHOP_DIMS.boatyard, hw = w / 2, hd = d / 2, r = rng(p.seed);
   color(m, stone, M.stone); m.box([-hw, -0.32, -hd], [hw, 0, hd]);
   color(m, "#87674b", M.plank); m.box([-hw, 0, -hd], [hw, 0.11, hd]);
   color(m, "#80634e", M.plank);
   m.box([-hw, 0.1, -hd], [hw, 2.22, -hd + 0.16]);
+  color(m, dark, M.plank); m.box([-0.42, 0.12, -hd - 0.04], [0.42, 1.68, -hd + 0.18]);
+  color(m, "#d8ad68", M.metal); m.cyl(-0.29, -hd - 0.06, 0.82, 0.87, 0.035, 0.035, 6);
   m.box([-hw, 0.1, -hd], [-hw + 0.16, 2.22, hd]);
   m.box([hw - 0.16, 0.1, -hd], [hw, 2.22, hd]);
   // Open front: thick posts and a high lintel leave the boat visible from afar.
@@ -72,27 +125,26 @@ function boatyard(m: MeshBuilder, p: Prop, L: Light[]) {
   for (const x of [-hw, hw]) for (let z = -hd + 0.3; z < hd; z += 0.55) {
     color(m, z < 0 ? "#9c7855" : plank, M.plank); m.box([x - 0.02, 0.25, z], [x + 0.02, 2.05, z + 0.42]);
   }
-  roof(m, w, d, 2.22, 3.13, "#7a5b4b");
-  // A hull under construction, with ribs proud of its sheer and two trestles below.
-  for (const z of [-0.9, 0.55]) {
-    color(m, plank, M.plank); m.beam([-0.8, 0.55, z], [0.8, 0.55, z], [0, 0, 1], 0.06, 0.06);
-    for (const x of [-0.65, 0.65]) frame(m, x, z, 0.56, 0.08);
+  roof(m, w, d, 2.22, 3.13, "#7a5b4b", "#80634e", true);
+  // A work bench, loose timbers and spars leave the open bay legible behind the boat.
+  color(m, plank, M.plank); m.box([-hw + 0.2, 0.6, -0.55], [-hw + 0.95, 0.73, 0.9]);
+  for (const x of [-hw + 0.34, -hw + 0.8]) for (const z of [-0.45, 0.75]) frame(m, x, z, 0.6, 0.1);
+  for (let k = 0; k < 5; k++) {
+    color(m, k % 2 ? "#9f7956" : "#74543b", M.plank);
+    m.beam([hw - 0.4 - k * 0.13, 0.22 + k * 0.12, -1.3], [hw - 0.4 - k * 0.13, 0.22 + k * 0.12, 0.7], [1, 0, 0], 0.045, 0.045);
   }
-  for (let i = 0; i <= 10; i++) {
-    const z = -1.2 + i * 0.25, t = (z + 1.2) / 2.5, breadth = 0.78 * Math.sin(Math.PI * t) + 0.08;
-    color(m, i % 2 ? "#b18a60" : "#98724d", M.plank);
-    m.beam([-breadth, 0.85, z], [0, 0.47, z], [0, 0, 1], 0.033, 0.035);
-    m.beam([0, 0.47, z], [breadth, 0.85, z], [0, 0, 1], 0.033, 0.035);
-  }
-  color(m, dark, M.plank); m.beam([0, 0.46, -1.35], [0, 0.46, 1.45], [1, 0, 0], 0.07, 0.07);
+  slipway(m, world, p);
   for (let i = 0; i < 4; i++) {
     color(m, "#8f714e", M.plank); m.cyl(hw - 0.42 - i * 0.14, -1.05, 0.13, 0.16, 0.05, 0.05, 6);
     m.beam([hw - 0.42 - i * 0.14, 0.16, -1.3], [hw - 0.42 - i * 0.14, 0.16, 0.2 + r() * 0.3], [1, 0, 0], 0.04, 0.04);
   }
-  // Hoist over the entrance, with a hanging coil.
+  // A sailcloth patch, hoist and hanging coil show the workshop's trade.
+  color(m, "#d8c6a4", M.cloth);
+  m.quad([[hw - 0.2, 1.82, -hd + 0.38], [hw - 0.2, 1.82, hd - 0.38], [hw - 0.2, 0.6, hd - 0.28], [hw - 0.2, 0.74, -hd + 0.28]], [-1, 0, 0]);
   color(m, dark, M.plank); m.beam([hw - 0.3, 2.35, hd - 0.25], [hw - 0.3, 2.48, hd + 0.65], [1, 0, 0], 0.07, 0.07);
   color(m, "#c5a775", M.cloth); m.tube([[hw - 0.3, 2.45, hd + 0.57], [hw - 0.3, 1.35, hd + 0.57]], 0.018, 4);
   lamp(m, L, -hw + 0.28, 1.85, hd - 0.2);
+  lamp(m, L, 0.7, 1.8, -hd - 0.08);
 }
 function bakery(m: MeshBuilder, p: Prop, L: Light[]) {
   const { w, d } = SHOP_DIMS.bakery, hw = w / 2, hd = d / 2, r = rng(p.seed);
@@ -108,16 +160,20 @@ function bakery(m: MeshBuilder, p: Prop, L: Light[]) {
     color(m, dark, M.plank); m.box([x - 0.31, 0.82, hd - 0.07], [x + 0.31, 0.9, hd + 0.08]);
     m.box([x - 0.025, 0.87, hd + 0.04], [x + 0.025, 1.57, hd + 0.06]);
   }
-  roof(m, w, d, 2.22, 2.98, "#b97b58");
+  roof(m, w, d, 2.22, 2.98, "#b97b58", cream);
   color(m, "#c99d4d", M.cloth);
   m.quad([[-hw - 0.08, 1.77, hd], [hw + 0.08, 1.77, hd], [hw + 0.21, 1.49, hd + 0.73], [-hw - 0.21, 1.49, hd + 0.73]], [0, 1, 1]);
   for (const x of [-hw + 0.14, hw - 0.14]) frame(m, x, hd + 0.68, 1.51, 0.1);
   // Projecting oven and oversized chimney, the bakery's unmistakable profile.
   color(m, stone, M.stone); m.box([hw - 0.1, 0.14, -hd + 0.22], [hw + 0.74, 1.23, -hd + 1.45]);
   color(m, "#644337", M.stone); m.box([hw + 0.09, 0.36, -hd + 0.62], [hw + 0.77, 0.95, -hd + 1.07]);
+  color(m, "#f0a653", M.lamp); m.box([hw + 0.76, 0.51, -hd + 0.73], [hw + 0.78, 0.77, -hd + 0.96]);
   color(m, stone, M.stone); m.box([hw + 0.04, 1.13, -hd + 0.29], [hw + 0.62, 3.96, -hd + 0.91]);
   m.box([hw - 0.04, 3.85, -hd + 0.2], [hw + 0.71, 4.04, -hd + 1]);
   color(m, "#483831", M.unlit); m.box([hw + 0.14, 4.04, -hd + 0.38], [hw + 0.54, 4.06, -hd + 0.81]);
+  color(m, "#6f6152", M.stone); m.box([hw + 0.03, 3.2, -hd + 0.28], [hw + 0.64, 3.32, -hd + 0.92]);
+  color(m, dark, M.plank); m.box([-0.35, 1.79, hd + 0.07], [0.35, 2.1, hd + 0.14]);
+  color(m, "#e9c28b", M.plain); m.blob([0, 1.93, hd + 0.17], [0.23, 0.085, 0.025], 6, 0);
   basket(m, -hw + 0.3, hd + 0.32, 0.12, r());
   color(m, plank, M.plank); m.box([hw - 0.4, 0.63, hd + 0.17], [hw + 0.24, 0.72, hd + 0.56]);
   for (let i = 0; i < 3; i++) {
@@ -135,8 +191,19 @@ export function buildShop(m: MeshBuilder, world: World, p: Prop, lights: Light[]
   let low = base;
   for (const x of [-w / 2, w / 2]) for (const z of [-d / 2, d / 2]) low = Math.min(low, world.height(p.x + x * c - z * s, p.z + x * s + z * c));
   const drop = Math.max(0.18, base - low + 0.08);
-  color(m, stone, M.stone); m.box([-w / 2 + 0.06, -drop, -d / 2 + 0.06], [w / 2 - 0.06, -0.2, d / 2 - 0.06]);
+  if (drop < 0.5 && type !== "boatyard") {
+    color(m, stone, M.stone); m.box([-w / 2 + 0.06, -drop, -d / 2 + 0.06], [w / 2 - 0.06, -0.2, d / 2 - 0.06]);
+  } else {
+    const timber = type === "boatyard";
+    color(m, timber ? dark : stone, timber ? M.plank : M.stone);
+    for (const x of [-w / 2 + 0.28, 0, w / 2 - 0.28]) for (const z of [-d / 2 + 0.28, d / 2 - 0.28]) {
+      const y = world.height(p.x + x * c - z * s, p.z + x * s + z * c) - base - 0.22;
+      if (y < -0.2) m.cyl(x, z, y, -0.12, timber ? 0.11 : 0.23, timber ? 0.1 : 0.2, timber ? 7 : 8);
+    }
+    color(m, timber ? "#87674b" : "#c4a780", timber ? M.plank : M.stone);
+    m.box([-w / 2 + 0.07, -0.34, -d / 2 + 0.07], [w / 2 - 0.07, -0.16, d / 2 - 0.07]);
+  }
   if (type === "market") market(m, p, lights);
-  else if (type === "boatyard") boatyard(m, p, lights);
+  else if (type === "boatyard") boatyard(m, world, p, lights);
   else bakery(m, p, lights);
 }

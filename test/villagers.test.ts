@@ -116,6 +116,9 @@ test("shops only attract connected residents; the market lingers and the bakery 
     if (entered && v.people[0]?.phase === "emerge") emerged = true;
   }
   assert.ok(entered && emerged, "visitors reappear after entering");
+  w.props.get("m")!.type = "boatyard";
+  w.props.get("m")!.z = 12.5; // landward entrance: 12.5 - 1.9 - 0.6 = 10
+  assert.deepEqual(villagerVisits(w).map(s => [s.node, s.mode]), [["d", "enter"]]);
   w.edges.delete("ecd");
   assert.deepEqual(villagerVisits(w), [], "a disconnected threshold is not a destination");
   v.sync(w, homes, villagerVisits(w));
