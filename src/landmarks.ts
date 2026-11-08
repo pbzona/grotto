@@ -1,4 +1,4 @@
-import { World, Prop, PropType, WATER_Y, N, levelY, propOpt, HULL_OPTS, GROTTO_OPTS, GROTTO_SINK, GROTTO_DECK, ARM_Z0, ARM_Z1, grottoQuays, grottoProfile, grottoWall, hullDims, grottoDims, landmarkSamples, quaySamples, grottoTies, isLandmark, isShop, SHOP_DIMS, BOATYARD_SLIP, shopEntrance, fbm } from "./world";
+import { World, Prop, PropType, WATER_Y, N, levelY, propOpt, HULL_OPTS, GROTTO_OPTS, GROTTO_SINK, GROTTO_DECK, ARM_Z0, ARM_Z1, grottoQuays, grottoProfile, grottoWall, hullDims, grottoDims, landmarkSamples, quaySamples, grottoTies, isLandmark, isShop, SHOP_DIMS, BOATYARD_SLIP, shopEntrance, bakeryDock, fbm } from "./world";
 import { MeshBuilder, V3, M, hexRGB, rng, lerp3, add } from "./mesh";
 import type { Light } from "./houses";
 import { PALETTES } from "./houses";
@@ -93,7 +93,16 @@ function siteScore(w: World, p: Prop): { s: number; why?: string } {
     const { w: wid, d } = SHOP_DIMS[p.type], gs: number[] = [];
     for (const x of [-wid * 0.43, 0, wid * 0.43, ...(p.type === "bakery" ? [wid / 2 + 0.7] : [])]) for (const z of [-d * 0.43, 0, d * 0.43]) gs.push(G(x, z));
     const lo = Math.min(...gs), hi = Math.max(...gs);
-    if (p.type === "boatyard" ? [-wid * 0.43, 0, wid * 0.43].some(x => G(x, -d * 0.43) < WATER_Y + 0.05) : G(0, 0) < WATER_Y + 0.05 || gs.filter(g => g >= WATER_Y).length < 5) return { s: -Infinity, why: "Needs mostly dry land beneath it" };
+    if (p.type === "market") {
+      if (lo < WATER_Y - 3.1 || hi - lo > 3.2 || G(0, d / 2 + 0.6) < WATER_Y - 3.1) return { s: -Infinity, why: "Too deep or steep for market stilts" };
+      return { s: -(hi - lo) * 0.8 - Math.abs(hi - WATER_Y) * 0.05 };
+    }
+    const dock = p.type === "bakery" && w.isWater(p.x, p.z) ? bakeryDock(w, p) : undefined;
+    if (dock) {
+      if (lo < WATER_Y - 3.1 || hi - lo > 3.2 || hi > dock.y + 0.7 || H(w, dock.x, dock.z) > dock.y + 0.15) return { s: -Infinity, why: "The quay needs clear water and a steady dock" };
+      return { s: -(hi - lo) * 0.8 };
+    }
+    if (p.type === "boatyard" ? [-wid * 0.43, 0, wid * 0.43].some(x => G(x, -d * 0.43) < WATER_Y + 0.05) : G(0, 0) < WATER_Y + 0.05 || gs.filter(g => g >= WATER_Y).length < 5) return { s: -Infinity, why: p.type === "bakery" && w.isWater(p.x, p.z) ? "Needs a connected dock for a stone quay" : "Needs mostly dry land beneath it" };
     if (hi - lo > (p.type === "boatyard" ? 2.7 : 2.65) || lo < WATER_Y - 1) return { s: -Infinity, why: "Too steep for this building" };
     const door = shopEntrance(p), entry = H(w, door.x, door.z);
     if (entry < WATER_Y + 0.05 || Math.abs(entry - hi) > (p.type === "boatyard" ? 1.5 : 1.55)) return { s: -Infinity, why: "The entrance needs dry, reachable ground" };
@@ -127,24 +136,31 @@ export function fitLandmark(w: World, type: PropType, hx: number, hz: number, se
   let best: Fit | null = null, bestS = -Infinity, why = "Won't fit here";
   const rots = type === "lighthouse" ? [0] : isShop(type) && heading !== undefined ? [heading] : Array.from({ length: isShop(type) ? 4 : 16 }, (_, i) => (i / (isShop(type) ? 4 : 16)) * Math.PI * 2);
   const R = type === "boatyard" ? 3 : type === "lighthouse" || isShop(type) ? 2.5 : 3;
-  for (let dz = -R; dz <= R + 1e-6; dz += 0.5) for (let dx = -R; dx <= R + 1e-6; dx += 0.5) {
-    const d = Math.hypot(dx, dz); if (d > R) continue;
-    probe.x = hx + dx; probe.z = hz + dz;
+  const consider = (x: number, z: number, rot: number) => {
+    const d = Math.hypot(x - hx, z - hz); if (d > R + 1e-6) return;
+    probe.x = x; probe.z = z; probe.rot = rot;
+    const sc = siteScore(w, probe);
+    if (sc.s === -Infinity) { if (d < 1e-6 && rot === rots[0]) why = sc.why ?? why; return; }
+    const score = sc.s - d * 0.35;
+    if (score <= bestS) return;
+    const clash = landmarkClash(w, probe);
+    if (clash) { if (d < 1e-6) why = clash; return; }
+    bestS = score; best = { x, z, rot, ok: true };
+  };
+  for (let dz = -R; dz <= R + 1e-6; dz += 0.5) for (let dx = -R; dx <= R + 1e-6; dx += 0.5)
+    for (const rot of rots) consider(hx + dx, hz + dz, rot);
+  if (type === "bakery") for (const n of w.nodes.values()) {
+    if (!w.edgesOf(n.id).length || w.height(n.x, n.z) >= WATER_Y) continue;
     for (const rot of rots) {
-      probe.rot = rot;
-      const sc = siteScore(w, probe);
-      if (sc.s === -Infinity) { if (d === 0 && rot === rots[0]) why = sc.why ?? why; continue; }
-      const s = sc.s - d * 0.35;
-      if (s <= bestS) continue;
-      const clash = landmarkClash(w, probe);
-      if (clash) { if (d === 0) why = clash; continue; }
-      bestS = s; best = { x: probe.x, z: probe.z, rot, ok: true };
+      const offset = SHOP_DIMS.bakery.d / 2 + 0.6;
+      consider(n.x + Math.sin(rot) * offset, n.z - Math.cos(rot) * offset, rot);
     }
   }
-  if (!best) return { x: hx, z: hz, rot: 0, ok: false, why };
-  if (flip && type === "hull") best.rot += Math.PI;
-  best.x = Math.round(best.x * 10) / 10; best.z = Math.round(best.z * 10) / 10;
-  return best;
+  const selected = best as Fit | null;
+  if (!selected) return { x: hx, z: hz, rot: 0, ok: false, why };
+  if (flip && type === "hull") selected.rot += Math.PI;
+  selected.x = Math.round(selected.x * 10) / 10; selected.z = Math.round(selected.z * 10) / 10;
+  return selected;
 }
 
 /**

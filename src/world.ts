@@ -212,6 +212,8 @@ export function landmarkSamples(p: Prop): [number, number][] {
     for (let x = -w / 2; x <= w / 2 + 0.01; x += 0.5) for (let z = -d / 2; z <= d / 2 + 0.01; z += 0.5) add(Math.min(x, w / 2), Math.min(z, d / 2));
     if (p.type === "bakery") for (let x = w / 2; x <= w / 2 + 0.8; x += 0.2) for (let z = -d / 2 + 0.15; z <= -d / 2 + 1.5; z += 0.35) add(x, z);
     if (p.type === "boatyard") for (let z = d / 2; z <= d / 2 + BOATYARD_SLIP + 0.01; z += 0.4) for (const x of [-0.85, -0.4, 0, 0.4, 0.85]) add(x, z);
+    if (p.type === "market") for (const x of [-0.55, 0, 0.55]) for (const z of [d / 2, d / 2 + 0.4, d / 2 + 0.75]) add(x, z);
+    if (p.type === "bakery") for (const x of [-w / 2, 0, w / 2 + 0.3]) for (const z of [d / 2 + 0.18, d / 2 + 0.55, d / 2 + 0.76]) add(x, z);
   } else add(0, 0);
   return out;
 }
@@ -227,6 +229,11 @@ export function shopEntrance(p: Prop) {
   const { d } = SHOP_DIMS[p.type as ShopType];
   return toWorld(p, 0, (p.type === "boatyard" ? -1 : 1) * (d / 2 + 0.6));
 }
+export function bakeryDock(w: World, p: Prop) {
+  if (p.type !== "bakery") return undefined;
+  const door = shopEntrance(p);
+  return [...w.nodes.values()].find(n => w.isWater(n.x, n.z) && n.y >= WATER_Y + 0.25 && n.y <= WATER_Y + 2 && w.edgesOf(n.id).some(e => e.style === "deck") && Math.hypot(n.x - door.x, n.z - door.z) < 0.36);
+}
 export function shopDoorAt(w: World, x: number, z: number, reach = 0.8) {
   for (const p of w.props.values()) {
     if (!isShop(p.type)) continue;
@@ -239,7 +246,8 @@ export function shopBase(w: World, p: Prop) {
   const { w: wid, d } = SHOP_DIMS[p.type as ShopType], c = Math.cos(p.rot), s = Math.sin(p.rot);
   let high = -Infinity;
   for (const x of [-wid * 0.43, 0, wid * 0.43, ...(p.type === "bakery" ? [wid / 2 + 0.7] : [])]) for (const z of [-d * 0.43, 0, d * 0.43]) high = Math.max(high, w.height(p.x + x * c - z * s, p.z + x * s + z * c));
-  return Math.round((high + 0.18) * 20) / 20;
+  if (p.type === "bakery" && w.isWater(p.x, p.z)) return bakeryDock(w, p)?.y ?? DECK_Y;
+  return Math.round(Math.max(p.type === "market" ? DECK_Y : -Infinity, high + 0.18) * 20) / 20;
 }
 export const isLandmark = (t: PropType) => t === "hull" || t === "grotto" || t === "lighthouse" || isShop(t);
 export const WATER_PROPS: PropType[] = ["rowboat", "sloop"];

@@ -279,7 +279,7 @@ export class UI {
       <tr><td>Turn the view · zoom · reset</td><td><kbd>Q</kbd> <kbd>E</kbd> · <kbd>+</kbd> <kbd>−</kbd> · <kbd>F</kbd></td></tr>
       <tr><td>Tools</td><td><kbd>1</kbd> select · <kbd>2</kbd> buildings · <kbd>3</kbd> docks · <kbd>4</kbd> terrain · <kbd>5</kbd> paint · <kbd>6</kbd> props · <kbd>7</kbd> remove</td></tr>
       <tr><td>Houses</td><td>Drag out a footprint (or click). Select one: pull the <b>arrows</b> to stretch, <b>Shift-drag</b> an arrow for a new wing, drag the <b>ring</b> to move, drag the <b>diamond</b> up/down for floors. Click a wall to cycle window / wall / door.</td></tr>
-      <tr><td>Shops</td><td>The market and bakery fit on shores and moderate slopes. The boatyard needs a gentle coast with shallow water for its slipway. <kbd>R</kbd> turns the building. Connect a walkway to the entrance for visitors (the boatyard's is on its landward side).</td></tr>
+      <tr><td>Shops</td><td>The market stands on land or timber stilts over water. The bakery needs land or a live dock for its stone quay. The boatyard needs a gentle coast with shallow water for its slipway. <kbd>R</kbd> turns the building; connect the entrance for visitors.</td></tr>
       <tr><td>Stilts</td><td>Houses over water or on slopes stand on stilts at deck height automatically — the panel can force stilts or key a house into the slope.</td></tr>
       <tr><td>Docks & walkways</td><td>Click to lay posts, or drag a segment. Start or end on a walkway to branch, on a house wall for a door. <kbd>[</kbd> <kbd>]</kbd> raise/lower the next post — steep runs become stairs. Rope style makes sagging bridges. Double-click, right-click or <kbd>Esc</kbd> to finish.</td></tr>
       <tr><td>Edit a walkway</td><td>Drag any post — including the far end of a pier — to move it. Orange cones set its height; a dead end's cream arrow pulls out a new stretch.</td></tr>
@@ -407,7 +407,7 @@ export class UI {
     const k = (x: string) => `<kbd>${x}</kbd>`;
     switch (t.tool) {
       case "select": return t.sel?.kind === "house" ? `hover a wall to add a wing, the roof to lift · ${k("Esc")} done` : t.sel ? `${k("Del")} remove · ${k("Esc")} done` : `click to edit · right-drag to orbit · ${k("?")} help`;
-      case "house": return t.placingSpecial ? t.placingType === "boatyard" ? `click near shallow shore · ${k("R")} turn · entrance on land` : `click to place · ${k("R")} turn · connect a walkway for visitors` : `drag or click · ${k("R")} turn`;
+      case "house": return t.placingSpecial ? t.placingType === "boatyard" ? `click near shallow shore · ${k("R")} turn · entrance on land` : t.placingType === "bakery" ? `land or beside a dock · stone quay · ${k("R")} turn` : t.placingType === "market" ? `land or water · ${k("R")} turn · connect a walkway` : `click to place · ${k("R")} turn` : `drag or click · ${k("R")} turn`;
       case "walk": return t.chain ? `click to add · ${k("[")}${k("]")} height · ${k("Esc")} finish` : `click to start · snaps to docks & walls`;
       case "terrain": case "paint": return `drag to ${t.tool === "paint" ? "paint" : t.terrainOp} · ${k("[")}${k("]")} size`;
       case "prop": return t.propType === "grotto" ? `snaps into a cliff · ${k("R")} dock side` : `click to place · ${k("R")} turn`;
@@ -530,7 +530,7 @@ export class UI {
             pr.x = f.x; pr.z = f.z;
             if (pr.type !== "lighthouse") pr.rot = f.rot + (pr.type === "hull" && Math.cos(f.rot - pr.rot) < 0 ? Math.PI : 0);
           }
-          app.changed({ structures: true, terrain: pr.type === "grotto" }); this.refresh();
+          app.changed({ structures: true, terrain: pr.type === "grotto" }); t.refreshHandles(); t.refreshHighlight(); this.refresh();
         };
         variantRows(pr, (k, v) => { app.begin(); pr.opts = { ...pr.opts, [k]: v }; regrow(); });
         if (isGreenery(pr.type)) {

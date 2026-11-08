@@ -346,7 +346,7 @@ export class Tools {
             if (p.type !== "lighthouse") p.rot = f.rot + (p.type === "hull" && Math.cos(f.rot - p.rot) < 0 ? Math.PI : 0);
           } else { p.x = Math.round(x * 10) / 10; p.z = Math.round(z * 10) / 10; }
         }
-        d.changed = true; this.app.changed({ structures: true, terrain: d.t === "propMove" && this.world.props.get(d.id)?.type === "grotto" }); this.refreshHandles();
+        d.changed = true; this.app.changed({ structures: true, terrain: d.t === "propMove" && this.world.props.get(d.id)?.type === "grotto" }); this.refreshHandles(); this.refreshHighlight();
         break;
       }
     }
@@ -440,7 +440,7 @@ export class Tools {
     }
     if (this.tool === "house") { this.houseTurn = !this.houseTurn; this.updateGhost(); return; }
     const s = this.sel;
-    if (s?.kind === "prop") { const p = this.world.props.get(s.id); if (p && p.type !== "grotto") { this.app.begin(); const old = p.rot; p.rot += p.type === "hull" ? Math.PI : isShop(p.type) ? Math.PI / 2 : Math.PI / 4; if (isShop(p.type)) { const f = fitLandmark(this.world, p.type, p.x, p.z, p.seed, p.opts, false, p.id, p.rot); if (!f.ok || Math.cos(f.rot - p.rot) < 0.99) { p.rot = old; this.app.cancel(); this.toast("That entrance won't fit here"); return; } p.x = f.x; p.z = f.z; } this.app.changed({ structures: true }); } }
+    if (s?.kind === "prop") { const p = this.world.props.get(s.id); if (p && p.type !== "grotto") { this.app.begin(); const old = p.rot; p.rot += p.type === "hull" ? Math.PI : isShop(p.type) ? Math.PI / 2 : Math.PI / 4; if (isShop(p.type)) { const f = fitLandmark(this.world, p.type, p.x, p.z, p.seed, p.opts, false, p.id, p.rot); if (!f.ok || Math.cos(f.rot - p.rot) < 0.99) { p.rot = old; this.app.cancel(); this.toast("That entrance won't fit here"); return; } p.x = f.x; p.z = f.z; } this.app.changed({ structures: true }); this.refreshHandles(); this.refreshHighlight(); } }
     else if (s?.kind === "house") this.houseEdit("ridge");
   }
   deleteSelection() {
@@ -717,7 +717,7 @@ export class Tools {
       L.add(V(x, Math.max(this.world.height(x, z), WATER_Y) + 0.25, z), { t: "propXZ", id: p.id }, { glyph: "move", color: C.move });
     }
   }
-  private refreshHighlight() {
+  refreshHighlight() {
     const s = this.sel;
     let r = [-100, -100, -100, -100];
     if (s?.kind === "house") { const h = this.world.houses.get(s.id); const v = h?.volumes[s.vi]; if (v) r = [v.x0 - 0.02, v.z0 - 0.02, v.x1 + 0.02, v.z1 + 0.02]; }
@@ -1406,7 +1406,7 @@ function landmarkOutline(p: Prop): [number, number][] {
     for (const [lx, lz] of [[-R - T, 0.8], [-R - 0.6, 0.8], [-R - 0.6, 5], [R + 0.6, 5], [R + 0.6, 0.8], [R + T, 0.8], [R + T, -D], [-R - T, -D]]) out.push(W(lx, lz));
   } else if (isShop(p.type)) {
     const { w, d } = SHOP_DIMS[p.type];
-    for (const [x, z] of [[-w / 2, -d / 2], [w / 2, -d / 2], ...(p.type === "bakery" ? [[w / 2 + 0.8, -d / 2], [w / 2 + 0.8, 0]] : []), [w / 2, d / 2], ...(p.type === "boatyard" ? [[0.85, d / 2], [0.85, d / 2 + BOATYARD_SLIP], [-0.85, d / 2 + BOATYARD_SLIP], [-0.85, d / 2]] : []), [-w / 2, d / 2]]) out.push(W(x, z));
+    for (const [x, z] of [[-w / 2, -d / 2], [w / 2, -d / 2], ...(p.type === "bakery" ? [[w / 2 + 0.8, -d / 2], [w / 2 + 0.8, 0]] : []), [w / 2, d / 2], ...(p.type === "boatyard" ? [[0.85, d / 2], [0.85, d / 2 + BOATYARD_SLIP], [-0.85, d / 2 + BOATYARD_SLIP], [-0.85, d / 2]] : p.type === "market" ? [[0.56, d / 2], [0.56, d / 2 + 0.75], [-0.56, d / 2 + 0.75], [-0.56, d / 2]] : [[w / 2 + 0.3, d / 2 + 0.76], [-w / 2 - 0.1, d / 2 + 0.76]]), [-w / 2, d / 2]]) out.push(W(x, z));
   } else for (let k = 0; k < 24; k++) { const a = (k / 24) * Math.PI * 2; out.push(W(Math.cos(a) * 1.25, Math.sin(a) * 1.25)); }
   return out;
 }
