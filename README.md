@@ -41,8 +41,10 @@ buffers and world generation can still mutate their working data. `src/seed.ts` 
 Node without `App`. `src/houses.ts`, `src/walks.ts`, and `src/landmarks.ts` build geometry from
 those rules. `src/edits.ts` owns provisional edits, cancellation, undo and redo. Tools and panel
 controls begin an edit, preview changes, and commit once at the end of the gesture. Escape and
-pointer cancellation restore the pre-edit world; no-op edits preserve redo. `src/app.ts` connects
-those edits and reported model changes to saving and generated geometry. Dirty flags accumulate
+pointer cancellation restore the pre-edit world; no-op edits preserve redo. For walkway clicks,
+`Tools` resolves a pointer to a `WalkTarget`; `WorldOps` owns pending posts, splits, settling, and
+atomic rejection of invalid connections. `src/app.ts` connects accepted model changes to saving
+and generated geometry. Dirty flags accumulate
 until a rebuild; painting also invalidates scatter.
 
 The height array stores editable **base terrain**. Grotto caps are derived from the current

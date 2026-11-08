@@ -165,6 +165,12 @@ test("a pending walkway start becomes one undoable graph edit", () => {
   assert.equal(world.edges.size, 1);
   edits.undo(); assert.deepEqual(world.save(), before);
   edits.redo(); assert.equal(world.edges.size, 1);
+  edits.undo();
+  edits.begin();
+  const abandoned = ops.startWalk({ kind: "new", x: 13, z: 13, y: DECK_Y, pad: 0 });
+  assert.equal(abandoned.ok, true);
+  assert.equal(edits.cancel(), false, "an abandoned isolated post is a no-op");
+  assert.equal(edits.redo(), true, "abandoning the chain preserves redo");
 });
 
 test("splitting a walkway to branch preserves its style, and invalid joins roll back", () => {

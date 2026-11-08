@@ -32,7 +32,7 @@ export class WorldOps {
     if (target.kind === "edge") {
       const edge = this.world.edges.get(target.id);
       const a = edge && this.world.nodes.get(edge.a), b = edge && this.world.nodes.get(edge.b);
-      if (!a || !b || !Number.isFinite(target.t) || target.t <= 0.08 || target.t >= 0.92) return null;
+      if (!a || !b || !Number.isFinite(target.t) || target.t < 0.08 || target.t > 0.92) return null;
       const n = this.addNode(a.x + (b.x - a.x) * target.t, a.z + (b.z - a.z) * target.t, a.y + (b.y - a.y) * target.t);
       this.world.splitEdge(edge!.id, n);
       return n;
