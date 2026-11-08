@@ -534,12 +534,16 @@ export class UI {
         variantRows(pr, (k, v) => regrow({ opts: { ...pr.opts, [k]: v } }));
         if (isGreenery(pr.type)) {
           // live sliders: one undo step per gesture
-          const live = (fn: () => void) => { fn(); app.changed({ structures: true }); };
-          slider(row("Turn"), 0, 360, 5, ((pr.rot * 180 / Math.PI) % 360 + 360) % 360, v => live(() => { pr.rot = v * Math.PI / 180; }));
-          slider(row("Size"), 0.6, 1.6, 0.05, pr.scale ?? 1, v => live(() => { pr.scale = v; }));
+          const live = (patch: Partial<Pick<Prop, "rot" | "scale" | "opts">>) => {
+            const result = app.ops.reviseProp(pr.id, patch);
+            if (result.ok) app.recordChange(result.change);
+          };
+          const option = (key: string, value: number) => live({ opts: { ...app.world.props.get(pr.id)?.opts, [key]: value } });
+          slider(row("Turn"), 0, 360, 5, ((pr.rot * 180 / Math.PI) % 360 + 360) % 360, v => live({ rot: v * Math.PI / 180 }));
+          slider(row("Size"), 0.6, 1.6, 0.05, pr.scale ?? 1, v => live({ scale: v }));
           if (pr.type === "palm") {
-            slider(row("Height"), 0.6, 1.6, 0.05, +(pr.opts?.height ?? 1), v => live(() => { pr.opts = { ...pr.opts, height: v }; }));
-            slider(row("Lean"), 0, 1.4, 0.05, pr.opts?.lean !== undefined ? +pr.opts.lean : 0.6, v => live(() => { pr.opts = { ...pr.opts, lean: v }; }));
+            slider(row("Height"), 0.6, 1.6, 0.05, +(pr.opts?.height ?? 1), v => option("height", v));
+            slider(row("Lean"), 0, 1.4, 0.05, pr.opts?.lean !== undefined ? +pr.opts.lean : 0.6, v => option("lean", v));
           }
         }
         const acts: [string, () => void, string?][] = [["Reroll", () => regrow({ seed: Math.random(), opts: undefined })], ["Remove", () => t.deleteSelection(), "warn"]];

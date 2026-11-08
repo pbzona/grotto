@@ -375,7 +375,8 @@ export class World {
     return {
       v: 2, n: N,
       heights: b64(this.heights), paint: b64(this.paint),
-      houses: [...this.houses.values()], nodes: [...this.nodes.values()], edges: [...this.edges.values()], props: [...this.props.values()].map(({ carved, ...p }) => p),
+      houses: structuredClone([...this.houses.values()]), nodes: structuredClone([...this.nodes.values()]),
+      edges: structuredClone([...this.edges.values()]), props: structuredClone([...this.props.values()].map(({ carved, ...p }) => p)),
     };
   }
   load(input: unknown) {

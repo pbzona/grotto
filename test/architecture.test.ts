@@ -21,6 +21,7 @@ test("rejected revisions leave an existing shop unchanged; accepted changes undo
   const p: Prop = { id: "market", type: "market", x: 24, z: 24, rot: 0, seed: 0.3 };
   world.props.set(p.id, p);
   const saved = world.save();
+  const original = world.props.get(p.id)!;
   const fail = ops.reviseProp(p.id, { x: -20, z: -20 });
   assert.equal(fail.ok, false);
   assert.deepEqual(world.save(), saved);
@@ -28,6 +29,8 @@ test("rejected revisions leave an existing shop unchanged; accepted changes undo
   edits.begin();
   const change = ops.reviseProp(p.id, { seed: 0.4, opts: { vendor: "fruit" } });
   assert.equal(change.ok, true);
+  assert.equal(original.seed, 0.3);
+  assert.notStrictEqual(world.props.get(p.id), original);
   if (change.ok) assert.deepEqual(change.change, { structures: true });
   assert.equal(edits.commit(), true);
   assert.equal(edits.undo(), true);
@@ -90,6 +93,8 @@ test("post and walkway panel operations settle the graph and undo together", () 
   assert.equal(edits.commit(), true);
   assert.equal(world.nodes.get(a.id)?.pad, 1);
   assert.equal(world.edges.get(edge.id)?.width, 1.5);
+  assert.equal(edge.width, before.edges[0].width);
+  assert.equal(a.pad, before.nodes[0].pad);
   edits.undo(); assert.deepEqual(world.save(), before);
   edits.redo(); assert.equal(world.edges.get(edge.id)?.rail, true);
 });

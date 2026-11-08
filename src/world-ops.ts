@@ -241,7 +241,7 @@ export class WorldOps {
   }
 
   /** A rejected revision leaves the live prop untouched, including its grotto carving. */
-  reviseProp(id: string, patch: Partial<Pick<Prop, "x" | "z" | "rot" | "seed" | "opts" >>): EditResult<Prop> {
+  reviseProp(id: string, patch: Partial<Pick<Prop, "x" | "z" | "rot" | "seed" | "scale" | "opts">>): EditResult<Prop> {
     const current = this.world.props.get(id);
     if (!current) return { ok: false, why: "Prop no longer exists" };
     const candidate = { ...current, ...patch };
@@ -253,9 +253,10 @@ export class WorldOps {
       candidate.x = fit.x; candidate.z = fit.z;
       if (candidate.type !== "lighthouse") candidate.rot = fit.rot + (candidate.type === "hull" && Math.cos(fit.rot - candidate.rot) < 0 ? Math.PI : 0);
     }
-    Object.assign(current, candidate);
+    if (candidate.scale !== undefined && (!Number.isFinite(candidate.scale) || candidate.scale < 0.1 || candidate.scale > 5)) return { ok: false, why: "Invalid prop size" };
+    this.world.props.set(id, candidate);
     if (candidate.type === "grotto") this.world.rebuildCarving();
-    return { ok: true, value: current, change: propChange(candidate.type) };
+    return { ok: true, value: candidate, change: propChange(candidate.type) };
   }
 
   editNode(id: string, patch: { lift?: number; pad?: number }): EditResult<{ node: WalkNode; clamped: boolean }> {
@@ -264,14 +265,17 @@ export class WorldOps {
     if ((patch.lift !== undefined && !Number.isFinite(patch.lift)) ||
         (patch.pad !== undefined && (!Number.isFinite(patch.pad) || patch.pad < 0 || patch.pad > 5))) return { ok: false, why: "Invalid post edit" };
     let clamped = false;
+    let y = node.y;
     if (patch.lift !== undefined) {
-      const want = Math.min(20, node.y + patch.lift), y = clampStair(this.world, node, want);
+      const want = Math.min(20, node.y + patch.lift);
+      y = clampStair(this.world, node, want);
       clamped = Math.abs(y - want) > 1e-6;
-      node.y = Math.max(Math.max(this.world.height(node.x, node.z), WATER_Y) + 0.2, y);
+      y = Math.max(Math.max(this.world.height(node.x, node.z), WATER_Y) + 0.2, y);
     }
-    if (patch.pad !== undefined) node.pad = patch.pad;
+    const next = { ...node, y, pad: patch.pad ?? node.pad };
+    this.world.nodes.set(id, next);
     this.settleWalks(new Set([id]));
-    return { ok: true, value: { node, clamped }, change: { structures: true } };
+    return { ok: true, value: { node: next, clamped }, change: { structures: true } };
   }
 
   editEdge(id: string, patch: Partial<Pick<WalkEdge, "style" | "width" | "rail">>): EditResult<WalkEdge> {
@@ -280,9 +284,10 @@ export class WorldOps {
     if (patch.width !== undefined && (!Number.isFinite(patch.width) || patch.width < 0.1 || patch.width > 5) ||
         patch.style !== undefined && patch.style !== "deck" && patch.style !== "rope" ||
         patch.rail !== undefined && typeof patch.rail !== "boolean") return { ok: false, why: "Invalid walkway edit" };
-    Object.assign(edge, patch);
-    this.settleWalks(new Set([edge.a, edge.b]));
-    return { ok: true, value: edge, change: { structures: true } };
+    const next = { ...edge, ...patch };
+    this.world.edges.set(id, next);
+    this.settleWalks(new Set([next.a, next.b]));
+    return { ok: true, value: next, change: { structures: true } };
   }
 
   removeProp(id: string): WorldChange | null {

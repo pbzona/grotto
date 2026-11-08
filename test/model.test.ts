@@ -9,6 +9,9 @@ test("valid saves round-trip without sharing record objects", () => {
   const save = w.save(), copy = new World(); copy.load(save);
   assert.deepEqual(copy.save(), save); save.nodes[0].x = 9;
   assert.equal(copy.nodes.get("a")!.x, -0.6);
+  const exported = copy.save();
+  exported.nodes[0].x = 11;
+  assert.equal(copy.nodes.get("a")!.x, -0.6, "exported records do not alias the live world");
 });
 
 test("malformed saves fail atomically, including invalid paint after valid heights", () => {
