@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { World } from "../src/world.ts";
-import { Villagers, headcount, route, MAX_VILLAGERS, type Home } from "../src/villagers.ts";
+import { Villagers, headcount, route, walkGraph, MAX_VILLAGERS, type Home } from "../src/villagers.ts";
 
 function line(w: World, ids: string[], y = 1) {
   ids.forEach((id, i) => w.nodes.set(id, { id, x: 10 + i * 2, z: 10, y, pad: 0 }));
@@ -59,6 +59,23 @@ test("villagers appear at the door, stay on the walkways and their component", (
     }
   }
   assert.ok(walked);
+});
+
+test("villagers on ground-level rope paths walk on the ground, not through it", () => {
+  const w = new World(); w.heights.fill(8); line(w, ["a", "b"], w.height(11, 10) + 0.2);
+  w.nodes.get("b")!.x = 18; w.edges.get("eab")!.style = "rope";
+  const v = new Villagers(); v.density = 1;
+  v.sync(w, [{ house: "h", node: "a", seed: 3, size: 1 }]);
+  const person = v.people[0]; person.phase = "walk"; person.path = ["b"]; person.d = 4; person.speed = 0;
+  v.update(w, 0.1);
+  assert.ok(person.y >= w.height(person.x, person.z), `person buried at ${person.y}`);
+  w.props.set("grotto", { id: "grotto", type: "grotto", x: 40, z: 40, rot: 0, seed: 0.3 });
+  w.rebuildCarving();
+  v.update(walkGraph(w), 0.1);
+  assert.ok(person.y >= w.height(person.x, person.z), "a copied walkway graph also sees the terrain");
+  w.nodes.get("a")!.y += 2; w.nodes.get("b")!.y += 2;
+  v.update(w, 0.1);
+  assert.ok(person.y > w.height(person.x, person.z) + 1, "suspended rope still sags above ground");
 });
 
 test("a deleted house's villagers fade away; a cut walkway sends them home", () => {

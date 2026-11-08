@@ -66,6 +66,22 @@ test("a run to a pier: signal, boat in and out, crates carried home and used up 
   assert.deepEqual(planRun(w, LOOK, homes).path, plan.path, "deterministic");
 });
 
+test("carriers crossing a grounded rope edge stay above the ground", () => {
+  const w = coast();
+  for (let j = 0; j < 32; j++) for (let i = 0; i < N; i++) w.setLevel(i, j, 7);
+  const homes = pier(w); w.edges.get("e1")!.style = "rope";
+  const plan = planRun(w, LOOK, homes);
+  assert.equal(plan.signal, "run");
+  assert.ok(plan.walk.some(s => s.rope));
+  let inspected = 0;
+  for (let h = 20; h < 28; h += 0.01) for (const c of runAt(plan, h % 24).carriers) {
+    if (c.z < 29 || c.z > 31) continue;
+    inspected++;
+    assert.ok(c.y >= w.height(c.x, c.z), `carrier buried at ${c.z.toFixed(2)}: ${c.y.toFixed(2)}`);
+  }
+  assert.ok(inspected > 0, "carriers crossed the rope edge");
+});
+
 test("a landing with no way home: the boat waits and leaves still loaded", () => {
   const w = coast(); pier(w);
   const plan = planRun(w, LOOK, []);

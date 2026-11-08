@@ -19,6 +19,7 @@ interface Seg { ax: number; ay: number; az: number; bx: number; by: number; bz: 
 interface Trip { start: number; pickup: number; drop: number; end: number }
 
 export interface RunPlan {
+  ground: (x: number, z: number) => number;
   lookouts: Lookout[];
   /** "run": a boat is coming; "dark": a lookout with nowhere a boat can land; null: no lookout. */
   signal: "run" | "dark" | null;
@@ -112,6 +113,7 @@ function walkHome(world: Paths, from: string, homes: Home[]) {
 /** `moored`: where the village sloop lies overnight (kept clear). */
 export function planRun(world: World, lookouts: Lookout[], homes: Home[], moored: Pt[] = []): RunPlan {
   const plan: RunPlan = {
+    ground: (x, z) => world.height(x, z),
     lookouts, signal: lookouts.length ? "dark" : null, landing: null, path: null, cum: [0], length: 0,
     travel: 0, arrive: 0, leave: 0, home: null, walk: [], walkLength: 0, speed: WALK_SPEED, crates: CRATES, carriers: [], stack: null,
   };
@@ -204,9 +206,10 @@ function walkAt(plan: RunPlan, s: number, lane: number) {
   while (i < plan.walk.length - 1 && s > plan.walk[i].L) { s -= plan.walk[i].L; i++; }
   const g = plan.walk[i], t = Math.max(0, Math.min(1, s / (g.L || 1)));
   const ux = (g.bx - g.ax) / (g.L || 1), uz = (g.bz - g.az) / (g.L || 1), off = lane * Math.min(1, Math.sin(Math.PI * t) * 3);
+  const x = g.ax + (g.bx - g.ax) * t - uz * off, z = g.az + (g.bz - g.az) * t + ux * off;
   let y = g.ay + (g.by - g.ay) * t;
-  if (g.rope) y -= Math.sin(Math.PI * t) * Math.min(0.9, 0.06 * g.L + 0.05);
-  return { x: g.ax + (g.bx - g.ax) * t - uz * off, y, z: g.az + (g.bz - g.az) * t + ux * off, ux, uz };
+  if (g.rope) y = Math.max(y - Math.sin(Math.PI * t) * Math.min(0.9, 0.06 * g.L + 0.05), plan.ground(x, z) + 0.05);
+  return { x, y, z, ux, uz };
 }
 
 /** Everything about the run at this hour. Pure: the same plan and hour always give the same scene. */

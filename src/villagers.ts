@@ -1,7 +1,7 @@
 import { DECK_Y, grottoTieAt, grottoDockWalk, type World, type WalkNode, type WalkEdge } from "./world.ts";
 
 /** The walkable network: walkway nodes and edges, plus any grotto docks they tie on to. */
-export type Paths = Pick<World, "nodes" | "edges">;
+export type Paths = Pick<World, "nodes" | "edges"> & Partial<Pick<World, "height">>;
 
 /**
  * Villagers: a few people per house, living only on the walkway network. They are derived from the
@@ -235,7 +235,10 @@ export class Villagers {
     const lane = v.lane * ((e?.width ?? 1) / 2 - 0.15) * Math.min(1, Math.sin(Math.PI * t) * 3);
     v.x = a.x + dx * t - uz * lane; v.z = a.z + dz * t + ux * lane;
     v.y = a.y + (b.y - a.y) * t;
-    if (e?.style === "rope") v.y -= Math.sin(Math.PI * t) * Math.min(0.9, 0.06 * L + 0.05);
+    if (e?.style === "rope") {
+      v.y -= Math.sin(Math.PI * t) * Math.min(0.9, 0.06 * L + 0.05);
+      if (world.height) v.y = Math.max(v.y, world.height(v.x, v.z) + 0.05);
+    }
     v.heading = Math.atan2(ux, uz);
   }
 }
@@ -306,5 +309,5 @@ export function walkGraph(world: World): Paths {
       nodes.set(n.id, n); edges.set(e.id, e); prev = n;
     });
   }
-  return { nodes, edges };
+  return { nodes, edges, height: world.height.bind(world) };
 }
