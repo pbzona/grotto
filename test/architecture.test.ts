@@ -194,6 +194,25 @@ test("splitting a walkway to branch preserves its style, and invalid joins roll 
   assert.deepEqual(world.save(), before);
 });
 
+test("extending a post inherits style and settles as an undoable edit", () => {
+  const { world, ops } = blank(); world.heights.fill(2);
+  const a = ops.addNode(12, 12, DECK_Y), b = ops.addNode(12, 16, DECK_Y);
+  const edge = ops.addEdge(a, b, "rope", 0.9);
+  const edits = new Edits(world), before = world.save();
+  edits.begin();
+  assert.equal(ops.previewExtension(b.id, 12, 16.2).ok, false, "too-short preview is rejected without a post");
+  assert.deepEqual(world.save(), before);
+  const preview = ops.previewExtension(b.id, 12, 20);
+  assert.equal(preview.ok, true);
+  if (!preview.ok) return;
+  const linked = world.edgesOf(preview.value.id);
+  assert.equal(linked.length, 1);
+  assert.equal(linked[0].style, edge.style);
+  assert.equal(linked[0].width, edge.width);
+  assert.equal(ops.finishExtension(b.id, preview.value.id).ok, true);
+  edits.commit(); edits.undo(); assert.deepEqual(world.save(), before);
+});
+
 test("generation runs in Node against world rules, without App or a renderer", () => {
   const starter = blank(); seedStarter(starter.ops);
   assert.ok(starter.world.houses.size >= 5);

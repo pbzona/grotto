@@ -247,6 +247,44 @@ export class WorldOps {
     return { structures: true };
   }
 
+  /** Update an extension preview. The pointer provides a target; model rules set its grade and inherited style. */
+  previewExtension(fromId: string, x: number, z: number, endId?: string, dockY?: number): EditResult<WalkNode> {
+    const from = this.world.nodes.get(fromId);
+    if (!from || ![x, z, dockY ?? from.y].every(Number.isFinite) || x < -1 || x > N + 1 || z < -1 || z > N + 1 ||
+        (endId && !this.world.edgesOf(endId).some(e => e.a === fromId || e.b === fromId))) return { ok: false, why: "Invalid walkway extension" };
+    const length = Math.hypot(x - from.x, z - from.z);
+    if (length < 0.6 || length > 14) return { ok: false, why: "Add a post nearer the end" };
+    const want = defaultDeckY(this.world, x, z), most = MAX_STAIR * length;
+    const y = dockY ?? (Math.abs(want - from.y) < 0.6 ? from.y : from.y + Math.max(-most, Math.min(most, want - from.y)));
+    if (y < -3 || y > 20) return { ok: false, why: "Invalid walkway height" };
+    let node: WalkNode;
+    if (endId) {
+      const result = this.moveNode(endId, x, z, y);
+      if (!result.ok) return result;
+      node = result.value;
+    } else {
+      const e = this.world.edgesOf(fromId)[0];
+      node = this.addNode(x, z, y);
+      this.addEdge(from, node, e?.style ?? "deck", e?.width ?? WALK_W);
+    }
+    return { ok: true, value: node, change: { structures: true } };
+  }
+
+  finishExtension(fromId: string, endId: string): EditResult<WalkNode> {
+    const before = this.world.save();
+    this.finishWalkwayEdit(new Set([fromId, endId]));
+    const node = this.world.nodes.get(endId);
+    const edges = this.world.edgesOf(endId);
+    if (!node || edges.some(e => {
+      const a = this.world.nodes.get(e.a), b = this.world.nodes.get(e.b);
+      return !a || !b || slopeOf(a, b) > MAX_STAIR + 1e-6;
+    })) {
+      this.world.load(before);
+      return { ok: false, why: "Too steep for stairs — start them further out" };
+    }
+    return { ok: true, value: node, change: { structures: true } };
+  }
+
   finishWalkwayEdit(near?: Set<string>): WorldChange | null {
     const count = this.world.nodes.size;
     this.world.pruneNodes();

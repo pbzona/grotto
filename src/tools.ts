@@ -3,7 +3,7 @@ import type { App } from "./app.ts";
 import { World, N, snap, House, Volume, newVolume, FLOOR_H, PaintType, PropType, WalkNode, WalkEdge, RoofType, WATER_Y, DECK_Y, Prop, isLandmark, isShop, SHOP_DIMS, BOATYARD_SLIP, shopDoorAt, hullDims, grottoDims, grottoTies, QUAY_HALF, GROTTO_OPTS, propOpt } from "./world.ts";
 import { MeshBuilder } from "./mesh.ts";
 import { buildHouse, houseLayout, makeHouse, siteDrop, MAX_SITE_DROP, nodeWall, nearWalls, sideLine, HouseBuild, Bay } from "./houses.ts";
-import { defaultDeckY, landingRadius, WALK_W, MAX_STAIR, clampStair } from "./walks.ts";
+import { defaultDeckY, landingRadius, WALK_W, clampStair } from "./walks.ts";
 import { buildOneProp, buildBoat, PROP_INFO, boatFreeboard, isGreenery, palmPierces } from "./props.ts";
 import { fitLandmark, type Fit } from "./placement.ts";
 import type { TerrainOp, WalkTarget } from "./world-ops.ts";
@@ -379,8 +379,12 @@ export class Tools {
         break;
       }
       case "extend":
-        if (!d.changed) this.app.cancel();
-        else if (d.node) { const change = this.app.ops.finishWalkwayEdit(new Set([d.from, d.node.id])); if (change) this.app.recordChange(change); this.select({ kind: "node", id: d.node.id }); }
+        if (!d.changed || !d.node) this.app.cancel();
+        else {
+          const result = this.app.ops.finishExtension(d.from, d.node.id);
+          if (!result.ok) { this.app.cancel(); this.toast(result.why); }
+          else { this.app.recordChange(result.change); this.select({ kind: "node", id: result.value.id }); }
+        }
         this.onChange?.();
         break;
       case "seg": case "lift":
@@ -826,16 +830,7 @@ export class Tools {
     const dock = this.wallDock(g, () => from.y);
     const x = dock?.x ?? Math.round(g.x * 4) / 4, z = dock?.z ?? Math.round(g.z * 4) / 4;
     if (Math.hypot(x - from.x, z - from.z) < 0.6) return;
-    if (!d.node) {
-      d.node = this.app.addNode(x, z, from.y);
-      const e0 = this.world.edgesOf(from.id)[0];
-      this.app.addEdge(from, d.node, e0?.style ?? "deck", e0?.width ?? WALK_W);
-    }
-    // Follow the ground up and down gently; over water stay at deck height.
-    const want = defaultDeckY(this.world, x, z);
-    const most = MAX_STAIR * Math.hypot(x - from.x, z - from.z);
-    const y = dock ? dock.y : Math.abs(want - from.y) < 0.6 ? from.y : from.y + Math.max(-most, Math.min(most, want - from.y));
-    const result = this.app.ops.moveNode(d.node.id, x, z, y);
+    const result = this.app.ops.previewExtension(from.id, x, z, d.node?.id, dock?.y);
     if (!result.ok) return;
     d.node = result.value;
     d.changed = true;
