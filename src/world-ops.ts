@@ -1,9 +1,10 @@
-import { World, N, uid, WATER_Y, PAINT_CH, isGreenery, isLandmark, isShop, type PaintType, type PropType, type Prop, type WalkNode, type WalkEdge } from "./world.ts";
+import { World, N, uid, WATER_Y, MAX_LEVEL, PAINT_CH, isGreenery, isLandmark, isShop, type PaintType, type PropType, type Prop, type WalkNode, type WalkEdge } from "./world.ts";
 import { defaultDeckY, WALK_W, MAX_STAIR, slopeOf, isStairs, clampStair } from "./walkway-rules.ts";
 import { doorOf } from "./house-model.ts";
 import { fitLandmark } from "./placement.ts";
 
 export type WorldChange = { terrain?: true; paint?: true; structures?: true };
+export type TerrainOp = "raise" | "lower" | "flatten" | "smooth";
 export type EditResult<T> = { ok: true; value: T; change: WorldChange } | { ok: false; why: string };
 const propChange = (type: PropType): WorldChange => type === "grotto" ? { terrain: true, structures: true } : { structures: true };
 import { grottoTieAt, shopDoorAt } from "./world.ts";
@@ -188,6 +189,31 @@ export class WorldOps {
   }
 
   carveGrotto(_p: Prop) { this.world.rebuildCarving(); }
+  /** Apply one brush sample against a snapshot of the affected cells (smoothing must not read its own writes). */
+  terrainStroke(op: TerrainOp, x: number, z: number, r: number, flat?: number): WorldChange | null {
+    const cells: [number, number][] = [];
+    for (let j = Math.floor(z - r); j <= Math.ceil(z + r); j++) for (let i = Math.floor(x - r); i <= Math.ceil(x + r); i++) {
+      if (i >= 0 && j >= 0 && i < N && j < N && Math.hypot(i + 0.5 - x, j + 0.5 - z) <= r) cells.push([i, j]);
+    }
+    const orig = cells.map(([i, j]) => this.world.baseLevel(i, j));
+    let changed = false;
+    cells.forEach(([i, j], k) => {
+      const l = orig[k];
+      let next = l;
+      if (op === "raise") next = l + 1;
+      else if (op === "lower") next = l - 1;
+      else if (op === "flatten") next = l + Math.sign((flat ?? l) - l);
+      else {
+        let sum = 0;
+        for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) sum += this.world.baseLevel(i + di, j + dj);
+        next = Math.round(sum / 9);
+      }
+      next = Math.max(0, Math.min(MAX_LEVEL, next));
+      if (next !== l) { this.world.setLevel(i, j, next); changed = true; }
+    });
+    return changed ? { terrain: true } : null;
+  }
+
   paintDisc(type: PaintType | "erase", x: number, z: number, r: number, strength = 1) {
     const w = this.world;
     for (let j = Math.floor(z - r - 1); j <= Math.ceil(z + r); j++) for (let i = Math.floor(x - r - 1); i <= Math.ceil(x + r); i++) {

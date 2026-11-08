@@ -5,12 +5,13 @@ import { MeshBuilder } from "./mesh.ts";
 import { buildHouse, houseLayout, makeHouse, siteDrop, MAX_SITE_DROP, nodeWall, nearWalls, sideLine, HouseBuild, Bay } from "./houses.ts";
 import { defaultDeckY, landingRadius, WALK_W, MAX_STAIR, slopeOf, clampStair } from "./walks.ts";
 import { buildOneProp, buildBoat, PROP_INFO, boatFreeboard, isGreenery, palmPierces } from "./props.ts";
-import { fitLandmark, Fit } from "./placement.ts";
+import { fitLandmark, type Fit } from "./placement.ts";
+import type { TerrainOp } from "./world-ops.ts";
 import { U } from "./materials.ts";
 import { HandleLayer } from "./handles.ts";
 
 export type ToolId = "select" | "house" | "walk" | "terrain" | "paint" | "prop" | "erase";
-export type TerrainOp = "raise" | "lower" | "flatten" | "smooth";
+export type { TerrainOp } from "./world-ops.ts";
 export type Selection =
   | { kind: "house"; id: string; vi: number }
   | { kind: "node"; id: string }
@@ -1131,24 +1132,8 @@ export class Tools {
     if (this.tool === "terrain") {
       if (!first && now - d.last < (this.terrainOp === "smooth" || this.terrainOp === "flatten" ? 60 : 170)) return;
       d.last = now;
-      const w = this.world, r = this.brush;
-      const cells: [number, number][] = [];
-      for (let j = Math.floor(p.z - r); j <= Math.ceil(p.z + r); j++) for (let i = Math.floor(p.x - r); i <= Math.ceil(p.x + r); i++) {
-        if (i < 0 || j < 0 || i >= N || j >= N) continue;
-        if (Math.hypot(i + 0.5 - p.x, j + 0.5 - p.z) <= r) cells.push([i, j]);
-      }
-      const orig = cells.map(([i, j]) => w.baseLevel(i, j));
-      cells.forEach(([i, j], k) => {
-        const l = orig[k];
-        let nl = l;
-        if (this.terrainOp === "raise") nl = l + 1;
-        else if (this.terrainOp === "lower") nl = l - 1;
-        else if (this.terrainOp === "flatten") nl = l + Math.sign((d.flat ?? l) - l);
-        else { let s = 0, c = 0; for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) { s += w.baseLevel(i + di, j + dj); c++; } nl = Math.round(s / c); }
-        nl = Math.max(0, Math.min(MAX_LEVEL, nl));
-        if (nl !== l) { w.setLevel(i, j, nl); d.changed = true; }
-      });
-      if (d.changed) this.app.changed({ terrain: true });
+      const change = this.app.ops.terrainStroke(this.terrainOp, p.x, p.z, this.brush, d.flat);
+      if (change) { d.changed = true; this.app.recordChange(change); }
     } else {
       if (!first && now - d.last < 30) return;
       d.last = now;

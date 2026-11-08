@@ -48,6 +48,19 @@ test("removing a grotto restores the derived surface without erasing terrain edi
   assert.equal(world.level(under[0], under[1]), 20);
 });
 
+test("terrain strokes report changes and edit the base beneath a grotto", () => {
+  const { world, ops } = blank();
+  const p: Prop = { id: "g", type: "grotto", x: 24, z: 24, rot: 0, seed: 0.3 };
+  world.props.set(p.id, p); world.rebuildCarving();
+  const [i, j] = p.carved![0];
+  assert.deepEqual(ops.terrainStroke("raise", i + 0.5, j + 0.5, 0.5), { terrain: true });
+  assert.equal(world.baseLevel(i, j), 9);
+  assert.ok(world.level(i, j) < 9);
+  assert.equal(ops.terrainStroke("flatten", i + 0.5, j + 0.5, 0.5, 9), null);
+  assert.deepEqual(ops.removeProp(p.id), { terrain: true, structures: true });
+  assert.equal(world.level(i, j), 9);
+});
+
 test("walkway settling clears the terrain and preserves a climbable grade", () => {
   const { world, ops } = blank();
   world.heights.fill(2);
