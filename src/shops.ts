@@ -160,6 +160,17 @@ function bakery(m: MeshBuilder, p: Prop, L: Light[]) {
     color(m, dark, M.plank); m.box([x - 0.31, 0.82, hd - 0.07], [x + 0.31, 0.9, hd + 0.08]);
     m.box([x - 0.025, 0.87, hd + 0.04], [x + 0.025, 1.57, hd + 0.06]);
   }
+  // Lit rear and side windows keep the shop from reading as a blank house from across the cove.
+  color(m, "#5c7673", M.glass);
+  m.box([-0.95, 0.89, -hd - 0.025], [-0.37, 1.62, -hd + 0.08]);
+  m.box([-hw - 0.03, 0.9, -0.45], [-hw + 0.09, 1.65, 0.22]);
+  color(m, dark, M.plank);
+  m.box([-1.01, 0.84, -hd - 0.08], [-0.31, 0.91, -hd + 0.1]);
+  m.box([-hw - 0.08, 0.84, -0.51], [-hw + 0.1, 0.91, 0.28]);
+  for (const z of [-hd - 0.07, hd + 0.07]) {
+    color(m, "#806348", M.plank); m.box([-0.23, 2.43, z - 0.025], [0.23, 2.65, z + 0.025]);
+    color(m, dark, M.plank); m.box([-0.18, 2.47, z - 0.04], [0.18, 2.61, z + 0.04]);
+  }
   roof(m, w, d, 2.22, 2.98, "#b97b58", cream);
   color(m, "#c99d4d", M.cloth);
   m.quad([[-hw - 0.08, 1.77, hd], [hw + 0.08, 1.77, hd], [hw + 0.21, 1.49, hd + 0.73], [-hw - 0.21, 1.49, hd + 0.73]], [0, 1, 1]);
@@ -180,6 +191,7 @@ function bakery(m: MeshBuilder, p: Prop, L: Light[]) {
     color(m, "#c59857", M.plain); m.blob([hw - 0.25 + i * 0.23, 0.78, hd + 0.35], [0.11, 0.075, 0.13], r() * 100, 0);
   }
   lamp(m, L, -0.59, 1.72, hd + 0.04);
+  lamp(m, L, -hw - 0.04, 1.72, -hd + 0.38);
   L.push({ x: hw + 0.45, y: 0.7, z: -hd + 0.86, r: 2.8, i: 0.6 });
 }
 
