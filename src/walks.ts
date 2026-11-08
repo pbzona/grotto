@@ -81,10 +81,16 @@ function bendKite(world: World, n: WalkNode) {
   const outer = (u: number[]) => { const sx = -u[1], sz = u[0], k = sx * b[0] + sz * b[1] > 0 ? -1 : 1; return [n.x + u[0] * t + sx * hw * k, n.z + u[1] * t + sz * hw * k]; };
   return { t, pts: [[n.x + b[0] * m, n.z + b[1] * m], outer(ua), [n.x - b[0] * m, n.z - b[1] * m], outer(ub)] };
 }
+function groundRopeJoint(world: World, n: WalkNode) {
+  const es = world.edgesOf(n.id);
+  return n.pad <= 0 && es.length >= 2 && es.every(e => e.style === "rope") && n.y - world.height(n.x, n.z) < 0.3;
+}
+
 export function landingRadius(world: World, n: WalkNode) {
   const es = world.edgesOf(n.id);
   const w = es.reduce((m, e) => Math.max(m, e.width), 0.6);
   if (n.pad > 0) return n.pad;
+  if (groundRopeJoint(world, n)) return w / 2;
   const j = jointOf(world, n);
   if (j === "through" || j === "square" || j === "bend") return (w / 2) * 1.14 / OCT;
   return Math.max((w / 2) * 1.14 / OCT, junctionTrim(world, n) + 0.12);
@@ -116,6 +122,7 @@ function trimFor(world: World, n: WalkNode, w: number, e?: WalkEdge) {
   const q = quayTrim(world, n, e && world.nodes.get(e.a === n.id ? e.b : e.a));
   if (q !== null) return q;
   if (n.pad > 0) return n.pad * 0.92;
+  if (groundRopeJoint(world, n)) return 0;
   const j = jointOf(world, n);
   // running straight on: the decks overrun the post a touch so a slight kink leaves no gap
   if (j === "through") return -(w / 2) * Math.tan((Math.PI - junctionAngle(world, n)) / 2) - 0.01;
@@ -154,34 +161,55 @@ function edgeMesh(world: World, mb: MeshBuilder, e: WalkEdge, A: WalkNode, B: Wa
   const r0 = hsh(e.id.length * 7.1 + A.x * 3.3 + B.z * 1.7);
 
   if (e.style === "rope") {
-    // sagging slats between tall end posts
     const sag = Math.min(0.9, 0.06 * L + 0.05);
     const deckY = (d: number) => yAt(d) - Math.sin(Math.PI * (d - s0) / (s1 - s0)) * sag;
-    const n = Math.max(2, Math.floor((s1 - s0) / 0.3));
+    const ground = (d: number, off: number) => {
+      const p = P(d, off, 0);
+      return world.height(Math.min(N - 0.01, Math.max(0.01, p[0])), Math.min(N - 0.01, Math.max(0.01, p[2])));
+    };
+    const floating = (d: number) => deckY(d) - Math.max(ground(d, 0), ground(d, -hw * 0.85), ground(d, hw * 0.85)) > 0.28;
+    const railY = (d: number, side: number) => Math.max(yAt(d) + 0.95 - Math.sin(Math.PI * (d - s0) / (s1 - s0)) * sag * 0.85, ground(d, side * hw * 0.85) + 0.85);
+    const n = Math.max(2, Math.ceil((s1 - s0) / 0.3));
     for (let i = 0; i < n; i++) {
       const d = s0 + (i + 0.5) * (s1 - s0) / n;
-      const y = deckY(d);
+      if (!floating(d - 0.1) || !floating(d) || !floating(d + 0.1)) continue;
       mb.paint(hexRGB(DECK, 0.85 + hsh(i * 3.7 + r0) * 0.25), M.plank);
-      mb.beam(P(d, -hw * 0.85, y - 0.03), P(d, hw * 0.85, y - 0.03), u, 0.1, 0.025);
+      mb.beam(P(d, -hw * 0.85, deckY(d) - 0.03), P(d, hw * 0.85, deckY(d) - 0.03), u, 0.1, 0.025);
     }
     for (const side of [-1, 1]) {
-      const ends: V3[] = [P(s0, side * hw * 0.85, yAt(s0) + 0.95), P(s1, side * hw * 0.85, yAt(s1) + 0.95)];
-      for (const [k, p] of ends.entries()) {
-        const nn = k === 0 ? A : B;
+      const off = side * hw * 0.85;
+      for (const d of [s0, s1]) {
+        const p = P(d, off, 0), g = ground(d, off);
         mb.paint(hexRGB(TAR), M.plank);
-        const g = world.height(Math.min(N, Math.max(0, p[0])), Math.min(N, Math.max(0, p[2])));
-        mb.cyl(p[0], p[2], Math.min(g - 0.2, nn.y - 0.4), p[1] + 0.1, 0.07, 0.06, 7);
+        mb.cyl(p[0], p[2], Math.min(g - 0.2, yAt(d) - 0.4), railY(d, side) + 0.1, 0.07, 0.06, 7);
       }
-      ropeLine(mb, ends[0], ends[1], sag * 0.85, 0.025);
-      // base ropes under slat ends + hangers
-      const basePts: V3[] = [];
-      for (let i = 0; i <= 12; i++) { const d = s0 + (s1 - s0) * i / 12; basePts.push(P(d, side * hw * 0.85, deckY(d) - 0.06)); }
+      // On land the rope becomes a railing; only suspended sections need slats, base rope and hangers.
+      const posts = Math.max(1, Math.ceil((s1 - s0) / 1.3));
+      for (let i = 1; i < posts; i++) {
+        const d = s0 + (s1 - s0) * i / posts;
+        if (floating(d)) continue;
+        const p = P(d, off, 0);
+        mb.paint(hexRGB(TAR), M.plank);
+        mb.cyl(p[0], p[2], ground(d, off) - 0.15, railY(d, side) + 0.1, 0.055, 0.05, 7);
+      }
+      const steps = Math.max(10, Math.ceil((s1 - s0) / 0.15));
+      const top: V3[] = [];
+      for (let i = 0; i <= steps; i++) {
+        const d = s0 + (s1 - s0) * i / steps;
+        top.push(P(d, off, railY(d, side)));
+      }
       mb.paint(hexRGB("#b89a70"), M.cloth);
-      mb.tube(basePts, 0.022, 4);
+      mb.tube(top, 0.025, 4);
+      for (let i = 0; i < n; i++) {
+        const da = s0 + (s1 - s0) * i / n, db = s0 + (s1 - s0) * (i + 1) / n;
+        if (!floating(da) || !floating((da + db) / 2) || !floating(db)) continue;
+        mb.tube([P(da, off, deckY(da) - 0.06), P(db, off, deckY(db) - 0.06)], 0.022, 4);
+      }
       for (let i = 1; i < 6; i++) {
-        const t = i / 6, d = s0 + (s1 - s0) * t;
-        const top = lerp3(ends[0], ends[1], t); top[1] -= Math.sin(Math.PI * t) * sag * 0.85;
-        mb.beam(P(d, side * hw * 0.85, deckY(d) - 0.05), top, u, 0.008, 0.008, false);
+        const d = s0 + (s1 - s0) * i / 6;
+        if (!floating(d)) continue;
+        mb.paint(hexRGB("#b89a70"), M.cloth);
+        mb.beam(P(d, off, deckY(d) - 0.05), P(d, off, railY(d, side)), u, 0.008, 0.008, false);
       }
     }
     return;
@@ -281,6 +309,7 @@ function nodeMesh(world: World, mb: MeshBuilder, n: WalkNode, out: WalkBuild) {
     if (hsh(n.x * 1.7 + n.z * 2.3) < 0.8) lanternPost(mb, n.x + c * (P - 0.2) - s * (P - 0.2), n.z + s * (P - 0.2) + c * (P - 0.2), n.y, out);
     return;
   }
+  if (groundRopeJoint(world, n)) return;
   const joint = jointOf(world, n);
   if (joint === "through") return;
   if (joint === "bend") {

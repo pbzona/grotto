@@ -1,0 +1,41 @@
+(async () => {
+  const { World } = await import('/src/world.ts');
+  const { MeshBuilder, M } = await import('/src/mesh.ts');
+  const { buildWalks } = await import('/src/walks.ts');
+  const w = new World(); w.heights.fill(8);
+  const ground = w.height(16, 20);
+  const a = { id: 'a', x: 12, z: 20, y: ground + 0.2, pad: 0 };
+  const b = { id: 'b', x: 20, z: 20, y: ground + 0.2, pad: 0 };
+  w.nodes.set(a.id, a); w.nodes.set(b.id, b);
+  w.edges.set('bridge', { id: 'bridge', a: a.id, b: b.id, width: 0.9, style: 'rope', rail: false });
+  const vertices = () => {
+    const mb = new MeshBuilder(); buildWalks(w, mb, { lights: [], foam: [] });
+    const pts = [];
+    for (let i = 0; i < mb.pos.length; i += 3) pts.push([mb.pos[i], mb.pos[i + 1], mb.pos[i + 2], mb.mat[i / 3], mb.col[i]]);
+    return pts;
+  };
+  const slats = pts => pts.filter(([x, , z, mat, red]) => Math.abs(z - 20) > 0.3 && Math.abs(z - 20) < 0.43 && mat === M.plank && red > 0.2);
+  const grounded = vertices();
+  if (slats(grounded).length) throw new Error('rope slats sink into flat ground');
+  if (!grounded.some(([x, y, z]) => x > 15 && x < 17 && Math.abs(z - 20) > 0.3 && Math.abs(z - 20) < 0.55 && y > ground + 0.6)) throw new Error('grounded rope run has no visible railing');
+  a.y += 2.4; b.y += 2.4;
+  const raised = vertices();
+  if (!slats(raised).some(([x, y]) => x > 15 && x < 17 && y > ground + 1)) throw new Error('suspended rope span lost its slats');
+  b.y = ground + 0.2;
+  const mixed = vertices();
+  if (!slats(mixed).some(([x, y]) => x > 13 && x < 15 && y > ground + 0.3)) throw new Error('mixed rope span lost its floating slats');
+  if (slats(mixed).some(([x]) => x > 19.5 && x < 19.9)) throw new Error('mixed rope span buries slats at the ground end');
+  a.y = b.y = ground + 0.2;
+  for (let z = 18; z <= 21; z++) for (let x = 15; x <= 17; x++) w.setLevel(x, z, 12);
+  const hill = vertices();
+  if (slats(hill).some(([x]) => x > 15 && x < 17)) throw new Error('rope slats cut through a rise between posts');
+  if (!hill.some(([x, y, z, mat]) => x > 15 && x < 17 && Math.abs(z - 20) > 0.3 && Math.abs(z - 20) < 0.5 && mat === M.cloth && y > w.height(x, z) + 0.7)) throw new Error('rope rail does not clear the rising ground');
+  w.heights.fill(8);
+  const mid = { id: 'mid', x: 16, z: 20, y: ground + 0.2, pad: 0 };
+  w.nodes.set(mid.id, mid);
+  w.edges.get('bridge').b = mid.id;
+  w.edges.set('second', { id: 'second', a: mid.id, b: b.id, width: 0.9, style: 'rope', rail: false });
+  const junction = vertices();
+  if (junction.some(([x, , z, mat, red]) => Math.abs(x - 16) < 0.25 && Math.abs(z - 20) < 0.25 && mat === M.plank && red > 0.2)) throw new Error('ground-level rope junction still has a buried landing');
+  return 'PASS grounded rope span has railings without buried decking\nPASS suspended rope span keeps its deck\nPASS mixed span changes from decking to ground-level railing\nPASS rail follows ground rising between posts\nPASS ground-level rope junction has no landing';
+})()

@@ -23,7 +23,7 @@ try {
   }
   if (!ready) throw new Error('Vite startup timed out');
   for (const mode of ['webgl', 'auto']) {
-    for (const file of ['sweep.js', 'features.js', 'landmarks.js', 'regressions.js', 'coves.js', 'trees.js']) {
+    for (const file of process.argv[2] ? [process.argv[2]] : ['sweep.js', 'features.js', 'landmarks.js', 'regressions.js', 'coves.js', 'trees.js', 'rope-ground.js']) {
       browser(['open', `${origin}/?test&fresh${mode === 'webgl' ? '&webgl' : ''}`]);
       browser(['wait', '--fn', '!!window.__grotto']);
       const backend = evaluate('window.__grotto.renderer.backend.constructor.name');
