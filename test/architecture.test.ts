@@ -80,6 +80,9 @@ test("post and walkway panel operations settle the graph and undo together", () 
   const a = ops.addNode(10, 10, DECK_Y), b = ops.addNode(10, 15, DECK_Y);
   const edge = ops.addEdge(a, b);
   const before = structuredClone(world.save()), edits = new Edits(world);
+  assert.equal(ops.editEdge(edge.id, { width: NaN }).ok, false);
+  assert.equal(ops.editNode(a.id, { pad: -1 }).ok, false);
+  assert.deepEqual(world.save(), before);
   edits.begin();
   const raised = ops.editNode(a.id, { lift: 0.25, pad: 1 });
   const widened = ops.editEdge(edge.id, { width: 1.5, rail: true });
@@ -102,4 +105,11 @@ test("generation runs in Node against world rules, without App or a renderer", (
   // IDs are intentionally not stable; topology and positions are.
   const positions = (w: World) => [...w.houses.values()].map(h => h.volumes.map(v => [v.x0, v.z0, v.x1, v.z1]));
   assert.deepEqual(positions(a), positions(b));
+  for (const [kind, seed] of [["classic", 6.34], ["fjord", 7.291], ["islets", 0.634]] as const) {
+    const w = new World(); carveCove(w, kind, seed); seedCove(new WorldOps(w), seed);
+    for (const e of w.edges.values()) {
+      const p = w.nodes.get(e.a)!, q = w.nodes.get(e.b)!;
+      assert.ok(Math.abs(p.x - q.x) < 1e-6 || Math.abs(p.z - q.z) < 1e-6, `${kind} ${seed}: diagonal seeded walkway`);
+    }
+  }
 });

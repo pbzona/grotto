@@ -231,6 +231,7 @@ export class WorldOps {
 
   /** Fit, validate and add a landmark using the same solver as the placement ghost. */
   placeLandmark(type: PropType, x: number, z: number, seed: number, opts?: Prop["opts"], flip = false, heading?: number): EditResult<Prop> {
+    if (!isLandmark(type) || ![x, z, seed].every(Number.isFinite)) return { ok: false, why: "Invalid landmark" };
     const fit = fitLandmark(this.world, type, x, z, seed, opts, flip, "ghost", heading);
     if (!fit.ok) return { ok: false, why: fit.why ?? "Won't fit here" };
     const p: Prop = { id: uid("p"), type, x: fit.x, z: fit.z, rot: fit.rot, seed, ...(opts && Object.keys(opts).length ? { opts: { ...opts } } : {}) };
@@ -244,6 +245,7 @@ export class WorldOps {
     const current = this.world.props.get(id);
     if (!current) return { ok: false, why: "Prop no longer exists" };
     const candidate = { ...current, ...patch };
+    if (![candidate.x, candidate.z, candidate.rot, candidate.seed].every(Number.isFinite)) return { ok: false, why: "Invalid prop position or variant" };
     if (isLandmark(candidate.type)) {
       const fit = fitLandmark(this.world, candidate.type, candidate.x, candidate.z, candidate.seed, candidate.opts, false, id, candidate.rot);
       if (!fit.ok) return { ok: false, why: fit.why ?? "Won't fit here" };
@@ -259,6 +261,8 @@ export class WorldOps {
   editNode(id: string, patch: { lift?: number; pad?: number }): EditResult<{ node: WalkNode; clamped: boolean }> {
     const node = this.world.nodes.get(id);
     if (!node) return { ok: false, why: "Post no longer exists" };
+    if ((patch.lift !== undefined && !Number.isFinite(patch.lift)) ||
+        (patch.pad !== undefined && (!Number.isFinite(patch.pad) || patch.pad < 0 || patch.pad > 5))) return { ok: false, why: "Invalid post edit" };
     let clamped = false;
     if (patch.lift !== undefined) {
       const want = Math.min(20, node.y + patch.lift), y = clampStair(this.world, node, want);
@@ -273,6 +277,9 @@ export class WorldOps {
   editEdge(id: string, patch: Partial<Pick<WalkEdge, "style" | "width" | "rail">>): EditResult<WalkEdge> {
     const edge = this.world.edges.get(id);
     if (!edge) return { ok: false, why: "Walkway no longer exists" };
+    if (patch.width !== undefined && (!Number.isFinite(patch.width) || patch.width < 0.1 || patch.width > 5) ||
+        patch.style !== undefined && patch.style !== "deck" && patch.style !== "rope" ||
+        patch.rail !== undefined && typeof patch.rail !== "boolean") return { ok: false, why: "Invalid walkway edit" };
     Object.assign(edge, patch);
     this.settleWalks(new Set([edge.a, edge.b]));
     return { ok: true, value: edge, change: { structures: true } };
