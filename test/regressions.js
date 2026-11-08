@@ -69,7 +69,14 @@
   reset(); const saved = state(), hour = a.hour;
   let failed = false; try { a.importFile({ world: { ...w.save(), paint: '%%%' }, hour: 3 }); } catch { failed = true; }
   ok('failed import leaves world and time intact', failed && state() === saved && a.hour === hour && !a.edits.active);
-  a.importFile({ world: w.save(), hour: 3 }); ok('import restores time', a.hour === 3);
+  const cove = { ...a.cove };
+  a.importFile({ world: w.save(), hour: 3, cove: { kind: 'fjord', seed: 12 } });
+  ok('import restores time and preset even for an unchanged world', a.hour === 3 && a.cove.kind === 'fjord' && a.cove.seed === 12);
+  a.undo(); ok('undo restores imported time and preset', a.hour === hour && JSON.stringify(a.cove) === JSON.stringify(cove));
+  a.redo(); ok('redo restores imported time and preset', a.hour === 3 && a.cove.kind === 'fjord');
+  a.undo();
+  a.begin(); w.setLevel(1, 1, w.baseLevel(1, 1) + 1); a.changed({ terrain: true });
+  a.hour = 8; a.undo(); ok('ordinary world undo leaves the current hour alone', a.hour === 8);
 
   reset(); a.save(); const durable = localStorage.getItem('grotto.cove.v1');
   a.begin(true); w.setLevel(1, 1, w.baseLevel(1, 1) + 1); a.changed({ terrain: true });

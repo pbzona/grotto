@@ -35,6 +35,24 @@ test("no-op and cancelled gestures preserve redo; a gesture produces one undo st
   assert.equal(edits.undo(), true); assert.equal(edits.undo(), false);
 });
 
+test("metadata edits restore cove and optionally hour without changing time on ordinary undo", () => {
+  const w = new World();
+  const state = { cove: "classic", hour: 16 };
+  const edits = new Edits(w, {
+    capture: includeHour => ({ cove: state.cove, ...(includeHour ? { hour: state.hour } : {}) }),
+    restore: value => { const v = value as { cove: string; hour?: number }; state.cove = v.cove; if (v.hour !== undefined) state.hour = v.hour; },
+  });
+  edits.begin(); state.cove = "fjord"; assert.equal(edits.commit(), true);
+  assert.equal(edits.undo(), true); assert.equal(state.cove, "classic");
+  state.hour = 19;
+  assert.equal(edits.redo(), true); assert.equal(state.cove, "fjord"); assert.equal(state.hour, 19);
+  edits.begin(true); state.hour = 3; assert.equal(edits.commit(), true);
+  edits.undo(); assert.equal(state.hour, 19);
+  edits.redo(); assert.equal(state.hour, 3);
+  edits.begin(); w.setLevel(2, 2, 7); edits.commit(); state.hour = 8;
+  edits.undo(); assert.equal(state.hour, 8);
+});
+
 test("invalid graph edits roll back before committing", () => {
   const w = new World(), edits = new Edits(w), before = w.save();
   edits.begin(); w.edges.set("e", { id: "e", a: "a", b: "b", width: 1, style: "deck", rail: false });

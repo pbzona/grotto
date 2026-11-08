@@ -50,7 +50,10 @@
     btn('Reroll this land').click(); a.update(0);
     ok(`${label} reroll keeps the preset with a new seed`, a.cove.kind === kind && a.cove.seed !== seed && heights() !== land);
     a.undo(); a.update(0);
-    ok(`${label} reroll undoes in one step`, heights() === land);
+    ok(`${label} reroll undoes in one step`, heights() === land && a.cove.kind === kind && a.cove.seed === seed);
+    a.redo(); a.update(0);
+    ok(`${label} reroll redoes its preset and seed`, a.cove.kind === kind && a.cove.seed !== seed);
+    a.undo(); a.update(0);
     const image = await g.snap();
     ok(`${label} renders`, image.startsWith('data:image/png') && image.length > 1000);
   }
@@ -139,6 +142,6 @@
   btn('Cove').click(); a.update(0);
   ok('cove restores the starter village', a.cove.kind === 'classic' && a.cove.seed === 0 && w.houses.size > 5 && JSON.stringify(w.save()).length > 1000);
   while (a.undo()) {}
-  ok('undo walks back to the opening cove', JSON.stringify(w.save()) === start);
+  ok('undo walks back to the opening cove', JSON.stringify(w.save()) === start && a.cove.kind === 'classic' && a.cove.seed === 0);
   return results.join('\n');
 })()

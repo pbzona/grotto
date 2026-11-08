@@ -44,7 +44,14 @@ export class App {
   onSaveError: ((message: string) => void) | null = null;
 
   constructor(public d: AppDeps) {
-    this.edits = new Edits(d.world);
+    this.edits = new Edits(d.world, {
+      capture: includeHour => ({ cove: this.cove, ...(includeHour ? { hour: this.hour } : {}) }),
+      restore: value => {
+        const state = value as { cove: App["cove"]; hour?: number };
+        this.cove = state.cove;
+        if (state.hour !== undefined) this.hour = state.hour;
+      },
+    });
     this.structures = new THREE.Mesh(new THREE.BufferGeometry(), d.mats.building);
     this.structures.castShadow = this.structures.receiveShadow = true;
     d.scene.add(this.structures, this.boatGroup);
@@ -80,7 +87,7 @@ export class App {
     this.cove = c && COVES.some(p => p.kind === c.kind) && typeof c.seed === "number" && Number.isFinite(c.seed) ? { kind: c.kind as CoveKind, seed: c.seed } : { kind: "classic", seed: 0 };
   }
   importFile(input: unknown) {
-    this.begin(true);
+    this.begin(true, true);
     try { this.loadFile(input); this.markAll(); this.commit(); }
     catch (error) { this.cancel(); throw error; }
   }
@@ -95,7 +102,7 @@ export class App {
   scheduleSave() { clearTimeout(this.saveTimer); this.saveTimer = window.setTimeout(() => this.save(), 600); }
 
   // ---------- undo ----------
-  begin(gesture = false) { this.commit(); this.edits.begin(); this.gesture = gesture; }
+  begin(gesture = false, includeHour = false) { this.commit(); this.edits.begin(includeHour); this.gesture = gesture; }
   commit() { const changed = this.edits.commit(); this.gesture = false; this.endInteraction(); if (changed) this.scheduleSave(); return changed; }
   cancel() { const changed = this.edits.cancel(); this.gesture = false; this.endInteraction(); if (changed) this.markAll(); }
   undo() { this.cancel(); if (!this.edits.undo()) return false; this.markAll(); return true; }
