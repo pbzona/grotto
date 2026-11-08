@@ -1,13 +1,13 @@
 import * as THREE from "three/webgpu";
-import type { App } from "./app";
-import { World, N, snap, House, Volume, newVolume, uid, FLOOR_H, MAX_LEVEL, PaintType, PropType, WalkNode, WalkEdge, RoofType, WATER_Y, DECK_Y, Prop, isLandmark, isShop, SHOP_DIMS, BOATYARD_SLIP, shopDoorAt, hullDims, grottoDims, grottoTies, grottoTieAt, QUAY_HALF, GROTTO_OPTS, propOpt } from "./world";
-import { MeshBuilder } from "./mesh";
-import { buildHouse, houseLayout, makeHouse, siteDrop, MAX_SITE_DROP, nodeWall, nearWalls, sideLine, HouseBuild, Bay } from "./houses";
-import { defaultDeckY, landingRadius, WALK_W, MAX_STAIR, slopeOf, clampStair } from "./walks";
-import { buildOneProp, buildBoat, PROP_INFO, boatFreeboard, isGreenery, palmPierces } from "./props";
-import { fitLandmark, Fit } from "./landmarks";
-import { U } from "./materials";
-import { HandleLayer } from "./handles";
+import type { App } from "./app.ts";
+import { World, N, snap, House, Volume, newVolume, uid, FLOOR_H, MAX_LEVEL, PaintType, PropType, WalkNode, WalkEdge, RoofType, WATER_Y, DECK_Y, Prop, isLandmark, isShop, SHOP_DIMS, BOATYARD_SLIP, shopDoorAt, hullDims, grottoDims, grottoTies, grottoTieAt, QUAY_HALF, GROTTO_OPTS, propOpt } from "./world.ts";
+import { MeshBuilder } from "./mesh.ts";
+import { buildHouse, houseLayout, makeHouse, siteDrop, MAX_SITE_DROP, nodeWall, nearWalls, sideLine, HouseBuild, Bay } from "./houses.ts";
+import { defaultDeckY, landingRadius, WALK_W, MAX_STAIR, slopeOf, clampStair } from "./walks.ts";
+import { buildOneProp, buildBoat, PROP_INFO, boatFreeboard, isGreenery, palmPierces } from "./props.ts";
+import { fitLandmark, Fit } from "./placement.ts";
+import { U } from "./materials.ts";
+import { HandleLayer } from "./handles.ts";
 
 export type ToolId = "select" | "house" | "walk" | "terrain" | "paint" | "prop" | "erase";
 export type TerrainOp = "raise" | "lower" | "flatten" | "smooth";
@@ -339,14 +339,13 @@ export class Tools {
           n.x = Math.round(x * 4) / 4; n.z = Math.round(z * 4) / 4;
         } else {
           const p = this.world.props.get(d.id); if (!p) break;
-          if (isLandmark(p.type)) {
-            const f = fitLandmark(this.world, p.type, x, z, p.seed, p.opts, false, p.id, p.rot);
-            if (!f.ok) break;
-            p.x = f.x; p.z = f.z;
-            if (p.type !== "lighthouse") p.rot = f.rot + (p.type === "hull" && Math.cos(f.rot - p.rot) < 0 ? Math.PI : 0);
-          } else { p.x = Math.round(x * 10) / 10; p.z = Math.round(z * 10) / 10; }
+          const result = this.app.ops.reviseProp(p.id, { x: isLandmark(p.type) ? x : Math.round(x * 10) / 10, z: isLandmark(p.type) ? z : Math.round(z * 10) / 10 });
+          if (!result.ok) break;
+          d.changed = true; this.app.recordChange(result.change);
+          this.refreshHandles(); this.refreshHighlight();
+          break;
         }
-        d.changed = true; this.app.changed({ structures: true, terrain: d.t === "propMove" && this.world.props.get(d.id)?.type === "grotto" }); this.refreshHandles(); this.refreshHighlight();
+        d.changed = true; this.app.changed({ structures: true }); this.refreshHandles(); this.refreshHighlight();
         break;
       }
     }
@@ -440,7 +439,16 @@ export class Tools {
     }
     if (this.tool === "house") { this.houseTurn = !this.houseTurn; this.updateGhost(); return; }
     const s = this.sel;
-    if (s?.kind === "prop") { const p = this.world.props.get(s.id); if (p && p.type !== "grotto") { this.app.begin(); const old = p.rot; p.rot += p.type === "hull" ? Math.PI : isShop(p.type) ? Math.PI / 2 : Math.PI / 4; if (isShop(p.type)) { const f = fitLandmark(this.world, p.type, p.x, p.z, p.seed, p.opts, false, p.id, p.rot); if (!f.ok || Math.cos(f.rot - p.rot) < 0.99) { p.rot = old; this.app.cancel(); this.toast("That entrance won't fit here"); return; } p.x = f.x; p.z = f.z; } this.app.changed({ structures: true }); this.refreshHandles(); this.refreshHighlight(); } }
+    if (s?.kind === "prop") {
+      const p = this.world.props.get(s.id);
+      if (p && p.type !== "grotto") {
+        this.app.begin();
+        const rot = p.rot + (p.type === "hull" ? Math.PI : isShop(p.type) ? Math.PI / 2 : Math.PI / 4);
+        const result = this.app.ops.reviseProp(p.id, { rot });
+        if (!result.ok) { this.app.cancel(); this.toast(result.why); return; }
+        this.app.recordChange(result.change); this.refreshHandles(); this.refreshHighlight();
+      }
+    }
     else if (s?.kind === "house") this.houseEdit("ridge");
   }
   deleteSelection() {
@@ -453,9 +461,8 @@ export class Tools {
     } else if (s.kind === "node") { this.app.removePost(s.id); this.select(null); }
     else if (s.kind === "edge") { this.world.edges.delete(s.id); this.world.pruneNodes(); this.select(null); }
     else if (s.kind === "prop") {
-      const pr = this.world.props.get(s.id);
-      this.world.props.delete(s.id); this.select(null);
-      if (pr?.type === "grotto") this.app.changed({ terrain: true });
+      const change = this.app.ops.removeProp(s.id); this.select(null);
+      if (change) { this.app.recordChange(change); return; }
     }
     this.app.changed({ structures: true });
   }
@@ -1159,10 +1166,10 @@ export class Tools {
       const f = this.fitAt(type, p.x, p.z);
       if (!f.ok) { this.toast(f.why ?? "Won't fit here"); return; }
       this.app.begin();
-      const np = this.app.addProp(type, f.x, f.z, f.rot, this.propSeed);
-      if (Object.keys(this.ghostOpts ?? {}).length) { np.opts = { ...this.ghostOpts }; if (np.type === "grotto") this.app.carveGrotto(np); }
+      const result = this.app.ops.placeLandmark(type, p.x, p.z, this.propSeed, this.ghostOpts, this.landFlip, isShop(type) ? this.shopHeading ?? undefined : undefined);
+      if (!result.ok) { this.app.cancel(); this.toast(result.why); return; }
       this.propSeed = Math.random(); this.ghostOpts = {};
-      this.app.changed({ structures: true, terrain: np.type === "grotto" });
+      this.app.recordChange(result.change);
       this.onChange?.();
       return;
     }

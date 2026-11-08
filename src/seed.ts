@@ -1,17 +1,103 @@
-import type { App } from "./app";
-import { N, DECK_Y, WATER_Y, SHOP_DIMS, STEP, levelY, newVolume, uid, isLandmark, landmarkSamples, grottoDims, grottoDocks, grottoTies, grottoTieAt, shopEntrance, World, type Prop, type RoofType, type PropType, type WalkNode } from "./world";
-import { doorOf, houseLayout, makeHouse, villagerHomes } from "./houses";
-import { fitLandmark, grottoSites, landmarkClash } from "./landmarks";
-import { planSloop, seaRoute } from "./voyages";
-import { rng } from "./mesh";
-import { defaultDeckY, MAX_STAIR, slopeOf } from "./walks";
+import type { WorldOps } from "./world-ops.ts";
+import { N, DECK_Y, WATER_Y, carveCove, SHOP_DIMS, STEP, levelY, newVolume, uid, isLandmark, landmarkSamples, grottoDims, grottoDocks, grottoTies, grottoTieAt, shopEntrance, World, type Prop, type RoofType, type PropType, type WalkNode } from "./world.ts";
+import { doorOf, houseLayout, makeHouse, villagerHomes } from "./houses.ts";
+import { fitLandmark, grottoSites, landmarkClash } from "./placement.ts";
+import { planSloop, seaRoute } from "./voyages.ts";
+import { rng } from "./mesh.ts";
+import { defaultDeckY, MAX_STAIR, slopeOf } from "./walks.ts";
+
+  /** A lived-in starter village for the cove. */
+export function seedStarter(app: WorldOps) {
+    const w = app.world;
+    w.clear();
+    carveCove(w);
+    const H = (id: string, seed: number, vols: ReturnType<typeof newVolume>[], pal: number, opts: Partial<ReturnType<typeof makeHouse>> = {}) => {
+      const h = { ...makeHouse(uid(id), seed, vols, pal), ...opts }; w.houses.set(h.id, h); return h;
+    };
+    // --- the pier and its stilt houses ---
+    // every stretch runs along an axis, on the quarter grid (so posts settleWalks adds stay in line)
+    const beach = app.addNode(25, 16.25);
+    const n1 = app.addNode(25, 18.5, DECK_Y);
+    const hub = app.addNode(25, 24, DECK_Y);
+    const head = app.addNode(25, 29, DECK_Y, 1.5);
+    app.addEdge(beach, n1); app.addEdge(n1, hub); app.addEdge(hub, head);
+    const west = app.addNode(20, 24, DECK_Y);
+    const east = app.addNode(30.25, 24, DECK_Y);
+    app.addEdge(hub, west); app.addEdge(hub, east);
+    H("h", 0.113, [newVolume(16, 23, 19.5, 26.5, 2, "gable"), newVolume(16.5, 26.5, 18.5, 28.5, 1, "shed")], 0, { style: "plank" });
+    H("h", 0.271, [newVolume(30.5, 22, 34, 25.5, 1, "hip"), newVolume(34, 22.5, 36, 24.5, 2, "flat")], 6);
+    const nw = app.addNode(22.5, 18.5, DECK_Y);
+    app.addEdge(n1, nw);
+    H("h", 0.377, [newVolume(19, 17, 22, 19.5, 1, "gable")], 4, { style: "plank" });
+    const pierEast = app.addNode(29.5, 29, DECK_Y);
+    app.addEdge(head, pierEast);
+    // --- a boardwalk along the waterline and the north terrace houses, with steps (no steeper than MAX_STAIR) up to each door ---
+    const bwW = app.addNode(21.25, 16.25), bwE = app.addNode(28, 16.25);
+    app.addEdge(bwW, beach); app.addEdge(beach, bwE);
+    const hW = H("h", 0.519, [newVolume(19.5, 11, 23, 13.5, 2, "gable"), newVolume(23, 11.5, 24.5, 13.5, 1, "shed")], 1);
+    const hE = H("h", 0.638, [newVolume(26.5, 11.5, 29.5, 13.8, 1, "flat")], 5, { awning: true });
+    const stepW = app.addNode(21.25, 14, houseLayout(w, hW).base);
+    const stepE = app.addNode(28, 14.25, houseLayout(w, hE).base);
+    app.addEdge(bwW, stepW); app.addEdge(bwE, stepE);
+    // --- west terraces: a cluster with a lookout on the cliff ---
+    // a stepped house: one end lifted a storey, the rest a roof terrace with a door onto it
+    { const lo = newVolume(8, 24.5, 9.5, 27.5, 1, "flat"), hi = newVolume(6.5, 24.5, 8, 27.5, 2, "gable"); hi.ridgeX = false;
+      const bay = newVolume(7, 27.5, 8, 28, 2, "gable"); bay.ridgeX = false;
+      H("h", 0.702, [hi, lo, bay], 2); }
+    // cliff houses perched on sandstone outcrops
+    { const a = newVolume(13, 12, 16, 14.5, 2, "gable"), b = newVolume(16, 12.5, 17.5, 14, 1, "flat");
+      H("h", 0.431, [a, b], 5, { foundation: "rock" }); }
+    { const a = newVolume(38.5, 29.5, 41, 32.5, 2, "hip"), b = newVolume(38.5, 32.5, 40, 33.5, 1, "gable"); b.ridgeX = false;
+      H("h", 0.587, [a, b], 1, { foundation: "rock" }); }
+    H("h", 0.811, [newVolume(6.5, 30, 9.5, 32.5, 1, "gable"), newVolume(9.5, 30.5, 10.5, 32, 1, "shed")], 3, { style: "plank" });
+    H("h", 0.905, [newVolume(3, 19.5, 5, 21.5, 3, "hip", ), ], 7).volumes[0].kind = "lookout";
+    // --- east: lookout tower on the headland ---
+    H("h", 0.955, [newVolume(41, 36, 43, 38, 3, "hip")], 0).volumes[0].kind = "lookout";
+    // --- props ---
+    // landmarks are sited by the same solver the tools use
+    for (const [type, x, z, seed, opts] of [["hull", 31.2, 17.4, 0.42, { cabin: "stern", annex: "deck", masts: 1 }], ["grotto", 41.5, 40.5, 0.3, { dock: "left" }], ["lighthouse", 2.8, 44.5, 0.2, {}]] as const) {
+      const f = fitLandmark(w, type, x, z, seed, { ...opts }, false);
+      const p = app.addProp(type, f.ok ? f.x : x, f.ok ? f.z : z, f.ok ? f.rot : 0, seed);
+      p.opts = { ...opts };
+      if (type === "grotto") { app.carveGrotto(p); linkGrotto(app, p); }
+    }
+    // rowboats tied up alongside the pier (the village sloop berths at the head by itself)
+    app.addProp("rowboat", 26.1, 26.3, 0.05, 0.17);
+    app.addProp("rowboat", 23.95, 21.5, -0.08, 0.33);
+    for (const [x, z, s] of [[17.2, 14.8, 1], [27.8, 16.6, 2], [12.2, 20.4, 3], [11.2, 27.5, 4], [36.4, 27, 5], [35.8, 33.5, 6], [15, 15.8, 7], [33.8, 20.5, 8]] as const)
+      app.addProp("palm", x, z, s, s * 0.137);
+    for (const [x, z] of [[24.2, 13.8], [18.9, 12.3], [10.0, 26], [10.4, 29.2], [30.0, 12.6], [37.4, 23.4]] as const) app.addProp("bougainvillea", x, z, 0, x * 0.01);
+    for (const [x, z] of [[13, 13], [9, 18], [38, 14], [39, 30], [14.5, 36], [34, 37]] as const) app.addProp("scrub", x, z, 0, z * 0.01);
+    for (const [x, z] of [[11.4, 33.8], [36.7, 36.5], [14.2, 38.6]] as const) app.addProp("rock", x, z, x, 0.3);
+    app.addProp("crates", 24.6, 29.4, 0.3, 0.2);
+    app.addProp("barrels", 24.6, 28.55, 0, 0.4);
+    app.addProp("nets", 13.2, 17.8, 0.9, 0.5);
+    app.addProp("laundry", 8, 29, 0, 0.7);
+    app.addProp("lantern", 23.5, 16.7, 0, 0.1);
+    app.addProp("crane", 25.4, 29.4, -0.6, 0.5);
+    app.addProp("barrels", 10.5, 23.4, 0, 0.9);
+    // --- paint: cobbles by the terrace houses, sandy paths ---
+    for (let x = 18; x <= 30; x += 1) app.paintDisc("cobble", x, 14.2, 0.9);
+    for (let z = 23; z <= 34; z += 1) app.paintDisc("path", 10.7, z, 0.6);
+    for (let z = 18; z <= 23; z += 1) app.paintDisc("path", 10 + (z - 18) * 0.15, z, 0.5);
+    app.paintDisc("greenery", 5, 28.5, 1.8); app.paintDisc("greenery", 25, 10.5, 1.6); app.paintDisc("greenery", 31.5, 11, 1.2);
+    app.settleWalks(); app.easeStairs(); app.mergeInline();
+    // nothing small may end up inside a landmark
+    for (const lm of [...w.props.values()].filter(p => isLandmark(p.type))) {
+      const pts = landmarkSamples(lm);
+      for (const o of [...w.props.values()]) if (!isLandmark(o.type) && pts.some(([x, z]) => Math.hypot(x - o.x, z - o.z) < 0.7)) w.props.delete(o.id);
+    }
+    w.pruneNodes();
+    seedShops(app, 0);
+    w.version++;
+  }
 
 /**
  * Seeds a freshly generated cove with a small village: a straight pier from a beach with stilt houses
  * off square branches, a boardwalk along the shore with a house or two behind it, boats, clutter, and
  * a scatter of greenery. Every walkway runs along an axis; every house gets a door onto one.
  */
-export function seedCove(app: App, seed: number) {
+export function seedCove(app: WorldOps, seed: number) {
   // a pier that reaches the far shore can shut boats out of the grotto: if so, build the village again with it stopping short
   let r = rng(0), grotto: Prop | null = null;
   for (const gap of [0, 3]) {
@@ -35,7 +121,7 @@ export function seedCove(app: App, seed: number) {
 }
 
 /** Two distinct markets, close to the village where space permits; never cut off its boat routes. */
-export function seedShops(app: App, seed: number) {
+export function seedShops(app: WorldOps, seed: number) {
   const w = app.world, r = rng(seed * 11.37 + 0.91);
   const nodes = [...w.nodes.values()].filter(n => w.edgesOf(n.id).length);
   const cells: { x: number; z: number; near: number }[] = [];
@@ -126,7 +212,7 @@ const ROOFS: RoofType[] = ["gable", "hip", "gable", "flat", "shed"];
 
 interface Site { i: number; j: number; d: number; run: number; s: number }
 
-function seedVillage(app: App, r: () => number, gap = 0) {
+function seedVillage(app: WorldOps, r: () => number, gap = 0) {
   const w = app.world;
   const lv = (i: number, j: number) => (i < 0 || j < 0 || i >= N || j >= N ? 0 : w.level(i, j));
   const wet = (i: number, j: number) => lv(i, j) <= 5;
@@ -182,7 +268,7 @@ function seedVillage(app: App, r: () => number, gap = 0) {
 }
 
 /** Lay a village out from a pier site; returns how many houses it fitted. `dress` adds boats, clutter and paths. */
-function buildVillage(app: App, site: Site, r: () => number, dress: boolean): number {
+function buildVillage(app: WorldOps, site: Site, r: () => number, dress: boolean): number {
   const w = app.world;
   const lv = (i: number, j: number) => (i < 0 || j < 0 || i >= N || j >= N ? 0 : w.level(i, j));
   const wet = (i: number, j: number) => lv(i, j) <= 5;
@@ -321,7 +407,7 @@ function villageCentre(w: World): [number, number] {
  * Put a grotto in the cove, tied to the village by a walkway: the best cliff near the village, else a
  * headland raised for it. Returns null when nothing works, leaving the cove as it was.
  */
-export function seedGrotto(app: App, r: () => number): Prop | null {
+export function seedGrotto(app: WorldOps, r: () => number): Prop | null {
   const w = app.world, near = villageCentre(w), seed = 0.2 + r() * 0.6;
   const sloop = !!planSloop(w);
   keepHomes = villagerHomes(w).length;
@@ -347,7 +433,7 @@ let keepSloop = false;
 let keepHomes = 0;
 
 /** Tie the grotto on, and keep the walkway only if boats still reach the docks; prefer one that stays off the water. */
-function tieOn(app: App, p: Prop, homes: number): boolean {
+function tieOn(app: WorldOps, p: Prop, homes: number): boolean {
   const w = app.world;
   for (const water of [true, false]) {
     const nodes = new Set(w.nodes.keys()), edges = new Set(w.edges.keys()), ys = new Map([...w.nodes.values()].map(n => [n.id, n.y]));
@@ -368,7 +454,7 @@ function tieOn(app: App, p: Prop, homes: number): boolean {
 }
 
 /** Try a site: face the dock toward the village, and keep the grotto only if boats can reach it. */
-function placeGrotto(app: App, f: { x: number; z: number; rot: number }, seed: number, opts: Prop["opts"], near: [number, number]): Prop | null {
+function placeGrotto(app: WorldOps, f: { x: number; z: number; rot: number }, seed: number, opts: Prop["opts"], near: [number, number]): Prop | null {
   const w = app.world;
   const probe: Prop = { id: "ghost", type: "grotto", x: f.x, z: f.z, rot: f.rot, seed, opts };
   const toward: "left" | "right" = toL(probe, near[0], near[1])[0] < 0 ? "left" : "right";
@@ -387,7 +473,7 @@ function placeGrotto(app: App, f: { x: number; z: number; rot: number }, seed: n
  * No cliff will take a grotto: pick a stretch of shore with open, reachable water in front and raise
  * a rocky headland behind it, stepped down to the ground around so it reads as part of the coast.
  */
-function raiseHeadland(app: App, seed: number, near: [number, number]): Prop | null {
+function raiseHeadland(app: WorldOps, seed: number, near: [number, number]): Prop | null {
   const w = app.world, opts = { size: 0 as const, dock: "left" as const };
   const probe: Prop = { id: "ghost", type: "grotto", x: 0, z: 0, rot: 0, seed, opts };
   const g = grottoDims(probe), R = g.W + g.T + 1.4, back = g.D + 1.6;
@@ -433,7 +519,7 @@ function raiseHeadland(app: App, seed: number, near: [number, number]): Prop | n
     for (const [i, j, l] of lift) w.setLevel(i, j, l);
     const fit = fitLandmark(w, "grotto", cd.x, cd.z, seed, opts, false);
     const p = fit.ok ? placeGrotto(app, fit, seed, opts, near) : null;
-    if (p) { app.changed({ terrain: true }); return p; }
+    if (p) return p;
     lift.forEach(([i, j], k) => w.setLevel(i, j, was[k]));
   }
   return null;
@@ -444,7 +530,7 @@ function raiseHeadland(app: App, seed: number, near: [number, number]): Prop | n
  * water that keeps out of the mouth's boat lane, off houses and other walkways, and climbs no steeper
  * than stairs. Returns whether it reached.
  */
-export function linkGrotto(app: App, p: Prop, water = true): boolean {
+export function linkGrotto(app: WorldOps, p: Prop, water = true): boolean {
   const w = app.world, g = grottoDims(p), lane = g.W + 0.9;
   const goals = new Map<number, WalkNode>();
   const cell = (x: number, z: number) => Math.floor(z) * N + Math.floor(x);
@@ -551,7 +637,7 @@ export function linkGrotto(app: App, p: Prop, water = true): boolean {
 }
 
 /** Make the connected house nearest the grotto a lookout, unless the village already has one. */
-export function seedLookout(app: App, p: Prop) {
+export function seedLookout(app: WorldOps, p: Prop) {
   const w = app.world;
   if ([...w.houses.values()].some(h => h.volumes.some(v => v.kind === "lookout"))) return;
   const homes = villagerHomes(w).map(hm => w.houses.get(hm.house)!).filter(Boolean);
@@ -566,7 +652,7 @@ export function seedLookout(app: App, p: Prop) {
 }
 
 /** A handful of palms, scrub, rocks, a rowboat and (where it fits) a lighthouse, clear of the village. */
-function seedProps(app: App, r: () => number) {
+function seedProps(app: WorldOps, r: () => number) {
   const w = app.world;
   const cells: [number, number, number][] = [];
   for (let j = 1; j < N - 1; j++) for (let i = 1; i < N - 1; i++) cells.push([i, j, w.level(i, j)]);

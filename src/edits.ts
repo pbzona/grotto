@@ -1,4 +1,4 @@
-import type { World } from "./world";
+import type { World } from "./world.ts";
 
 interface EditMetadata {
   capture(includeHour: boolean): unknown;

@@ -4,7 +4,7 @@ import {
   fract, floor, dot, texture, clamp, max, min, abs, pow, step, length, cameraPosition, normalize, positionWorldDirection,
   mx_noise_float, mx_worley_noise_float, transformNormalToView, select, hash, exp,
 } from "three/tsl";
-import { N, WATER_Y } from "./world";
+import { N, WATER_Y } from "./world.ts";
 
 /** Shared uniforms driven by the day/night cycle and the tools. */
 export const U = {

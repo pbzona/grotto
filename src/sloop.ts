@@ -1,7 +1,7 @@
 import * as THREE from "three/webgpu";
-import type { World } from "./world";
-import { buildBoat, updateBoat, type Boat } from "./props";
-import { planSloop, sloopAt, type SloopPlan, type SloopPose } from "./voyages";
+import type { World } from "./world.ts";
+import { buildBoat, updateBoat, type Boat } from "./props.ts";
+import { planSloop, sloopAt, type SloopPlan, type SloopPose } from "./voyages.ts";
 
 /** The village's own sloop (not a prop, so it can't be picked): see planSloop / sloopAt. */
 export class VillageSloop {

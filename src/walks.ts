@@ -1,6 +1,6 @@
-import { World, WalkEdge, WalkNode, WATER_Y, DECK_Y, N, grottoTieAt } from "./world";
-import { MeshBuilder, V3, M, hexRGB, hsh, add, scl, lerp3 } from "./mesh";
-import { doorOf, type Light } from "./houses";
+import { WATER_Y, DECK_Y, N, grottoTieAt, type World, type WalkEdge, type WalkNode } from "./world.ts";
+import { MeshBuilder, M, hexRGB, hsh, add, scl, lerp3, type V3 } from "./mesh.ts";
+import { doorOf, type Light } from "./houses.ts";
 
 /**
  * The walkway network: nodes joined by edges. One system covers docks and piers on posts, beach

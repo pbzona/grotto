@@ -1,6 +1,6 @@
 import * as THREE from "three/webgpu";
-import { N, WATER_Y, type World } from "./world";
-import { MAX_VILLAGERS, type Villager } from "./villagers";
+import { N, WATER_Y, type World } from "./world.ts";
+import { MAX_VILLAGERS, type Villager } from "./villagers.ts";
 
 const SHIRTS = [0xe8dcc4, 0x3f6f8f, 0xb5523b, 0x6d8a5a, 0xd9a441, 0x2f3d55, 0xf2efe8, 0x8c5a7a];
 const SKIN = [0xe9c4a2, 0xc99a74, 0x9a6b4a, 0x6e4a33];

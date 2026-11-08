@@ -1,12 +1,13 @@
 import * as THREE from "three/webgpu";
-import { World, Prop, WATER_Y, N, fbm, isLandmark, isShop, shopBase, landmarkSamples } from "./world";
-import { MeshBuilder, V3, M, hexRGB, rng, hsh, add, scl, lerp3, norm, sub } from "./mesh";
-import type { Light, Anchor, Face } from "./houses";
-import { houseLayout, sideLine } from "./houses";
-import { FLOOR_H } from "./world";
-import { landingRadius, isStairs, lanternPost } from "./walks";
-import { buildHullTavern, buildGrotto, buildLighthouseBase } from "./landmarks";
-import { buildShop } from "./shops";
+import { WATER_Y, N, fbm, isLandmark, isGreenery, isShop, shopBase, landmarkSamples, type World, type Prop } from "./world.ts";
+export { isGreenery } from "./world.ts";
+import { MeshBuilder, M, hexRGB, rng, hsh, add, scl, lerp3, norm, sub, type V3 } from "./mesh.ts";
+import type { Light, Anchor, Face } from "./houses.ts";
+import { houseLayout, sideLine } from "./houses.ts";
+import { FLOOR_H } from "./world.ts";
+import { landingRadius, isStairs, lanternPost } from "./walks.ts";
+import { buildHullTavern, buildGrotto, buildLighthouseBase } from "./landmarks.ts";
+import { buildShop } from "./shops.ts";
 
 /** Where a prop stands: the ground, or the deck of a walkway it sits on. */
 export function surfaceAt(world: World, x: number, z: number) {
@@ -78,7 +79,6 @@ export const PROP_INFO: Record<string, { label: string; water?: boolean; big?: b
 };
 
 /** Trees, shrubs and rocks are lesser objects: anything built over them hides them instead of being blocked. */
-export const isGreenery = (t: string) => t === "palm" || t === "bougainvillea" || t === "scrub" || t === "rock";
 /** Is this greenery covered by a walkway, a house or a landmark? Then it isn't drawn (it comes back if that goes). */
 export function greeneryHidden(world: World, p: Prop) {
   if (!isGreenery(p.type)) return false;

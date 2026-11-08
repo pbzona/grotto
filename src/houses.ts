@@ -1,6 +1,6 @@
-import { World, House, Volume, FLOOR_H, PLINTH, DECK_Y, WATER_Y, N, WalkNode, fbm } from "./world";
-import { MeshBuilder, V3, M, hexRGB, rng, hsh, add, scl, lerp3, sub, norm, cross } from "./mesh";
-import type { Home } from "./villagers";
+import { World, FLOOR_H, PLINTH, DECK_Y, WATER_Y, N, fbm, type House, type Volume, type WalkNode } from "./world.ts";
+import { MeshBuilder, M, hexRGB, rng, hsh, add, scl, lerp3, sub, norm, cross, type V3 } from "./mesh.ts";
+import type { Home } from "./villagers.ts";
 
 /**
  * Parametric houses. A house is a few rectangular volumes plus parameters; everything visible —

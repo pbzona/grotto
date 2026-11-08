@@ -1,5 +1,5 @@
 import * as THREE from "three/webgpu";
-import { N, World, WATER_Y, fbm, BASE_Y, grottoDims, grottoDome, GrottoDims } from "./world";
+import { N, World, WATER_Y, fbm, BASE_Y, grottoDims, grottoDome, GrottoDims } from "./world.ts";
 
 export const RES = 4;              // mesh subdivisions per cell
 export const GRID = N * RES + 1;   // vertices per side

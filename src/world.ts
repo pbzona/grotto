@@ -219,6 +219,7 @@ export function landmarkSamples(p: Prop): [number, number][] {
 }
 export type ShopType = "market" | "boatyard" | "bakery";
 export const isShop = (t: PropType): t is ShopType => t === "market" || t === "boatyard" || t === "bakery";
+export const isGreenery = (t: string) => t === "palm" || t === "bougainvillea" || t === "scrub" || t === "rock";
 export const isBuildingProp = (t: PropType) => isShop(t) || t === "hull" || t === "lighthouse";
 export const BOATYARD_SLIP = 3.6;
 export const SHOP_DIMS: Record<ShopType, { w: number; d: number; h: number }> = {

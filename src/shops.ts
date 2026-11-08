@@ -1,6 +1,6 @@
-import { type Prop, type World, SHOP_DIMS, BOATYARD_SLIP, WATER_Y, shopBase, type ShopType } from "./world";
-import { MeshBuilder, M, hexRGB, rng, type V3 } from "./mesh";
-import type { Light } from "./houses";
+import { type Prop, type World, SHOP_DIMS, BOATYARD_SLIP, WATER_Y, shopBase, type ShopType } from "./world.ts";
+import { MeshBuilder, M, hexRGB, rng, type V3 } from "./mesh.ts";
+import type { Light } from "./houses.ts";
 
 const color = (m: MeshBuilder, hex: string, pattern: number) => m.paint(hexRGB(hex), pattern);
 const plank = "#76553e", dark = "#513b2f", stone = "#b99c75", cream = "#e3d2ae";

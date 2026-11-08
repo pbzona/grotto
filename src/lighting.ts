@@ -1,5 +1,5 @@
 import * as THREE from "three/webgpu";
-import { N } from "./world";
+import { N } from "./world.ts";
 
 interface Key { h: number; sun: string; sunI: number; sky: string; ground: string; hemiI: number; top: string; horizon: string; fog: string; night: number }
 // golden sun against deep teal shadows; warm lamps against a cool teal night

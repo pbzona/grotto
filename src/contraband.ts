@@ -1,10 +1,10 @@
 import * as THREE from "three/webgpu";
-import { World, WATER_Y } from "./world";
-import { People } from "./life";
-import { buildBoat, updateBoat, boatFreeboard, type Boat } from "./props";
-import { rng } from "./mesh";
-import { CRATES, planRun, runAt, type RunPlan, type RunState, type Lookout } from "./smuggling";
-import type { Home } from "./villagers";
+import { World, WATER_Y } from "./world.ts";
+import { People } from "./life.ts";
+import { buildBoat, updateBoat, boatFreeboard, type Boat } from "./props.ts";
+import { rng } from "./mesh.ts";
+import { CRATES, planRun, runAt, type RunPlan, type RunState, type Lookout } from "./smuggling.ts";
+import type { Home } from "./villagers.ts";
 
 /** A seed whose rowboat comes out in the dark green-black paint (index 3 of the boat colours). */
 function darkSeed() {

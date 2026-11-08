@@ -1,14 +1,14 @@
-import type { Ambience } from "./sound";
-import type { App } from "./app";
-import { Tools, ToolId, HOUSE_PRESETS } from "./tools";
-import { PALETTES } from "./houses";
-import { PROP_INFO, isGreenery } from "./props";
-import { MARKET_VENDORS, MARKET_KEYS, marketVendor } from "./shops";
-import { formatHour } from "./lighting";
-import { type PropType, type Prop, type CoveKind, COVES, propOpt, HULL_OPTS, GROTTO_OPTS, isLandmark } from "./world";
-import { fitLandmark } from "./landmarks";
-import { clampStair } from "./walks";
-import { CROWDS, CROWD_KEY } from "./villagers";
+import type { Ambience } from "./sound.ts";
+import type { App } from "./app.ts";
+import { Tools, ToolId, HOUSE_PRESETS } from "./tools.ts";
+import { PALETTES } from "./houses.ts";
+import { PROP_INFO, isGreenery } from "./props.ts";
+import { MARKET_VENDORS, MARKET_KEYS, marketVendor } from "./shops.ts";
+import { formatHour } from "./lighting.ts";
+import { type PropType, type Prop, type CoveKind, COVES, propOpt, HULL_OPTS, GROTTO_OPTS, isLandmark } from "./world.ts";
+import { fitLandmark } from "./placement.ts";
+import { clampStair } from "./walks.ts";
+import { CROWDS, CROWD_KEY } from "./villagers.ts";
 
 // Hand-inked chart glyphs: slightly uneven strokes, drawn to sit on paper.
 const ICON: Record<string, string> = {
@@ -527,16 +527,13 @@ export class UI {
       } else if (s.kind === "prop") {
         const pr = app.world.props.get(s.id); if (!pr) return;
         title(pr.type === "market" ? `${MARKET_VENDORS[marketVendor(pr.seed, pr.opts?.vendor as string | undefined)]}'s market` : PROP_INFO[pr.type].label);
-        const regrow = () => {
-          if (isLandmark(pr.type)) {
-            const f = fitLandmark(app.world, pr.type, pr.x, pr.z, pr.seed, pr.opts, false, pr.id, pr.rot);
-            if (!f.ok) { app.cancel(); this.toast(f.why ?? "That variant won't fit here"); this.refresh(); return; }
-            pr.x = f.x; pr.z = f.z;
-            if (pr.type !== "lighthouse") pr.rot = f.rot + (pr.type === "hull" && Math.cos(f.rot - pr.rot) < 0 ? Math.PI : 0);
-          }
-          app.changed({ structures: true, terrain: pr.type === "grotto" }); t.refreshHandles(); t.refreshHighlight(); this.refresh();
+        const regrow = (patch: Partial<Pick<Prop, "seed" | "opts">>) => {
+          app.begin();
+          const result = app.ops.reviseProp(pr.id, patch);
+          if (!result.ok) { app.cancel(); this.toast(result.why); this.refresh(); return; }
+          app.recordChange(result.change); t.refreshHandles(); t.refreshHighlight(); this.refresh();
         };
-        variantRows(pr, (k, v) => { app.begin(); pr.opts = { ...pr.opts, [k]: v }; regrow(); });
+        variantRows(pr, (k, v) => regrow({ opts: { ...pr.opts, [k]: v } }));
         if (isGreenery(pr.type)) {
           // live sliders: one undo step per gesture
           const live = (fn: () => void) => { fn(); app.changed({ structures: true }); };
@@ -547,7 +544,7 @@ export class UI {
             slider(row("Lean"), 0, 1.4, 0.05, pr.opts?.lean !== undefined ? +pr.opts.lean : 0.6, v => live(() => { pr.opts = { ...pr.opts, lean: v }; }));
           }
         }
-        const acts: [string, () => void, string?][] = [["Reroll", () => { app.begin(); pr.seed = Math.random(); pr.opts = undefined; regrow(); }], ["Remove", () => t.deleteSelection(), "warn"]];
+        const acts: [string, () => void, string?][] = [["Reroll", () => regrow({ seed: Math.random(), opts: undefined })], ["Remove", () => t.deleteSelection(), "warn"]];
         if (pr.type !== "grotto") acts.unshift([pr.type === "hull" ? "Flip" : "Turn", () => t.rotate()]);
         actions(acts);
       }
