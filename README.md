@@ -34,11 +34,15 @@ N plays the day, and `,` `.` step the hour. Press `?` in the app for every short
 
 ## Model and editing
 
-`src/world.ts` owns plain world data and terrain queries. `src/edits.ts` owns provisional
-edits, cancellation, undo and redo. Tools and panel controls begin an edit, preview changes,
-and commit once at the end of the gesture. Escape and pointer cancellation restore the
-pre-edit world; no-op edits preserve redo. `src/app.ts` connects those edits to saving and
-generated geometry. Dirty flags accumulate until a rebuild; painting also invalidates scatter.
+`src/world.ts` owns plain world data, terrain queries and save validation. `src/house-model.ts`,
+`src/walkway-rules.ts`, `src/placement.ts`, and `src/world-ops.ts` hold model rules without a
+renderer. `src/seed.ts` builds starter and generated coves through `WorldOps`; it also runs in
+Node without `App`. `src/houses.ts`, `src/walks.ts`, and `src/landmarks.ts` build geometry from
+those rules. `src/edits.ts` owns provisional edits, cancellation, undo and redo. Tools and panel
+controls begin an edit, preview changes, and commit once at the end of the gesture. Escape and
+pointer cancellation restore the pre-edit world; no-op edits preserve redo. `src/app.ts` connects
+those edits and reported model changes to saving and generated geometry. Dirty flags accumulate
+until a rebuild; painting also invalidates scatter.
 
 The height array stores editable **base terrain**. Grotto caps are derived from the current
 props: `level()` and `height()` return the carved surface, while `baseLevel()` and
@@ -60,8 +64,9 @@ from a CPU-baked light map rather than dynamic lights.
 
 ## Tests
 
-`npm test` runs model regressions without Three.js or a browser: atomic loading, edit history,
-edge splitting, grotto modifiers, legacy migration and terrain edits through undo/redo.
+`npm test` runs model regressions without a browser: generation, placement and editing rules,
+atomic loading, edit history, edge splitting, grotto modifiers, legacy migration and terrain
+edits through undo/redo.
 
 For browser checks, install [agent-browser](https://github.com/vercel-labs/agent-browser) and
 its browser, then run `npm run test:browser`. The runner starts Vite on port 5175, runs the
