@@ -30,6 +30,14 @@ test("water market stands above the sea; bakery needs a fixed deck for its stone
   assert.equal(bakeryDock(w, bakery), undefined);
 });
 
+test("market decorations survive save and load", () => {
+  const w = new World();
+  w.props.set("fruit", { id: "fruit", type: "fruitGarland", x: 12, z: 14, rot: 0.5, seed: 0.25 });
+  w.props.set("flag", { id: "flag", type: "pennant", x: 16, z: 14, rot: 1.2, seed: 0.55 });
+  const restored = new World(); restored.load(w.save());
+  assert.deepEqual(restored.save(), w.save());
+});
+
 test("older coves and existing landmarks remain valid", () => {
   const w = new World();
   for (const type of ["hull", "lighthouse", "grotto"] as const) {

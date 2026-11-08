@@ -1,7 +1,7 @@
 (async () => {
   const g = window.__grotto, t = g.tools, w = g.world, a = g.app, R = [], c = g.renderer.domElement;
   const ok = (name, yes, note = '') => R.push(`${yes ? 'PASS' : 'FAIL'} ${name} ${note}`);
-  const { buildShop } = await import('/src/shops.ts');
+  const { buildShop, marketVendor } = await import('/src/shops.ts');
   const { MeshBuilder } = await import('/src/mesh.ts');
   const { shopBase } = await import('/src/world.ts');
   const facesAt = (m, axis, plane, u, v) => {
@@ -110,6 +110,7 @@
   const stalls = new w.constructor(); stalls.heights.fill(8);
   const layouts = Array.from({ length: 15 }, (_, i) => (i + 1) / 16).map(seed => { const mesh = new MeshBuilder(); buildShop(mesh, stalls, { id: 'market', type: 'market', x: 24, z: 24, rot: 0, seed }, []); return mesh.idx.length; });
   ok('market seeds produce distinct stall arrangements', new Set(layouts).size >= 3, JSON.stringify(layouts));
+  ok('a market vendor can be chosen explicitly', marketVendor(0.125, 'flower') === 2 && marketVendor(0.125, 'fruit') === 1 && marketVendor(0.125, 'fish') === 0);
   const before = w.props.size;
   t.buildingChoice = 'market'; t.shopHeading = null;
   const v = new (g.camera.position.constructor)(38, 0.2, 32).project(g.camera), rect = c.getBoundingClientRect();
@@ -122,6 +123,13 @@
   ok('redo restores latest shop', w.props.size === before + 1);
   t.setTool('prop');
   ok('Props contains grotto but no tavern or lighthouse', [...document.querySelectorAll('#panel button')].some(b => b.textContent === 'Grotto') && ![...document.querySelectorAll('#panel button')].some(b => b.textContent === 'Hull tavern' || b.textContent === 'Lighthouse'));
+  ok('Props has placeable market decorations', ['Fruit', 'Pennant'].every(label => [...document.querySelectorAll('#panel button')].some(b => b.textContent === label)));
+  for (const [type, x, z] of [['fruitGarland', 10, 8], ['pennant', 11, 9]]) {
+    const beforeProps = w.props.size;
+    t.propType = type; t.propSeed = 0.25; click(scr(x, z)); a.update(0);
+    const placed = [...w.props.values()].at(-1);
+    ok(`${type} places and renders`, w.props.size === beforeProps + 1 && placed.type === type && a.structures.userData.owners.includes(`p:${placed.id}`));
+  }
   const market = w.props.get(placedMarketId);
   const x = market.x - Math.sin(market.rot) * 2.2, z = market.z + Math.cos(market.rot) * 2.2;
   t.setTool('walk');

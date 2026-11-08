@@ -4,6 +4,12 @@ import type { Light } from "./houses";
 
 const color = (m: MeshBuilder, hex: string, pattern: number) => m.paint(hexRGB(hex), pattern);
 const plank = "#76553e", dark = "#513b2f", stone = "#b99c75", cream = "#e3d2ae";
+export const MARKET_VENDORS = ["Fishmonger", "Fruit seller", "Flower seller"] as const;
+export const MARKET_KEYS = ["fish", "fruit", "flower"] as const;
+export function marketVendor(seed: number, choice?: string) {
+  const i = MARKET_KEYS.indexOf(choice as typeof MARKET_KEYS[number]);
+  return i < 0 ? Math.floor(rng(seed)() * MARKET_VENDORS.length) : i;
+}
 
 function localGround(world: World, p: Prop, base: number, x: number, z: number) {
   const c = Math.cos(p.rot), s = Math.sin(p.rot);
@@ -45,14 +51,18 @@ function basket(m: MeshBuilder, x: number, z: number, y: number, seed: number) {
 }
 function market(m: MeshBuilder, p: Prop, L: Light[], onWater: boolean) {
   const { w, d } = SHOP_DIMS.market, r = rng(p.seed), hw = w / 2, hd = d / 2;
-  const layout = Math.floor(r() * 3);
+  const layout = marketVendor(p.seed, p.opts?.vendor as string | undefined); r();
   color(m, onWater ? "#76553e" : stone, onWater ? M.plank : M.stone); m.box([-hw, -0.25, -hd], [hw, 0, hd]);
   color(m, "#a27b52", M.plank); m.box([-hw + 0.12, 0, -hd + 0.12], [hw - 0.12, 0.09, hd - 0.12], "-y");
   for (const x of [-hw + 0.15, hw - 0.15]) for (const z of [-hd + 0.15, hd - 0.15]) frame(m, x, z, 2.15, -0.12);
   color(m, plank, M.plank);
   for (const z of [-hd + 0.15, hd - 0.15]) m.beam([-hw + 0.15, 2.13, z], [hw - 0.15, 2.13, z], [0, 0, 1], 0.075, 0.075);
   // Three pitched canvas bays leave a lively, uneven roofline, open on every side.
-  const cloth = ["#c66e4f", "#eadcba", "#648e8a", "#d3a658"];
+  const cloth = [
+    ["#4c8388", "#e2e0cf", "#b45f4e", "#89a8a1"],
+    ["#d2a04e", "#f0d9ae", "#ba6c45", "#a47948"],
+    ["#70865b", "#e6dcc3", "#ad6887", "#b29b6b"],
+  ][layout];
   for (let i = 0; i < 3; i++) {
     const x0 = -hw + i * w / 3, x1 = x0 + w / 3, top = 2.58 + (i % 2) * 0.19;
     const tint = Math.floor(r() * cloth.length);
@@ -94,8 +104,43 @@ function market(m: MeshBuilder, p: Prop, L: Light[], onWater: boolean) {
   if (layout === 0) { table(-1.2, -0.18, "fish"); table(1.2, -0.18, "produce"); basket(m, -1.75, 1.12, 0.09, r()); }
   else if (layout === 1) { table(-1.2, -0.18, "fish"); crates(1.2, -0.42); basket(m, -1.75, 1.12, 0.09, r()); }
   else { table(-1.2, -0.5, "cloth"); table(1.2, -0.18, "produce"); crates(-1.4, 0.87); }
+  // Seeded hanging wares and a pictogram make the stall identifiable from either approach.
+  const hang = [-1.35, -0.85, 0.85, 1.35];
+  for (const [i, x] of hang.entries()) {
+    color(m, dark, M.cloth); m.tube([[x, 2.08, hd - 0.08], [x, 1.77 - (i % 2) * 0.1, hd - 0.08]], 0.012, 4);
+    if (layout === 0) {
+      color(m, "#9ab1aa", M.plain); m.blob([x, 1.65 - (i % 2) * 0.1, hd - 0.08], [0.09, 0.16, 0.055], i + 4, 0);
+      m.tri([[x, 1.55, hd - 0.08], [x - 0.1, 1.44, hd - 0.08], [x + 0.1, 1.44, hd - 0.08]], [0, 0, 1]);
+    } else if (layout === 1) {
+      for (let k = 0; k < 3; k++) {
+        color(m, k === 1 ? "#e8b448" : "#cd7651", M.leaf);
+        m.blob([x + (k - 1) * 0.09, 1.66 - k * 0.08, hd - 0.08], [0.09, 0.1, 0.09], i * 9 + k, 0);
+      }
+      color(m, "#6b874c", M.leaf); m.blob([x, 1.79, hd - 0.08], [0.12, 0.04, 0.09], i + 70, 0);
+    } else {
+      color(m, "#79904d", M.leaf); m.blob([x, 1.64, hd - 0.08], [0.16, 0.2, 0.13], i + 11, 0);
+      for (let k = 0; k < 4; k++) {
+        color(m, k % 2 ? "#c76d95" : "#e39caa", M.leaf);
+        m.blob([x + (k % 2 ? 0.08 : -0.07), 1.58 + k * 0.06, hd - 0.02], [0.055, 0.065, 0.06], i * 13 + k, 0);
+      }
+    }
+  }
   color(m, "#806046", M.plank); m.box([-0.32, 1.42, hd + 0.13], [0.32, 1.85, hd + 0.2]);
-  color(m, "#f1dfb5", M.plain); m.blob([0, 1.64, hd + 0.22], [0.22, 0.075, 0.02], 7, 0);
+  if (layout === 0) {
+    color(m, "#f1dfb5", M.plain); m.blob([0, 1.64, hd + 0.22], [0.22, 0.075, 0.02], 7, 0);
+    m.tri([[0.17, 1.64, hd + 0.22], [0.29, 1.72, hd + 0.22], [0.29, 1.56, hd + 0.22]], [0, 0, 1]);
+  } else if (layout === 1) {
+    color(m, "#e6aa4b", M.leaf); m.blob([0, 1.64, hd + 0.22], [0.14, 0.15, 0.025], 8, 0);
+    color(m, "#638345", M.leaf); m.blob([0.12, 1.8, hd + 0.22], [0.09, 0.04, 0.025], 9, 0);
+  } else for (let k = 0; k < 5; k++) {
+    const angle = k * Math.PI * 2 / 5;
+    color(m, k % 2 ? "#d883a1" : "#ebabb9", M.leaf);
+    m.blob([Math.cos(angle) * 0.1, 1.64 + Math.sin(angle) * 0.1, hd + 0.22], [0.06, 0.06, 0.025], k + 22, 0);
+  }
+  color(m, dark, M.plank); m.cyl(hw - 0.22, hd - 0.16, 2.05, 3.14, 0.035, 0.03, 6);
+  color(m, cloth[layout], M.cloth);
+  m.tri([[hw - 0.2, 3.08, hd - 0.16], [hw - 0.2, 2.75, hd - 0.16], [hw - 0.84, 2.89, hd - 0.16]], [0, 0, 1]);
+  if (layout === 2) for (const x of [-0.55, 0, 0.55]) lamp(m, L, x, 1.83, hd - 0.2);
   color(m, "#a27b52", M.plank); m.box([-0.56, -0.08, hd - 0.02], [0.56, 0.06, hd + 0.75]);
   lamp(m, L, -hw + 0.2, 1.86, hd - 0.15); lamp(m, L, hw - 0.2, 1.86, hd - 0.15);
 }

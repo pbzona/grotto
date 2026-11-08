@@ -56,7 +56,7 @@ export interface WalkEdge { id: string; a: string; b: string; width: number; sty
 export type PropType =
   | "palm" | "bougainvillea" | "scrub" | "rock" | "barrels" | "crates" | "lantern" | "nets" | "laundry"
   | "rowboat" | "sloop" | "hull" | "grotto" | "lighthouse" | "crane"
-  | "market" | "boatyard" | "bakery";
+  | "market" | "boatyard" | "bakery" | "fruitGarland" | "pennant";
 export interface Prop {
   id: string; type: PropType; x: number; z: number; rot: number; seed: number; scale?: number;
   /** variant choices for landmarks (unset keys fall back to a seeded pick) */
@@ -436,7 +436,7 @@ function decodeWorldData(s: RecordData) {
     num(e.width, 0.1, 5); choice(e.style, ["deck", "rope"]); bool(e.rail);
   });
   const props = entries<Prop>(s.props, p => {
-    choice(p.type, ["palm", "bougainvillea", "scrub", "rock", "barrels", "crates", "lantern", "nets", "laundry", "rowboat", "sloop", "hull", "grotto", "lighthouse", "crane", "market", "boatyard", "bakery"]);
+    choice(p.type, ["palm", "bougainvillea", "scrub", "rock", "barrels", "crates", "lantern", "nets", "laundry", "rowboat", "sloop", "hull", "grotto", "lighthouse", "crane", "market", "boatyard", "bakery", "fruitGarland", "pennant"]);
     num(p.x, 0, N); num(p.z, 0, N); num(p.rot); num(p.seed);
     if (p.scale !== undefined) num(p.scale, 0.1, 5);
     if (p.opts !== undefined) for (const [k, v] of Object.entries(record(p.opts))) { text(k); if (typeof v === "number") num(v); else text(v); }

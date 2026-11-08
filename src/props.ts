@@ -28,6 +28,7 @@ export function surfaceAt(world: World, x: number, z: number) {
 /** Local points a prop stands on: posts for the lines, a small ring for heaps, the centre for the rest. */
 function footSamples(type: string): [number, number][] {
   if (type === "laundry") return [[0, 0], [-0.9, 0], [0.9, 0]];
+  if (type === "fruitGarland") return [[0, 0], [-0.85, 0], [0.85, 0]];
   if (type === "nets") return [[0, 0], [-0.85, 0], [0.85, 0]];
   if (type === "crates" || type === "barrels") return [[0, 0], [0.3, 0], [-0.3, 0], [0, 0.3], [0, -0.3]];
   return [[0, 0]];
@@ -70,7 +71,7 @@ export const PROP_INFO: Record<string, { label: string; water?: boolean; big?: b
   palm: { label: "Palm", r: 0.5 }, bougainvillea: { label: "Bougainvillea", r: 0.6 }, scrub: { label: "Scrub", r: 0.45 },
   rock: { label: "Rock", r: 0.5 }, barrels: { label: "Barrels", r: 0.45 }, crates: { label: "Crates", r: 0.5 },
   lantern: { label: "Lantern", r: 0.3 }, nets: { label: "Drying nets", r: 0.9 }, laundry: { label: "Laundry", r: 0.9 },
-  crane: { label: "Crane", r: 0.8 },
+  crane: { label: "Crane", r: 0.8 }, fruitGarland: { label: "Fruit garland", r: 0.9 }, pennant: { label: "Vendor pennant", r: 0.5 },
   rowboat: { label: "Rowboat", water: true, r: 1.0 }, sloop: { label: "Sloop", water: true, r: 1.9 },
   hull: { label: "Hull tavern", big: true, r: 4.2 }, grotto: { label: "Sea grotto", big: true, r: 3.4 }, lighthouse: { label: "Lighthouse", big: true, r: 1.4 },
   market: { label: "Covered market", big: true, r: 2.7 }, boatyard: { label: "Boatyard", big: true, r: 3.3 }, bakery: { label: "Bakery", big: true, r: 2.4 },
@@ -247,6 +248,38 @@ function propMesh(mb: MeshBuilder, p: Prop, L: Light[], out: PropBuild, y: numbe
         mb.paint(hexRGB(cloth[Math.floor(r() * cloth.length)]), M.cloth);
         mb.quad([[x - w, yy, 0], [x + w, yy, 0], [x + w, yy - hh, 0.02], [x - w, yy - hh, 0.02]], [0, 0, 1]);
         mb.quad([[x - w, yy, 0], [x + w, yy, 0], [x + w, yy - hh, 0.02], [x - w, yy - hh, 0.02]], [0, 0, -1]);
+      }
+      break;
+    }
+    case "fruitGarland": {
+      const [mid, span] = lineSpan(0.85), X = (x: number) => mid + x * span;
+      mb.paint(hexRGB("#6b4a33"), M.plank);
+      for (const x of [-0.85, 0.85]) mb.cyl(X(x), 0, foot(X(x), 0) - 0.08, 1.8, 0.055, 0.05, 6);
+      const rope: V3[] = [];
+      for (let i = 0; i <= 8; i++) { const t = i / 8; rope.push([X(-0.85 + t * 1.7), 1.72 - Math.sin(Math.PI * t) * 0.13, 0]); }
+      mb.paint(hexRGB("#c2a473"), M.cloth); mb.tube(rope, 0.016, 4);
+      const fruit = ["#df9e49", "#bc654a", "#d4bb63", "#859950"][Math.floor(r() * 4)];
+      for (let i = 0; i < 6; i++) {
+        const t = (i + 1) / 7, x = X(-0.85 + 1.7 * t), y = 1.72 - Math.sin(Math.PI * t) * 0.13;
+        mb.paint(hexRGB("#63804c"), M.leaf); mb.beam([x, y, 0], [x, y - 0.15, 0], [0, 0, 1], 0.012, 0.012);
+        for (let k = 0; k < 3; k++) {
+          mb.paint(hexRGB(k === 1 ? "#6c8743" : fruit), M.leaf);
+          mb.blob([x + (k - 1) * 0.08 * span, y - 0.19 - (k % 2) * 0.06, (k % 2) * 0.08], [0.08, 0.1, 0.075], p.seed * 29 + i * 7 + k, 0);
+        }
+      }
+      break;
+    }
+    case "pennant": {
+      const palette = ["#bd654a", "#69918b", "#d4a44e", "#a5708d"], tint = Math.floor(r() * palette.length);
+      mb.paint(hexRGB("#684b36"), M.plank); mb.cyl(0, 0, foot(0, 0) - 0.08, 2.45, 0.045, 0.035, 6);
+      mb.paint(hexRGB(palette[tint]), M.cloth);
+      for (const side of [-1, 1]) mb.tri([[0, 2.37, 0], [0.82, 2.21, side * 0.07], [0, 1.99, 0]], [0, 0, side]);
+      mb.paint(hexRGB("#806047"), M.plank); mb.box([-0.29, 1.27, 0.06], [0.29, 1.69, 0.13]);
+      mb.paint(hexRGB("#e9d6b4"), M.plain);
+      if (tint % 2) mb.blob([0, 1.48, 0.15], [0.18, 0.085, 0.025], p.seed * 17, 0);
+      else for (let k = 0; k < 5; k++) {
+        const a = k * Math.PI * 2 / 5;
+        mb.blob([Math.cos(a) * 0.09, 1.48 + Math.sin(a) * 0.09, 0.15], [0.06, 0.065, 0.025], p.seed * 17 + k, 0);
       }
       break;
     }

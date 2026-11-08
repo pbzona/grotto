@@ -3,6 +3,7 @@ import type { App } from "./app";
 import { Tools, ToolId, HOUSE_PRESETS } from "./tools";
 import { PALETTES } from "./houses";
 import { PROP_INFO, isGreenery } from "./props";
+import { MARKET_VENDORS, MARKET_KEYS, marketVendor } from "./shops";
 import { formatHour } from "./lighting";
 import { type PropType, type Prop, type CoveKind, COVES, propOpt, HULL_OPTS, GROTTO_OPTS, isLandmark } from "./world";
 import { fitLandmark } from "./landmarks";
@@ -279,7 +280,7 @@ export class UI {
       <tr><td>Turn the view · zoom · reset</td><td><kbd>Q</kbd> <kbd>E</kbd> · <kbd>+</kbd> <kbd>−</kbd> · <kbd>F</kbd></td></tr>
       <tr><td>Tools</td><td><kbd>1</kbd> select · <kbd>2</kbd> buildings · <kbd>3</kbd> docks · <kbd>4</kbd> terrain · <kbd>5</kbd> paint · <kbd>6</kbd> props · <kbd>7</kbd> remove</td></tr>
       <tr><td>Houses</td><td>Drag out a footprint (or click). Select one: pull the <b>arrows</b> to stretch, <b>Shift-drag</b> an arrow for a new wing, drag the <b>ring</b> to move, drag the <b>diamond</b> up/down for floors. Click a wall to cycle window / wall / door.</td></tr>
-      <tr><td>Shops</td><td>The market stands on land or timber stilts over water. The bakery needs land or a live dock for its stone quay. The boatyard needs a gentle coast with shallow water for its slipway. <kbd>R</kbd> turns the building; connect the entrance for visitors.</td></tr>
+      <tr><td>Shops</td><td>The market stands on land or timber stilts over water. Reroll it for fish, fruit, or flower stalls. Props has hanging fruit and pennants to dress the cove. The bakery needs land or a live dock for its stone quay; the boatyard needs a gentle coast with shallow water. <kbd>R</kbd> turns a building. Connect its entrance for visitors.</td></tr>
       <tr><td>Stilts</td><td>Houses over water or on slopes stand on stilts at deck height automatically — the panel can force stilts or key a house into the slope.</td></tr>
       <tr><td>Docks & walkways</td><td>Click to lay posts, or drag a segment. Start or end on a walkway to branch, on a house wall for a door. <kbd>[</kbd> <kbd>]</kbd> raise/lower the next post — steep runs become stairs. Rope style makes sagging bridges. Double-click, right-click or <kbd>Esc</kbd> to finish.</td></tr>
       <tr><td>Edit a walkway</td><td>Drag any post — including the far end of a pier — to move it. Orange cones set its height; a dead end's cream arrow pulls out a new stretch.</td></tr>
@@ -460,6 +461,9 @@ export class UI {
         pick("Size", "size", GROTTO_OPTS.size, ["S", "M", "L"]);
         pick("Arch", "arch", GROTTO_OPTS.arch, ["Round", "Tall", "Wide"]);
         pick("Dock", "dock", GROTTO_OPTS.dock, ["Left", "Right", "Both"]);
+      } else if (pr.type === "market") {
+        const current = MARKET_KEYS[marketVendor(pr.seed, pr.opts?.vendor as string | undefined)];
+        seg(row("Vendor"), MARKET_KEYS.map((key, i) => [key, MARKET_VENDORS[i]]), current, key => set("vendor", key));
       }
     };
     const actions = (items: [string, () => void, string?][]) => { const d = document.createElement("div"); d.className = "pa"; for (const [l, fn, cls] of items) chip(d, l, false, fn, "", cls ?? ""); p.appendChild(d); };
@@ -522,7 +526,7 @@ export class UI {
         actions([["Remove", () => t.deleteSelection(), "warn"]]);
       } else if (s.kind === "prop") {
         const pr = app.world.props.get(s.id); if (!pr) return;
-        title(PROP_INFO[pr.type].label);
+        title(pr.type === "market" ? `${MARKET_VENDORS[marketVendor(pr.seed, pr.opts?.vendor as string | undefined)]}'s market` : PROP_INFO[pr.type].label);
         const regrow = () => {
           if (isLandmark(pr.type)) {
             const f = fitLandmark(app.world, pr.type, pr.x, pr.z, pr.seed, pr.opts, false, pr.id, pr.rot);
@@ -585,8 +589,8 @@ export class UI {
       }
       case "prop": {
         title("Props");
-        const groups: [string, PropType[]][] = [["Green", ["palm", "bougainvillea", "scrub", "rock"]], ["Dock", ["barrels", "crates", "lantern", "nets", "laundry", "crane"]], ["Boats", ["rowboat", "sloop"]], ["Places", ["grotto"]]];
-        const short: Record<string, string> = { bougainvillea: "Blooms", nets: "Nets", hull: "Tavern", grotto: "Grotto" };
+        const groups: [string, PropType[]][] = [["Green", ["palm", "bougainvillea", "scrub", "rock"]], ["Dock", ["barrels", "crates", "lantern", "nets", "laundry", "crane"]], ["Boats", ["rowboat", "sloop"]], ["Market", ["fruitGarland", "pennant"]], ["Places", ["grotto"]]];
+        const short: Record<string, string> = { bougainvillea: "Blooms", nets: "Nets", fruitGarland: "Fruit", pennant: "Pennant", grotto: "Grotto" };
         for (const [g, items] of groups) seg(row(g), items.map(i => [i, short[i] ?? PROP_INFO[i].label, PROP_INFO[i].label] as [string, string, string]), t.propType, v => { t.propType = v as PropType; this.refresh(); t.updateGhost(); });
         if (t.propType === "hull" || t.propType === "grotto") {
           const gp = { type: t.propType, seed: t.propSeed, opts: t.ghostOpts } as Prop;

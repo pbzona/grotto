@@ -48,7 +48,7 @@ export function seedShops(app: App, seed: number) {
   const markets: Prop[] = [], hadSloop = !!planSloop(w);
   const grotto = [...w.props.values()].find(p => p.type === "grotto");
   const place = (x: number, z: number, heading?: number, tie?: WalkNode) => {
-    const variant = markets.length === 0 ? 0.06 : 0.38;
+    const variant = markets.length === 0 ? 1 / 16 : 2 / 16;
     const fit = fitLandmark(w, "market", x, z, variant, {}, false, "ghost", heading);
     if (!fit.ok || markets.some(p => Math.hypot(p.x - fit.x, p.z - fit.z) < 7)) return false;
     if (tie) {

@@ -2,6 +2,7 @@
   const g = window.__grotto, a = g.app, w = g.world, results = [];
   const { villagerHomes } = await import('/src/houses.ts');
   const { villagerVisits } = await import('/src/villagers.ts');
+  const { marketVendor } = await import('/src/shops.ts');
   const ok = (name, condition) => { if (!condition) throw new Error(name); results.push('PASS ' + name); };
   const btn = label => [...document.querySelectorAll('#menu .btn')].find(b => b.textContent.startsWith(label));
   const heights = () => Array.from(w.heights).join(',');
@@ -31,6 +32,7 @@
   a.starter();
   ok('starter has two or three shops', shops().length >= 2 && shops().length <= 3);
   ok('starter has a connected market for villagers to visit', villagerVisits(w).some(v => shops().some(p => p.id === v.id)));
+  ok('starter markets have different vendors', new Set(shops().filter(p => p.type === 'market').map(p => marketVendor(p.seed))).size >= 2);
   results.push('PASS every preset seed 1-12 has two or three shops');
   results.push('PASS every preset seed 1-12 has climbable stairs and connected houses');
   results.push('PASS every preset seed 1-12 has a grotto tied to the village by walkway');
