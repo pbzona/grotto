@@ -225,6 +225,34 @@ export const BOATYARD_SLIP = 3.6;
 export const SHOP_DIMS: Record<ShopType, { w: number; d: number; h: number }> = {
   market: { w: 4.2, d: 3.2, h: 2.4 }, boatyard: { w: 5.2, d: 3.8, h: 2.8 }, bakery: { w: 3.1, d: 3, h: 2.5 },
 };
+
+/** Roofs extend beyond floor footprints. Keep their collision shape in the model beside their dimensions. */
+export const houseRoofReach = (v: Volume) => v.kind === "lookout" ? 0.55 : v.roof === "flat" ? 0.09 : v.overhang;
+function shopRoofHalf(p: Prop) {
+  const { w, d } = SHOP_DIMS[p.type as ShopType];
+  return { x: w / 2 + (p.type === "market" ? 0.05 : 0.22), z: d / 2 + (p.type === "market" ? 0.19 : 0.2) };
+}
+/** Separating-axis test for two rectangles in the horizontal plane. Includes a small visual gap. */
+function roofBoxesOverlap(a: { x: number; z: number; rot: number }, ax: number, az: number, b: { x: number; z: number; rot: number }, bx: number, bz: number) {
+  const dx = b.x - a.x, dz = b.z - a.z;
+  const ac = Math.cos(a.rot), as = Math.sin(a.rot), bc = Math.cos(b.rot), bs = Math.sin(b.rot);
+  for (const [ux, uz] of [[ac, as], [-as, ac], [bc, bs], [-bs, bc]]) {
+    const distance = Math.abs(dx * ux + dz * uz);
+    const ra = ax * Math.abs(ac * ux + as * uz) + az * Math.abs(-as * ux + ac * uz);
+    const rb = bx * Math.abs(bc * ux + bs * uz) + bz * Math.abs(-bs * ux + bc * uz);
+    if (distance >= ra + rb) return false;
+  }
+  return true;
+}
+export function shopHouseOverlap(p: Prop, v: Pick<Volume, "x0" | "z0" | "x1" | "z1">, roofReach: number) {
+  const roof = shopRoofHalf(p), gap = 0.12;
+  return roofBoxesOverlap(p, roof.x + gap, roof.z + gap,
+    { x: (v.x0 + v.x1) / 2, z: (v.z0 + v.z1) / 2, rot: 0 }, (v.x1 - v.x0) / 2 + roofReach, (v.z1 - v.z0) / 2 + roofReach);
+}
+export function shopShopOverlap(a: Prop, b: Prop) {
+  const A = shopRoofHalf(a), B = shopRoofHalf(b), gap = 0.12;
+  return roofBoxesOverlap(a, A.x + gap / 2, A.z + gap / 2, b, B.x + gap / 2, B.z + gap / 2);
+}
 /** The boatyard opens to the water at +z, but people enter from dry land at -z. */
 export function shopEntrance(p: Pick<Prop, "type" | "x" | "z" | "rot">) {
   const { d } = SHOP_DIMS[p.type as ShopType];
@@ -354,14 +382,16 @@ export class World {
       if (px > v.x0 - margin && px < v.x1 + margin && pz > v.z0 - margin && pz < v.z1 + margin) return h;
     return undefined;
   }
-  footprintFree(x0: number, z0: number, x1: number, z1: number, except?: House, minSize = 1) {
+  footprintFree(x0: number, z0: number, x1: number, z1: number, except?: House, minSize = 1, roofReach = 0.55) {
     if (x0 < 0.5 || z0 < 0.5 || x1 > N - 0.5 || z1 > N - 0.5 || x1 - x0 < minSize || z1 - z0 < minSize) return false;
     for (const h of this.houses.values()) {
       if (h === except) continue;
       for (const v of h.volumes) if (x0 < v.x1 - 0.01 && x1 > v.x0 + 0.01 && z0 < v.z1 - 0.01 && z1 > v.z0 + 0.01) return false;
     }
-    for (const p of this.props.values()) if (isLandmark(p.type))
+    for (const p of this.props.values()) if (isLandmark(p.type)) {
+      if (isShop(p.type) && shopHouseOverlap(p, { x0, z0, x1, z1 }, roofReach)) return false;
       for (const [x, z] of landmarkSamples(p)) if (x > x0 - 0.25 && x < x1 + 0.25 && z > z0 - 0.25 && z < z1 + 0.25) return false;
+    }
     return true;
   }
 

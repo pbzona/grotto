@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { World, SHOP_DIMS, BOATYARD_SLIP, DECK_Y, bakeryDock, isShop, isBuildingProp, landmarkSamples, shopEntrance, shopBase, type Prop, type ShopType } from "../src/world.ts";
+import { World, newVolume, SHOP_DIMS, BOATYARD_SLIP, DECK_Y, bakeryDock, isShop, isBuildingProp, landmarkSamples, shopEntrance, shopBase, type Prop, type ShopType } from "../src/world.ts";
+import { makeHouse } from "../src/house-model.ts";
+import { fitLandmark, landmarkClash } from "../src/placement.ts";
+import { WorldOps } from "../src/world-ops.ts";
 
 for (const type of ["market", "boatyard", "bakery"] as ShopType[]) test(`${type} footprint, entrance, save and overlap`, () => {
   const w = new World(); w.heights.fill(8);
@@ -36,6 +39,36 @@ test("market decorations survive save and load", () => {
   w.props.set("flag", { id: "flag", type: "pennant", x: 16, z: 14, rot: 1.2, seed: 0.55 });
   const restored = new World(); restored.load(w.save());
   assert.deepEqual(restored.save(), w.save());
+});
+
+test("market canopy clears a neighboring two-storey house roof", () => {
+  const w = new World(); w.heights.fill(2);
+  const house = makeHouse("home", 0.3, [newVolume(20, 20, 23, 23, 2, "hip")]);
+  w.houses.set(house.id, house);
+  const touching: Prop = { id: "market", type: "market", x: 17.9, z: 21.5, rot: 0, seed: 0.25 };
+  assert.ok(landmarkClash(w, touching), "the canvas and house eave intersect although their floor footprints do not");
+  const fit = fitLandmark(w, "market", touching.x, touching.z, touching.seed, {}, false, touching.id, 0);
+  assert.equal(fit.ok, true);
+  assert.ok(20 - (fit.x + SHOP_DIMS.market.w / 2) >= house.volumes[0].overhang - 1e-6, "a fitted market leaves room for the roof eave");
+  const reverse = new World(); reverse.heights.fill(2);
+  reverse.props.set(touching.id, { ...touching, x: 17.8 });
+  assert.equal(reverse.footprintFree(20, 20, 23, 23), false, "placing a house after the market also keeps roofs apart");
+  w.props.set(touching.id, touching);
+  const repaired = new WorldOps(w).reviseProp(touching.id, { seed: 0.5 });
+  assert.equal(repaired.ok, true, "rerolling an old overlapping market can move it to a valid site");
+  if (repaired.ok) assert.equal(landmarkClash(w, repaired.value), null);
+});
+
+test("a roof edit cannot grow into a neighboring market", () => {
+  const w = new World(); w.heights.fill(2);
+  w.props.set("market", { id: "market", type: "market", x: 17.55, z: 21.5, rot: 0, seed: 0.25 });
+  const ops = new WorldOps(w);
+  const placed = ops.placeHouse(makeHouse("ghost", 0.3, [newVolume(20, 20, 23, 23, 2, "flat")]));
+  assert.equal(placed.ok, true);
+  if (!placed.ok) return;
+  const edit = ops.editHouse(placed.value.id, 0, { kind: "roof", value: "hip" });
+  assert.equal(edit.ok, false);
+  assert.equal(w.houses.get(placed.value.id)?.volumes[0].roof, "flat");
 });
 
 test("older coves and existing landmarks remain valid", () => {

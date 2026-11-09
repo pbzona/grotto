@@ -1,4 +1,4 @@
-import { WATER_Y, N, grottoDims, hullDims, landmarkSamples, quaySamples, grottoTies, isLandmark, isShop, isGreenery, SHOP_DIMS, BOATYARD_SLIP, shopEntrance, bakeryDock, type World, type Prop, type PropType } from "./world.ts";
+import { WATER_Y, N, grottoDims, hullDims, landmarkSamples, quaySamples, grottoTies, isLandmark, isShop, isGreenery, shopHouseOverlap, shopShopOverlap, houseRoofReach, SHOP_DIMS, BOATYARD_SLIP, shopEntrance, bakeryDock, type World, type Prop, type PropType } from "./world.ts";
 
 const clampN = (v: number) => Math.min(N - 0.01, Math.max(0.01, v));
 const H = (w: World, x: number, z: number) => w.height(clampN(x), clampN(z));
@@ -8,6 +8,8 @@ export interface Fit { x: number; z: number; rot: number; ok: boolean; why?: str
 /** Does this landmark (at its current x/z/rot) collide with houses, walkways or other props? */
 export function landmarkClash(w: World, p: Prop): string | null {
   const pts = landmarkSamples(p);
+  if (isShop(p.type)) for (const h of w.houses.values()) for (const v of h.volumes)
+    if (shopHouseOverlap(p, v, houseRoofReach(v))) return "Too close to a house roof";
   for (const [x, z] of pts) {
     if (x < 0.4 || z < 0.4 || x > N - 0.4 || z > N - 0.4) return "Too close to the edge";
     if (w.houseAt(x, z, 0.2)) return "A house is in the way";
@@ -44,6 +46,7 @@ export function landmarkClash(w: World, p: Prop): string | null {
   for (const o of w.props.values()) {
     if (o.id === p.id) continue;
     if (isLandmark(o.type)) {
+      if (isShop(p.type) && isShop(o.type) && shopShopOverlap(p, o)) return "Too close to another roof";
       const op = landmarkSamples(o);
       for (const [x, z] of pts) for (const [ox, oz] of op) if (Math.abs(x - ox) < 0.6 && Math.abs(z - oz) < 0.6) return "Too close to another landmark";
     } else if (o.type === "rowboat" || o.type === "sloop") {

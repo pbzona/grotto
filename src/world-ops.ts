@@ -1,4 +1,4 @@
-import { World, N, uid, WATER_Y, MAX_LEVEL, PAINT_CH, isGreenery, isLandmark, isShop, grottoTieAt, shopDoorAt, type House, type PaintType, type PropType, type Prop, type WalkNode, type WalkEdge } from "./world.ts";
+import { World, N, uid, WATER_Y, MAX_LEVEL, PAINT_CH, isGreenery, isLandmark, isShop, houseRoofReach, grottoTieAt, shopDoorAt, type House, type PaintType, type PropType, type Prop, type WalkNode, type WalkEdge } from "./world.ts";
 import { defaultDeckY, WALK_W, MAX_STAIR, slopeOf, isStairs, clampStair } from "./walkway-rules.ts";
 import { doorOf } from "./house-model.ts";
 import { fitLandmark } from "./placement.ts";
@@ -342,7 +342,7 @@ export class WorldOps {
   }
 
   placeHouse(proposal: House): EditResult<House> {
-    if (!proposal.volumes.every(v => this.world.footprintFree(v.x0, v.z0, v.x1, v.z1)) || siteDrop(this.world, proposal) > MAX_SITE_DROP) return { ok: false, why: "Not enough room or too steep here" };
+    if (!proposal.volumes.every(v => this.world.footprintFree(v.x0, v.z0, v.x1, v.z1, undefined, 1, houseRoofReach(v))) || siteDrop(this.world, proposal) > MAX_SITE_DROP) return { ok: false, why: "Not enough room or too steep here" };
     const house = { ...structuredClone(proposal), id: uid("h") };
     this.world.houses.set(house.id, house);
     return { ok: true, value: house, change: { structures: true } };
@@ -353,6 +353,9 @@ export class WorldOps {
     if (!current) return { ok: false, why: "House no longer exists" };
     const result = nextHouse(this.world, current, vi, edit);
     if (!result) return { ok: false, why: edit.kind === "wing" ? "No free side for a wing" : "Invalid house edit" };
+    if (["roof", "overhang", "wing", "floors", "pitch", "kind"].includes(edit.kind) &&
+        !result.house.volumes.every(v => this.world.footprintFree(v.x0, v.z0, v.x1, v.z1, current, 0.5, houseRoofReach(v))))
+      return { ok: false, why: "That roof would overlap another building" };
     this.world.houses.set(id, result.house);
     return { ok: true, value: result, change: { structures: true } };
   }
@@ -360,7 +363,7 @@ export class WorldOps {
   replaceHouse(id: string, candidate: House, from?: { origin: House; doors: DoorEnd[] }): EditResult<House> {
     const current = this.world.houses.get(id);
     if (!current) return { ok: false, why: "House no longer exists" };
-    if (!candidate.volumes.length || !candidate.volumes.every(v => this.world.footprintFree(v.x0, v.z0, v.x1, v.z1, current, 0.5)) ||
+    if (!candidate.volumes.length || !candidate.volumes.every(v => this.world.footprintFree(v.x0, v.z0, v.x1, v.z1, current, 0.5, houseRoofReach(v))) ||
         siteDrop(this.world, candidate) > Math.max(MAX_SITE_DROP, siteDrop(this.world, from?.origin ?? current)) + 1e-6) return { ok: false, why: "That shape won't fit here" };
     const next = structuredClone(candidate);
     this.world.houses.set(id, next);
