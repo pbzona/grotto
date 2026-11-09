@@ -43,8 +43,8 @@ async function boot() {
   const lightMap = new LightMap();
   const terrain = new Terrain(world, new THREE.MeshBasicMaterial(), new THREE.MeshBasicMaterial());
   const mats = createMaterials({ paint: terrain.paintTex, water: terrain.waterTex, light: lightMap.texture });
-  terrain.mesh.material = mats.terrain; terrain.skirt.material = mats.terrain;
-  scene.add(terrain.mesh, terrain.skirt);
+  terrain.mesh.material = mats.terrain; terrain.skirt.material = mats.terrain; terrain.seabed.material = mats.terrain;
+  scene.add(terrain.mesh, terrain.seabed, terrain.skirt);
   scene.backgroundNode = mats.background;
 
   // the sea: a big disc of water; finer near the cove for the swell

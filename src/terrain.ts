@@ -1,5 +1,5 @@
 import * as THREE from "three/webgpu";
-import { N, World, WATER_Y, fbm, BASE_Y, grottoDims, grottoDome, GrottoDims } from "./world.ts";
+import { N, WATER_Y, fbm, BASE_Y, levelY, grottoDims, grottoDome, type World, type GrottoDims } from "./world.ts";
 
 export const RES = 4;              // mesh subdivisions per cell
 export const GRID = N * RES + 1;   // vertices per side
@@ -11,6 +11,7 @@ interface Vault { x: number; z: number; c: number; s: number; g: GrottoDims }
 export class Terrain {
   mesh: THREE.Mesh;
   skirt: THREE.Mesh;
+  seabed: THREE.Mesh;
   paintTex: THREE.DataTexture;
   /** r = depth below the water line (0..4 units), g = foam from things standing in the water */
   waterTex: THREE.DataTexture;
@@ -19,14 +20,19 @@ export class Terrain {
   /** per vertex: 0 plain, 1 cut away over a grotto shell, 2 carved mouth, 3 restored ground over a vault */
   private kind = new Uint8Array(GRID * GRID);
   private vaults: Vault[] = [];
+  private world: World;
 
-  constructor(private world: World, mat: THREE.Material, cliffMat: THREE.Material) {
+  constructor(world: World, mat: THREE.Material, cliffMat: THREE.Material) {
+    this.world = world;
     const pos = new Float32Array(GRID * GRID * 3);
     this.geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
     this.mesh = new THREE.Mesh(this.geo, mat);
     this.mesh.receiveShadow = true; this.mesh.castShadow = true;
     this.skirt = new THREE.Mesh(new THREE.BufferGeometry(), cliffMat);
     this.skirt.receiveShadow = true;
+    this.seabed = new THREE.Mesh(new THREE.BufferGeometry(), mat);
+    this.seabed.receiveShadow = true;
+    this.seabed.visible = false;
 
     this.paintTex = new THREE.DataTexture(world.paint, N, N, THREE.RGBAFormat);
     this.paintTex.magFilter = this.paintTex.minFilter = THREE.LinearFilter;
@@ -122,8 +128,16 @@ export class Terrain {
     }
   }
   private indices() {
-    const kind = this.kind, idx: number[] = [];
+    const kind = this.kind, idx: number[] = [], pos = this.geo.getAttribute("position") as THREE.BufferAttribute;
+    const bedPos: number[] = [], bedIdx: number[] = [];
+    const back = (p: number, q: number, r: number) => {
+      const base = bedPos.length / 3;
+      for (const k of [p, q, r]) bedPos.push(pos.getX(k), levelY(2) - 0.05, pos.getZ(k));
+      bedIdx.push(base, base + 1, base + 2);
+    };
     const ok = (p: number, q: number, r: number) => {
+      // Keep the seabed beneath the cave floor. Omitting these triangles exposes a hole through clear water.
+      if ([p, q, r].every(k => pos.getY(k) < WATER_Y - 0.03)) return true;
       const a = kind[p], b = kind[q], c = kind[r];
       if (a === 1 || b === 1 || c === 1) return false;
       const has2 = a === 2 || b === 2 || c === 2, has3 = a === 3 || b === 3 || c === 3;
@@ -133,8 +147,18 @@ export class Terrain {
       const a = j * GRID + i, b = a + 1, c = a + GRID, d = c + 1;
       const t = (i + j) % 2 ? [a, c, b, b, c, d] : [a, c, d, a, d, b];
       if (ok(t[0], t[1], t[2])) idx.push(t[0], t[1], t[2]);
+      else if ([t[0], t[1], t[2]].some(k => pos.getY(k) < WATER_Y)) back(t[0], t[1], t[2]);
       if (ok(t[3], t[4], t[5])) idx.push(t[3], t[4], t[5]);
+      else if ([t[3], t[4], t[5]].some(k => pos.getY(k) < WATER_Y)) back(t[3], t[4], t[5]);
     }
+    const bed = new THREE.BufferGeometry();
+    if (bedIdx.length) {
+      bed.setAttribute("position", new THREE.Float32BufferAttribute(bedPos, 3));
+      bed.setIndex(bedIdx);
+      bed.computeVertexNormals(); bed.computeBoundingSphere();
+    }
+    this.seabed.geometry.dispose(); this.seabed.geometry = bed;
+    this.seabed.visible = bedIdx.length > 0;
     return idx;
   }
 

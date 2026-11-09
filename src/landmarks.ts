@@ -53,15 +53,26 @@ export function buildGrotto(mb: MeshBuilder, w: World, p: Prop, L: Light[]) {
     const gg = shell(1, i / NU, 1), hh = shell(1, (i + 1) / NU, 1);
     face([e, f, hh, gg], [0, 0, -1]);
   }
-  // the cave floor (the terrain over the vault is drawn uncarved, so the seabed inside is our job)
+  // The cave floor slopes into the carved seabed at the mouth rather than ending as a raised underwater shelf.
+  const c = Math.cos(p.rot), s = Math.sin(p.rot), floorBase = -GROTTO_SINK - 0.05;
+  const floorY = (lx: number, lz: number) => {
+    const wx = p.x + lx * c - 0.15 * s, wz = p.z + lx * s + 0.15 * c;
+    const mouth = Math.min(floorBase, w.height(clampN(wx), clampN(wz)) - WATER_Y);
+    const t = Math.max(0, Math.min(1, (lz + D * 0.35) / (D * 0.35 + 0.15)));
+    return floorBase + (mouth - floorBase) * t * t * (3 - 2 * t);
+  };
   mb.paint(hexRGB("#b98d5c"), M.rock);
   for (let j = 0; j < NV; j++) {
-    const a = shell(0, 0, j / NV), b = shell(0, 1, j / NV), c = shell(0, 1, (j + 1) / NV), d = shell(0, 0, (j + 1) / NV);
-    const y = -GROTTO_SINK - 0.05;
-    mb.quad([[a[0], y, j ? a[2] : 0.15], [b[0], y, j ? b[2] : 0.15], [c[0], y, c[2]], [d[0], y, d[2]]], [0, 1, 0]);
+    const a = shell(0, 0, j / NV), b = shell(0, 1, j / NV), cc = shell(0, 1, (j + 1) / NV), d = shell(0, 0, (j + 1) / NV);
+    const z0 = j ? a[2] : 0.15, z1 = d[2], across = 12;
+    for (let i = 0; i < across; i++) {
+      const x0 = a[0] + (b[0] - a[0]) * i / across, x1 = a[0] + (b[0] - a[0]) * (i + 1) / across;
+      const x2 = d[0] + (cc[0] - d[0]) * (i + 1) / across, x3 = d[0] + (cc[0] - d[0]) * i / across;
+      mb.quad([[x0, floorY(x0, z0), z0], [x1, floorY(x1, z0), z0],
+        [x2, floorY(x2, z1), z1], [x3, floorY(x3, z1), z1]], [0, 1, 0]);
+    }
   }
   // the rock brow: from the shell's outer rim up to the cliff it is set into
-  const c = Math.cos(p.rot), s = Math.sin(p.rot);
   const ground = (lx: number, lz: number) => w.height(clampN(p.x + lx * c - lz * s), clampN(p.z + lx * s + lz * c), true) - WATER_Y;
   mb.paint(hexRGB("#dba46b"), M.rock);
   const BZ = -0.08, BU = NU * 2;
