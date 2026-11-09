@@ -124,21 +124,22 @@ function siteScore(w: World, p: Prop): { s: number; why?: string } {
  * Search around (hx, hz) for the best site. `flip` turns the hull end-for-end.
  * Headings are free: the grotto faces out of its cliff, the hull lies along the shore.
  */
-export function fitLandmark(w: World, type: PropType, hx: number, hz: number, seed: number, opts: Prop["opts"], flip: boolean, selfId = "ghost", heading?: number, preferNearest = false): Fit {
+export function fitLandmark(w: World, type: PropType, hx: number, hz: number, seed: number, opts: Prop["opts"], flip: boolean, selfId = "ghost", heading?: number, exact = false): Fit {
   const probe: Prop = { id: selfId, type, x: hx, z: hz, rot: 0, seed, opts };
-  let best: Fit | null = null, bestS = -Infinity, bestD = Infinity, why = "Won't fit here";
+  let best: Fit | null = null, bestS = -Infinity, why = "Won't fit here";
   const rots = type === "lighthouse" ? [0] : isShop(type) && heading !== undefined ? [heading] : Array.from({ length: isShop(type) ? 4 : 16 }, (_, i) => (i / (isShop(type) ? 4 : 16)) * Math.PI * 2);
-  const R = type === "boatyard" ? 3 : type === "lighthouse" || isShop(type) ? 2.5 : 3;
+  const R = exact ? 0 : type === "boatyard" ? 3 : type === "lighthouse" || isShop(type) ? 2.5 : 3;
   const consider = (x: number, z: number, rot: number) => {
     const d = Math.hypot(x - hx, z - hz); if (d > R + 1e-6) return;
-    probe.x = x; probe.z = z; probe.rot = rot;
+    const px = Math.round(x * 10) / 10, pz = Math.round(z * 10) / 10;
+    probe.x = px; probe.z = pz; probe.rot = rot;
     const sc = siteScore(w, probe);
     if (sc.s === -Infinity) { if (d < 1e-6 && rot === rots[0]) why = sc.why ?? why; return; }
     const score = sc.s - d * 0.35;
-    if (preferNearest ? d > bestD + 1e-6 || (Math.abs(d - bestD) < 1e-6 && score <= bestS) : score <= bestS) return;
+    if (score <= bestS) return;
     const clash = landmarkClash(w, probe);
     if (clash) { if (d < 1e-6) why = clash; return; }
-    bestD = d; bestS = score; best = { x, z, rot, ok: true };
+    bestS = score; best = { x: px, z: pz, rot, ok: true };
   };
   for (let dz = -R; dz <= R + 1e-6; dz += 0.5) for (let dx = -R; dx <= R + 1e-6; dx += 0.5)
     for (const rot of rots) consider(hx + dx, hz + dz, rot);
@@ -152,7 +153,6 @@ export function fitLandmark(w: World, type: PropType, hx: number, hz: number, se
   const selected = best as Fit | null;
   if (!selected) return { x: hx, z: hz, rot: 0, ok: false, why };
   if (flip && type === "hull") selected.rot += Math.PI;
-  selected.x = Math.round(selected.x * 10) / 10; selected.z = Math.round(selected.z * 10) / 10;
   return selected;
 }
 

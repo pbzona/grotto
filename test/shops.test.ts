@@ -78,6 +78,10 @@ test("moving a shop prefers a valid cursor position over a prettier distant site
   const moved = new WorldOps(w).reviseProp(p.id, { x: 19, z: 8 });
   assert.equal(moved.ok, true);
   if (moved.ok) assert.deepEqual([moved.value.x, moved.value.z], [19, 8]);
+  const before = w.save();
+  const invalid = new WorldOps(w).reviseProp(p.id, { x: 18, z: 10 });
+  assert.equal(invalid.ok, false, "dragging over an unsuitable site should hold position, not jump to another terrace");
+  assert.deepEqual(w.save(), before);
 });
 
 test("older coves and existing landmarks remain valid", () => {

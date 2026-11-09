@@ -149,6 +149,7 @@
   const { U } = await import('/src/materials.ts');
   t.setTool('select'); t.select({ kind: 'prop', id: market.id });
   const old = U.highlight.value.clone(), start = { x: market.x, z: market.z };
+  t.shopHeading = market.rot;
   const target =  [[10, 9], [11, 8], [12, 9], [20, 9]].map(([x, z]) => t.fitAt('market', x, z, market.id, market.seed, market.opts)).find(f => f.ok && Math.hypot(f.x - market.x, f.z - market.z) > 1);
   if (target) {
     const Vec = g.camera.position.constructor, rect = c.getBoundingClientRect();
