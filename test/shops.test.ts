@@ -41,6 +41,45 @@ test("market decorations survive save and load", () => {
   assert.deepEqual(restored.save(), w.save());
 });
 
+test("a market cannot cover the wide landing of a nearby dock", () => {
+  const w = new World(); w.heights.fill(2);
+  w.nodes.set("pad", { id: "pad", x: 27, z: 24, y: DECK_Y, pad: 1.5 });
+  w.nodes.set("out", { id: "out", x: 32, z: 24, y: DECK_Y, pad: 0 });
+  w.edges.set("pier", { id: "pier", a: "pad", b: "out", width: 1.1, style: "deck", rail: false });
+  const market: Prop = { id: "market", type: "market", x: 24, z: 24, rot: 0, seed: 0.25 };
+  assert.ok(landmarkClash(w, market), "the landing extends under the market even though the edge centreline is clear");
+});
+
+test("widening a post cannot grow its landing into a market", () => {
+  const w = new World(); w.heights.fill(2);
+  w.props.set("market", { id: "market", type: "market", x: 24, z: 24, rot: 0, seed: 0.25 });
+  const ops = new WorldOps(w), pad = ops.addNode(27, 24, DECK_Y), out = ops.addNode(32, 24, DECK_Y);
+  ops.addEdge(pad, out);
+  const before = w.save();
+  assert.equal(ops.editNode(pad.id, { pad: 1.5 }).ok, false);
+  assert.deepEqual(w.save(), before);
+});
+
+test("extending a dock cannot put its end posts inside a market", () => {
+  const w = new World(); w.heights.fill(2);
+  w.props.set("market", { id: "market", type: "market", x: 24.3, z: 24, rot: 0, seed: 0.25 });
+  const ops = new WorldOps(w), from = ops.addNode(32, 24, DECK_Y);
+  const before = w.save();
+  const extension = ops.previewExtension(from.id, 27, 24);
+  assert.equal(extension.ok, false);
+  assert.deepEqual(w.save(), before);
+});
+
+test("adding a dock later cannot push a landing into an existing market", () => {
+  const w = new World(); w.heights.fill(2);
+  w.props.set("market", { id: "market", type: "market", x: 24, z: 24, rot: 0, seed: 0.25 });
+  const ops = new WorldOps(w), from = ops.addNode(32, 24, DECK_Y);
+  const before = w.save();
+  const joined = ops.connectWalk(from.id, { kind: "new", x: 27, z: 24, y: DECK_Y, pad: 1.5 }, "deck", 1.1);
+  assert.equal(joined.ok, false);
+  assert.deepEqual(w.save(), before, "a rejected dock leaves no edge or landing behind");
+});
+
 test("market canopy clears a neighboring two-storey house roof", () => {
   const w = new World(); w.heights.fill(2);
   const house = makeHouse("home", 0.3, [newVolume(20, 20, 23, 23, 2, "hip")]);

@@ -253,6 +253,19 @@ export function shopShopOverlap(a: Prop, b: Prop) {
   const A = shopRoofHalf(a), B = shopRoofHalf(b), gap = 0.12;
   return roofBoxesOverlap(a, A.x + gap / 2, A.z + gap / 2, b, B.x + gap / 2, B.z + gap / 2);
 }
+/** A dock node has a platform and posts beyond its edge centreline. Only a small doorway end may touch a shop. */
+export function shopNodeClash(world: World, p: Prop, n: WalkNode) {
+  if (!isShop(p.type)) return false;
+  const edges = world.edgesOf(n.id);
+  if (!edges.length) return false;
+  const door = shopEntrance(p);
+  if (n.pad <= 0 && Math.hypot(n.x - door.x, n.z - door.z) < 0.35) return false;
+  const r = Math.max(n.pad, ...edges.map(e => e.width / 2 + 0.12));
+  const other = world.nodes.get(edges[0].a === n.id ? edges[0].b : edges[0].a);
+  const angle = other ? Math.atan2(other.z - n.z, other.x - n.x) : 0;
+  const { w, d } = SHOP_DIMS[p.type];
+  return roofBoxesOverlap(p, w / 2 + 0.08, d / 2 + 0.08, { x: n.x, z: n.z, rot: angle }, r, r);
+}
 /** The boatyard opens to the water at +z, but people enter from dry land at -z. */
 export function shopEntrance(p: Pick<Prop, "type" | "x" | "z" | "rot">) {
   const { d } = SHOP_DIMS[p.type as ShopType];

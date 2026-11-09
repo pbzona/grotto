@@ -1,4 +1,4 @@
-import { WATER_Y, N, grottoDims, hullDims, landmarkSamples, quaySamples, grottoTies, isLandmark, isShop, isGreenery, shopHouseOverlap, shopShopOverlap, houseRoofReach, SHOP_DIMS, BOATYARD_SLIP, shopEntrance, bakeryDock, type World, type Prop, type PropType } from "./world.ts";
+import { WATER_Y, N, grottoDims, hullDims, landmarkSamples, quaySamples, grottoTies, isLandmark, isShop, isGreenery, shopHouseOverlap, shopShopOverlap, shopNodeClash, houseRoofReach, SHOP_DIMS, BOATYARD_SLIP, shopEntrance, bakeryDock, type World, type Prop, type PropType } from "./world.ts";
 
 const clampN = (v: number) => Math.min(N - 0.01, Math.max(0.01, v));
 const H = (w: World, x: number, z: number) => w.height(clampN(x), clampN(z));
@@ -14,6 +14,7 @@ export function landmarkClash(w: World, p: Prop): string | null {
     if (x < 0.4 || z < 0.4 || x > N - 0.4 || z > N - 0.4) return "Too close to the edge";
     if (w.houseAt(x, z, 0.2)) return "A house is in the way";
   }
+  if (isShop(p.type)) for (const n of w.nodes.values()) if (shopNodeClash(w, p, n)) return "A dock landing is in the way";
   const quay = p.type === "grotto" ? quaySamples(p) : [];
   for (const [x, z] of quay) {
     if (x < 0.4 || z < 0.4 || x > N - 0.4 || z > N - 0.4) return "The quay would run off the edge";
@@ -33,11 +34,11 @@ export function landmarkClash(w: World, p: Prop): string | null {
       const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / L2));
       if (Math.hypot(a.x + dx * t - x, a.z + dz * t - z) < e.width / 2 + 0.25) {
         if (isShop(p.type)) {
-          const door = shopEntrance(p), { d } = SHOP_DIMS[p.type];
+          const { d } = SHOP_DIMS[p.type];
           const c = Math.cos(p.rot), s = Math.sin(p.rot);
-          const lz = -(x - p.x) * s + (z - p.z) * c;
-          // A path may reach the threshold, but may not cross the building.
-          if ((p.type === "boatyard" ? lz < -d / 2 + 0.16 : lz > d / 2 - 0.16) && [a, b].some(n => Math.hypot(n.x - door.x, n.z - door.z) < 0.3)) continue;
+          const lx = (x - p.x) * c + (z - p.z) * s, lz = -(x - p.x) * s + (z - p.z) * c;
+          // Split approach edges may no longer touch the door node. Keep their central corridor open.
+          if ((p.type === "boatyard" ? lz < -d / 2 + 0.32 : lz > d / 2 - 0.32) && Math.abs(lx) < Math.max(0.9, e.width / 2 + 0.35)) continue;
         }
         return "A walkway is in the way";
       }

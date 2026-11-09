@@ -24,7 +24,12 @@
   // erase
   flush(); key('7'); np = w.props.size; click(scr(22, 0.3, 35)); ok('erase boat', w.props.size === np - 1, `${np}->${w.props.size}`);
   // walkway rope bridge via tool
-  key('3'); t.walkStyle = 'rope'; const ne = w.edges.size; t.nudgeLift(8); click(scr(33, 0.2, 30.6)); t.nudgeLift(8); click(scr(33, 0.2, 36)); key('Escape'); ok('rope edge laid', w.edges.size === ne + 1 && [...w.edges.values()].some(e => e.style === 'rope'));
+  key('3'); t.walkStyle = 'rope'; const ne = w.edges.size;
+  const bridgeX = [17, 16, 18, 19, 33].find(x => [30.6, 33, 36].every(z => w.isWater(x, z) && !w.houseAt(x, z, 1)) &&
+    ![...w.nodes.values()].some(n => w.edgesOf(n.id).length && Math.abs(n.x - x) < 1.5 && n.z > 29 && n.z < 38) &&
+    ![...w.props.values()].some(p => ['market', 'boatyard', 'bakery', 'grotto'].includes(p.type) && Math.hypot(p.x - x, p.z - 33) < 5));
+  if (bridgeX !== undefined) { t.nudgeLift(8); click(scr(bridgeX, 0.2, 30.6)); t.nudgeLift(8); click(scr(bridgeX, 0.2, 36)); }
+  key('Escape'); ok('rope edge laid', bridgeX !== undefined && w.edges.size === ne + 1 && [...w.edges.values()].some(e => e.style === 'rope'));
   // select house + panel edit
   key('1'); const h = [...w.houses.values()][0], current = () => w.houses.get(h.id);
   t.select({ kind: 'house', id: h.id, vi: 0 }); t.houseEdit('roof', 'flat'); ok('roof edit', current().volumes[0].roof === 'flat'); t.houseEdit('palette', 3); ok('palette edit', current().palette === 3);

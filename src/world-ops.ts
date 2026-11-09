@@ -1,7 +1,7 @@
-import { World, N, uid, WATER_Y, MAX_LEVEL, PAINT_CH, isGreenery, isLandmark, isShop, houseRoofReach, grottoTieAt, shopDoorAt, type House, type PaintType, type PropType, type Prop, type WalkNode, type WalkEdge } from "./world.ts";
+import { World, N, uid, WATER_Y, MAX_LEVEL, PAINT_CH, isGreenery, isLandmark, isShop, shopNodeClash, houseRoofReach, grottoTieAt, shopDoorAt, type House, type PaintType, type PropType, type Prop, type WalkNode, type WalkEdge } from "./world.ts";
 import { defaultDeckY, WALK_W, MAX_STAIR, slopeOf, isStairs, clampStair } from "./walkway-rules.ts";
 import { doorOf } from "./house-model.ts";
-import { fitLandmark } from "./placement.ts";
+import { fitLandmark, landmarkClash } from "./placement.ts";
 import { editHouse as nextHouse, followedDoors, type DoorEnd, type HouseEdit } from "./house-ops.ts";
 import { siteDrop, MAX_SITE_DROP } from "./house-model.ts";
 
@@ -56,6 +56,7 @@ export class WorldOps {
     const from = this.world.nodes.get(fromId) ?? (pending?.id === fromId ? pending : null);
     if (!from || !["deck", "rope"].includes(style) || !Number.isFinite(width) || width < 0.1 || width > 5) return { ok: false, why: "Invalid walkway" };
     const before = this.world.save(), version = this.world.version;
+    const clearShops = [...this.world.props.values()].filter(p => isShop(p.type) && !landmarkClash(this.world, p));
     if (pending && !this.world.nodes.has(pending.id)) this.world.nodes.set(pending.id, pending);
     const known = new Set(this.world.nodes.keys());
     const reject = (why: string): EditResult<WalkNode> => {
@@ -78,6 +79,7 @@ export class WorldOps {
     }
     const fresh = [...this.world.nodes.keys()].filter(id => !known.has(id));
     this.mergeInline([fromId, ...fresh].filter(id => id !== next.id));
+    for (const p of clearShops) { const reason = landmarkClash(this.world, p); if (reason) return reject(reason); }
     return { ok: true, value: this.world.nodes.get(next.id) ?? next, change: { structures: true } };
   }
 
@@ -269,6 +271,10 @@ export class WorldOps {
       const e = this.world.edgesOf(fromId)[0];
       node = this.addNode(x, z, y);
       this.addEdge(from, node, e?.style ?? "deck", e?.width ?? WALK_W);
+      if ([...this.world.props.values()].some(p => isShop(p.type) && shopNodeClash(this.world, p, node))) {
+        this.world.removeNode(node.id);
+        return { ok: false, why: "A dock landing is in the way" };
+      }
     }
     return { ok: true, value: node, change: { structures: true } };
   }
@@ -424,12 +430,17 @@ export class WorldOps {
     return { ok: true, value: candidate, change: propChange(candidate.type) };
   }
 
+  private blocksShop(old: WalkNode, next: WalkNode) {
+    return [...this.world.props.values()].some(p => isShop(p.type) && !shopNodeClash(this.world, p, old) && shopNodeClash(this.world, p, next));
+  }
+
   /** Drag preview: replace one post record without settling the graph until the gesture ends. */
   moveNode(id: string, x: number, z: number, y?: number): EditResult<WalkNode> {
     const old = this.world.nodes.get(id);
     if (!old) return { ok: false, why: "Post no longer exists" };
     if (![x, z, y ?? old.y].every(Number.isFinite) || x < -1 || x > N + 1 || z < -1 || z > N + 1 || (y !== undefined && (y < -3 || y > 20))) return { ok: false, why: "Invalid post position" };
     const node = { ...old, x, z, y: y ?? old.y };
+    if (this.blocksShop(old, node)) return { ok: false, why: "A dock landing is in the way" };
     this.world.nodes.set(id, node);
     return { ok: true, value: node, change: { structures: true } };
   }
@@ -448,6 +459,7 @@ export class WorldOps {
       y = Math.max(Math.max(this.world.height(node.x, node.z), WATER_Y) + 0.2, y);
     }
     const next = { ...node, y, pad: patch.pad ?? node.pad };
+    if (this.blocksShop(node, next)) return { ok: false, why: "A dock landing is in the way" };
     this.world.nodes.set(id, next);
     this.settleWalks(new Set([id]));
     return { ok: true, value: { node: next, clamped }, change: { structures: true } };
