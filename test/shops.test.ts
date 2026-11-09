@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { World, newVolume, SHOP_DIMS, BOATYARD_SLIP, DECK_Y, bakeryDock, isShop, isBuildingProp, landmarkSamples, shopEntrance, shopBase, type Prop, type ShopType } from "../src/world.ts";
+import { World, carveCove, newVolume, SHOP_DIMS, BOATYARD_SLIP, DECK_Y, bakeryDock, isShop, isBuildingProp, landmarkSamples, shopEntrance, shopBase, type Prop, type ShopType } from "../src/world.ts";
 import { makeHouse } from "../src/house-model.ts";
 import { fitLandmark, landmarkClash } from "../src/placement.ts";
 import { WorldOps } from "../src/world-ops.ts";
@@ -69,6 +69,15 @@ test("a roof edit cannot grow into a neighboring market", () => {
   const edit = ops.editHouse(placed.value.id, 0, { kind: "roof", value: "hip" });
   assert.equal(edit.ok, false);
   assert.equal(w.houses.get(placed.value.id)?.volumes[0].roof, "flat");
+});
+
+test("moving a shop prefers a valid cursor position over a prettier distant site", () => {
+  const w = new World(); carveCove(w);
+  const p: Prop = { id: "market", type: "market", x: 19, z: 7, rot: 0, seed: 0.3 };
+  w.props.set(p.id, p);
+  const moved = new WorldOps(w).reviseProp(p.id, { x: 19, z: 8 });
+  assert.equal(moved.ok, true);
+  if (moved.ok) assert.deepEqual([moved.value.x, moved.value.z], [19, 8]);
 });
 
 test("older coves and existing landmarks remain valid", () => {

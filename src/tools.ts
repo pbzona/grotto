@@ -334,7 +334,7 @@ export class Tools {
         break;
       }
       case "nodeMove": case "propMove": {
-        const g = this.surface(); if (!g) break;
+        const g = this.planeHit(d.start.y); if (!g) break;
         const x = Math.min(N - 0.3, Math.max(0.3, d.ox + g.x - d.start.x)), z = Math.min(N - 0.3, Math.max(0.3, d.oz + g.z - d.start.z));
         if (d.t === "nodeMove") {
           const n = this.world.nodes.get(d.id); if (!n) break;
@@ -891,7 +891,7 @@ export class Tools {
   private dragMove(d: Extract<Drag, { t: "move" }>) {
     const s = this.sel; if (s?.kind !== "house") return;
     const h = this.world.houses.get(s.id); if (!h) return;
-    const g = this.ground(); if (!g) return;
+    const g = this.planeHit(d.start.y); if (!g) return;
     const dx = snap(g.x - d.start.x), dz = snap(g.z - d.start.z);
     const vols = d.orig.volumes.map(v => ({ ...v, x0: v.x0 + dx, x1: v.x1 + dx, z0: v.z0 + dz, z1: v.z1 + dz }));
     if (vols.every((v, i) => v.x0 === h.volumes[i].x0 && v.z0 === h.volumes[i].z0)) return;

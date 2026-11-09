@@ -151,10 +151,10 @@
   const old = U.highlight.value.clone(), start = { x: market.x, z: market.z };
   const target =  [[10, 9], [11, 8], [12, 9], [20, 9]].map(([x, z]) => t.fitAt('market', x, z, market.id, market.seed, market.opts)).find(f => f.ok && Math.hypot(f.x - market.x, f.z - market.z) > 1);
   if (target) {
-    const Vec = g.camera.position.constructor, surface = t.surface;
+    const Vec = g.camera.position.constructor, rect = c.getBoundingClientRect();
+    const projected = new Vec(target.x, 0, target.z).project(g.camera);
     a.begin(true); t.drag = { t: 'propMove', id: market.id, start: new Vec(market.x, 0, market.z), ox: market.x, oz: market.z, changed: false };
-    t.surface = () => new Vec(target.x, 0, target.z);
-    t.move(new PointerEvent('pointermove', { clientX: 400, clientY: 400, pointerId: 90 })); t.surface = surface;
+    t.move(new PointerEvent('pointermove', { clientX: rect.left + (projected.x + 1) * rect.width / 2, clientY: rect.top + (1 - projected.y) * rect.height / 2, pointerId: 90 }));
     const now = w.props.get(market.id);
     ok('moving a selected shop moves its highlight', Math.hypot(now.x - start.x, now.z - start.z) > 0.5 && Math.abs(U.highlight.value.x - (now.x - (old.z - old.x) / 2)) < 0.1, `old=${start.x.toFixed(1)},${old.x.toFixed(1)} new=${now.x.toFixed(1)},${U.highlight.value.x.toFixed(1)} target=${target.x.toFixed(1)}`);
     t.cancelDrag();

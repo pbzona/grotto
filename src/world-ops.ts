@@ -411,7 +411,8 @@ export class WorldOps {
     const candidate = { ...current, ...patch };
     if (![candidate.x, candidate.z, candidate.rot, candidate.seed].every(Number.isFinite)) return { ok: false, why: "Invalid prop position or variant" };
     if (isLandmark(candidate.type)) {
-      const fit = fitLandmark(this.world, candidate.type, candidate.x, candidate.z, candidate.seed, candidate.opts, false, id, candidate.rot);
+      const moving = patch.x !== undefined || patch.z !== undefined;
+      const fit = fitLandmark(this.world, candidate.type, candidate.x, candidate.z, candidate.seed, candidate.opts, false, id, candidate.rot, moving);
       if (!fit.ok) return { ok: false, why: fit.why ?? "Won't fit here" };
       if (isShop(candidate.type) && patch.rot !== undefined && Math.cos(fit.rot - candidate.rot) < 0.99) return { ok: false, why: "That entrance won't fit here" };
       candidate.x = fit.x; candidate.z = fit.z;
