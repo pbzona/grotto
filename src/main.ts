@@ -2,6 +2,7 @@ import * as THREE from "three/webgpu";
 import { pass, vec3, vec4, float, mix, dot, smoothstep, length, screenUV, Fn, clamp } from "three/tsl";
 import { bloom } from "three/addons/tsl/display/BloomNode.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { inject } from "@vercel/analytics";
 import { World, N, WATER_Y } from "./world.ts";
 import { Terrain } from "./terrain.ts";
 import { createMaterials, U } from "./materials.ts";
@@ -19,6 +20,8 @@ import { Ambience } from "./sound.ts";
 import { ambienceMix } from "./ambience.ts";
 
 async function boot() {
+  // Initialize Vercel Web Analytics
+  inject();
   injectStyles();
   const loading = document.createElement("div");
   loading.id = "loading"; loading.textContent = "Carving the cove…";

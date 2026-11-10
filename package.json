@@ -1,7 +1,7 @@
 {
   "name": "grotto",
   "version": "0.1.0",
-  "description": "Grotto \u2014 a stylized cove fishing-village builder in Three.js (WebGPU with WebGL fallback, TSL shading)",
+  "description": "Grotto — a stylized cove fishing-village builder in Three.js (WebGPU with WebGL fallback, TSL shading)",
   "type": "module",
   "private": true,
   "license": "MIT",
@@ -15,6 +15,7 @@
     "check": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
+    "@vercel/analytics": "^2.0.1",
     "three": "^0.186.1"
   },
   "devDependencies": {
